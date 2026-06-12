@@ -29,6 +29,7 @@ dependencies = [
     "aetherforge-gateway",
     "aetherforge-swarm",
     "aetherforge-mesh",
+    "bus-foundation",
     "fastmcp>=3.4",
 ]
 
@@ -43,6 +44,7 @@ members = ["packages/*"]
 aetherforge-gateway = { workspace = true }
 aetherforge-swarm = { workspace = true }
 aetherforge-mesh = { workspace = true }
+bus-foundation = { path = "../bus-foundation" }
 
 [tool.pytest.ini_options]
 testpaths = ["packages/*/tests"]
