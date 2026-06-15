@@ -56,7 +56,7 @@ _PROVIDER_REGISTRY: dict[str, tuple[str, str, list[str]]] = {
         "OllamaProvider",
         [],
     ),
-    "hitl": (
+    "mock": ("llm_gateway.providers.mock_provider", "MockProvider", []), "hitl": (
         "llm_gateway.providers.hitl_provider",
         "HitlLLMProvider",
         [],
@@ -163,7 +163,7 @@ def detect_backends() -> list[LLMProvider]:
         )
 
     # Probe priority order: cloud → local → fallback
-    priority_order = ["openai", "anthropic", "gemini", "deepseek", "ollama", "hitl"]
+    priority_order = ["openai", "anthropic", "gemini", "deepseek", "ollama", "mock", "hitl"]
 
     available: list[LLMProvider] = []
     for provider_type in priority_order:
