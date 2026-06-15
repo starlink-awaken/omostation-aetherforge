@@ -7,6 +7,7 @@ Provides a lightweight HTTP server (stdlib only) that exposes
 from __future__ import annotations
 
 import json
+import os
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -14,11 +15,28 @@ from typing import Any
 from .detection import detect_backends
 from .provider import LLMRequest
 
+_LLM_GATEWAY_API_KEY = os.environ.get("LLM_GATEWAY_API_KEY", "")
+
 
 class LLMGatewayHandler(BaseHTTPRequestHandler):
     """HTTP request handler for LLM generation."""
 
+    def _check_auth(self) -> bool:
+        """Check Bearer token if LLM_GATEWAY_API_KEY is set."""
+        if not _LLM_GATEWAY_API_KEY:
+            return True  # permissive mode
+        auth = self.headers.get("Authorization", "")
+        if auth.startswith("Bearer ") and auth[len("Bearer "):] == _LLM_GATEWAY_API_KEY:
+            return True
+        self.send_response(401)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"error":"unauthorized"}')
+        return False
+
     def do_POST(self) -> None:
+        if not self._check_auth():
+            return
         if self.path != "/v1/generate":
             self.send_response(404)
             self.end_headers()
@@ -69,6 +87,8 @@ class LLMGatewayHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": str(e)}).encode())
 
     def do_GET(self) -> None:
+        if not self._check_auth():
+            return
         if self.path == "/v1/health":
             providers = detect_backends()
             self.send_response(200)
