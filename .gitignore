@@ -53,3 +53,6 @@ coverage.xml
 
 # ── Docker ──
 .docker/
+
+# ── Runtime logs ──
+packages/gateway/gateway.log

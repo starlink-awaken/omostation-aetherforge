@@ -1,2 +1,0 @@
-OpenAIProvider.complete failed: Error code: 401 - {'error': {'message': 'Authentication Fails, Your api key: ****c04d is invalid', 'type': 'authentication_error', 'param': None, 'code': 'invalid_request_error'}}
-[llm-gateway] POST /v1/generate HTTP/1.1 500 -
