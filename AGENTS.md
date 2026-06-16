@@ -33,13 +33,15 @@ L0 ecos            ── 协议层
 
 ## Key Dependencies
 
-- **aetherforge-swarm-ext** — 依赖扩展模块 (ils/perception/planning/legacy)
+- **aetherforge-gateway** — LLM 网关（原 llm-gateway，已并入本仓）
+- **aetherforge-mesh** — 算力网格（原 compute-mesh，已并入本仓）
+- **aetherforge-swarm** — 蜂群引擎（原 swarm-engine + aetherforge-swarm-ext，已并入本仓）
 - **httpx** — LLM 网关 HTTP 客户端
 - **fastmcp** — MCP Server
 
 ## Testing
 
 ```bash
-uv run pytest tests/ -q               # 全量
-uv run pytest tests/ -k "keyword" -q  # 按关键字
+make test                               # 全量 (packages/*)
+uv run pytest -k "keyword" -q           # 按关键字
 ```

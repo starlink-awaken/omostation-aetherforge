@@ -48,6 +48,10 @@ oh-my-openagent 的核心架构思路:
 🟢 保留 (42 文件, ~8,000 行) — 被 __init__.py 导出、有调用方、有价值的
 🟡 剥离到 aetherforge-swarm-ext (28 文件, ~6,000 行) — 有价值但当前无用
 🔴 删除 (12 文件, ~20 行) — 空桩/re-export
+
+> **2026-06-16 更新**: `aetherforge-swarm-ext` 已重新并入 `aetherforge/packages/swarm/src/swarm_engine/ext/`。
+> 原剥离的 28 个模块中，与 `swarm-engine` 重叠的部分已随 `swarm-engine` 合并进入 `swarm_engine/`，
+> 14 个唯一扩展模块进入 `swarm_engine/ext/`。`aetherforge-swarm-ext` 子模块已归档至 `_archived/aetherforge-swarm-ext/`。
 ```
 
 ### 2.2 保留列表 (42 文件)
