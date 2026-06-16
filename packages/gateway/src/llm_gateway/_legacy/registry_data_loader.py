@@ -117,12 +117,19 @@ def load_role_routes(role_routes_path: Path | None = None) -> dict[str, dict[str
     return payload.get("routes", {})
 
 
-def build_static_registry() -> tuple[ModelRegistry, int]:
+def _safe_run(coro):
     import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
 
+
+def build_static_registry() -> tuple[ModelRegistry, int]:
     registry = ModelRegistry()
     seeded = load_registry_data(registry)
-    asyncio.run(registry.refresh())
+    _safe_run(registry.refresh())
     return registry, seeded
 
 
