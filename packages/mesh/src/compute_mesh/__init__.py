@@ -11,4 +11,5 @@
 
 from . import api, pool, scheduler, topology, worker
 
-__all__ = ("api", "pool", "scheduler", "topology", "worker")
+__version__ = "0.1.0"
+__all__ = ("api", "pool", "scheduler", "topology", "worker", "__version__")

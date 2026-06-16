@@ -14,5 +14,8 @@ dependencies = [
     "aetherforge-gateway",
 ]
 
+[project.scripts]
+swarm = "swarm_engine.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/swarm_engine"]

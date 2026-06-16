@@ -56,7 +56,7 @@ _PROVIDER_REGISTRY: dict[str, tuple[str, str, list[str]]] = {
         "OllamaProvider",
         [],
     ),
-    "mock": ("llm_gateway.providers.mock_provider", "MockProvider", []), "hitl": (
+    "hitl": (
         "llm_gateway.providers.hitl_provider",
         "HitlLLMProvider",
         [],
@@ -75,21 +75,6 @@ _PROVIDER_REGISTRY: dict[str, tuple[str, str, list[str]]] = {
         "llm_gateway.providers.vertex_provider",
         "VertexAIProvider",
         ["GOOGLE_CLOUD_PROJECT"],
-    ),
-    "minimax": (
-        "llm_gateway.providers.anthropic_compat",
-        "AnthropicCompatProvider",
-        [],
-    ),
-    "zhipu": (
-        "llm_gateway.providers.anthropic_compat",
-        "AnthropicCompatProvider",
-        [],
-    ),
-    "kimi": (
-        "llm_gateway.providers.anthropic_compat",
-        "AnthropicCompatProvider",
-        [],
     ),
 }
 
@@ -163,7 +148,7 @@ def detect_backends() -> list[LLMProvider]:
         )
 
     # Probe priority order: cloud → local → fallback
-    priority_order = ["openai", "anthropic", "gemini", "deepseek", "ollama", "mock", "hitl"]
+    priority_order = ["openai", "anthropic", "gemini", "deepseek", "azure", "bedrock", "vertex", "ollama", "hitl"]
 
     available: list[LLMProvider] = []
     for provider_type in priority_order:

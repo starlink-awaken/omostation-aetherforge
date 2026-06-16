@@ -33,6 +33,8 @@ from .task_store import TaskRecord, TaskState
 from .worker_abstraction import WorkerAbstract, WorkerCapability, WorkerMetrics, WorkerStatus, WorkerType
 from .worker_profile import BaseWorkerProfile
 
+__version__ = "1.0.0"
+
 __all__ = (
     "DEFAULT_RETRY_POLICY",
     "SAFE_BUILTINS",

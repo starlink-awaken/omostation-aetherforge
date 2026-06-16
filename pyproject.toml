@@ -35,6 +35,11 @@ dependencies = [
     "httpx[socks]>=0.28.1",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
 [project.scripts]
 aetherforge = "aetherforge.cli:main"
 aetherforge-mcp = "aetherforge.mcp_server:main"
@@ -49,9 +54,10 @@ aetherforge-mesh = { workspace = true }
 bus-foundation = { path = "../bus-foundation" }
 
 [tool.pytest.ini_options]
-testpaths = ["packages/*/tests"]
+testpaths = ["packages/gateway/tests", "packages/mesh/tests", "packages/swarm/tests"]
+pythonpath = ["packages/gateway", "packages/mesh", "packages/swarm"]
 minversion = "7.0"
-addopts = "-v --tb=short -q"
+addopts = "-v --tb=short -q --import-mode=importlib"
 
 [tool.ruff]
 target-version = "py313"

@@ -27,6 +27,8 @@ class ModelRegistry:
         self.circuit_breaker = CircuitBreakerRegistry()
         self.retry_config: RetryConfig | None = None
         self._scheduler_ref: Any = None
+        self.metrics: Any = None
+        self.rate_limiter: Any = None
 
     # ------------------------------------------------------------------
     # Provider registration
@@ -159,6 +161,14 @@ class ModelRegistry:
     def set_scheduler(self, scheduler: Any) -> None:
         """Attach a scheduler for load tracking."""
         self._scheduler_ref = scheduler
+
+    def set_metrics_collector(self, metrics: Any) -> None:
+        """Attach a metrics collector for observability."""
+        self.metrics = metrics
+
+    def set_rate_limiter(self, rate_limiter: Any) -> None:
+        """Attach a rate limiter for request throttling."""
+        self.rate_limiter = rate_limiter
 
     # ------------------------------------------------------------------
     # Provider access
