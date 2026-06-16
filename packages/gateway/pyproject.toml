@@ -20,9 +20,18 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+legacy = [
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "tabulate>=0.9.0",
+    "gitpython>=3.1.0",
+]
 
 [project.scripts]
 gateway = "llm_gateway.cli:main"
+# Compatibility entry point for migrated llm-gateway capabilities.
+# Run `uv sync --extra legacy` to enable legacy dependencies.
+aetherforge-llm-gateway-legacy = "llm_gateway._legacy.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/llm_gateway"]

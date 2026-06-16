@@ -1,0 +1,38 @@
+version: 1
+updated_at: "2026-06-12T10:30:00Z"
+routes:
+  planner:
+    preferred_mode: balanced
+    primary_models:
+      - openai/gpt-4.1-mini
+      - anthropic/claude-sonnet-4
+    fallback_models:
+      - gemini/gemini-2.5-flash
+  researcher:
+    preferred_mode: long_context
+    primary_models:
+      - gemini/gemini-2.5-pro
+      - openai/gpt-4.1
+    fallback_models:
+      - anthropic/claude-haiku-3.5
+  reviewer:
+    preferred_mode: reasoning
+    primary_models:
+      - anthropic/claude-sonnet-4
+      - deepseek/deepseek-reasoner
+    fallback_models:
+      - openai/gpt-4.1-mini
+  operator:
+    preferred_mode: cost
+    primary_models:
+      - ollama/qwen3:32b
+      - ollama/llama3.1:8b
+    fallback_models:
+      - deepseek/deepseek-chat
+  critic:
+    preferred_mode: balanced
+    primary_models:
+      - deepseek/deepseek-reasoner
+      - anthropic/claude-sonnet-4
+    fallback_models:
+      - gemini/gemini-2.5-flash
