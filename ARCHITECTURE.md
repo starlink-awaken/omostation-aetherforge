@@ -1,132 +1,56 @@
-# AetherForge 架构
+# aetherforge — Architecture
 
-> 算力网格 + LLM 网关 + 群体智能引擎 · 融合架构
-> v0.1 | 2026-06
-
----
-
-## 三层架构
-
-```
-                         ┌──────────────────────┐
-                         │   Agent 应用 / 用户   │
-                         │   (MCP/CLI/HTTP)     │
-                         └──────────┬───────────┘
-                                    │
-                    ┌───────────────┼───────────────┐
-                    │               │               │
-              ┌─────┴──────┐  ┌─────┴──────┐  ┌────┴──────┐
-              │   swarm    │  │  gateway   │  │   mesh    │
-              │ (L3 编排层) │  │ (L2 资源层) │  │ (L1 设施层)│
-              └─────┬──────┘  └─────┬──────┘  └────┬──────┘
-                    │               │               │
-                    └───────────────┼───────────────┘
-                                    │
-                         ┌──────────┴──────────┐
-                         │  eCOS L0 MOF 治理门禁 │
-                         │ (约束·校验·SSOT·注册表)│
-                         └─────────────────────┘
-```
-
-### L1 — Mesh（算力基础设施层）
-
-职责：算力节点发现、资源聚合、健康监控、Worker 管理
-
-```
-┌──────────────────────────────────────────────────────┐
-│  Layer 0: API (MCP/HTTP/CLI/BOS)                    │
-├──────────────────────────────────────────────────────┤
-│  Layer 1: Provider ← 依赖 aetherforge-gateway       │
-├──────────────────────────────────────────────────────┤
-│  Layer 2: Topology (mDNS/SSH/静态配置)               │
-├──────────────────────────────────────────────────────┤
-│  Layer 3: Pool (成本/健康/负载/配额)                  │
-├──────────────────────────────────────────────────────┤
-│  Layer 4: Scheduler (策略路由扩展/排队/熔断)          │
-├──────────────────────────────────────────────────────┤
-│  Layer 5: Worker (注册/心跳/分发/聚合)                │
-└──────────────────────────────────────────────────────┘
-```
-
-### L2 — Gateway（LLM 资源抽象层）
-
-职责：统一 LLM Provider 抽象、模型注册、智能调度、成本追踪
-
-```
-┌──────────────────────────────────────────┐
-│  Provider 抽象 (ABC)                     │
-│  ├─ OllamaProvider                       │
-│  ├─ OpenAIProvider                       │
-│  ├─ AnthropicProvider                    │
-│  ├─ GeminiProvider                       │
-│  ├─ DeepSeekProvider                     │
-│  └─ HITLProvider                         │
-├──────────────────────────────────────────┤
-│  ModelRegistry (注册/发现/熔断/重试)      │
-├──────────────────────────────────────────┤
-│  ModelScheduler (4策略调度 + 负载感知)    │
-├──────────────────────────────────────────┤
-│  SSOT 加载 (L0 M1 compute_engine)        │
-├──────────────────────────────────────────┤
-│  接口: MCP · CLI · HTTP                  │
-└──────────────────────────────────────────┘
-```
-
-### L3 — Swarm（群体智能编排层）
-
-职责：多 Agent 任务编排、市场化分配、生命周期管理、经济账本
-
-```
-┌──────────────────────────────────────────┐
-│  市场机制 (Auctioneer/Bidder)            │
-│  DAG 编排 (拓扑排序/关键路径)             │
-│  生命周期管理 (状态机/治理/持久化/看门狗)  │
-│  经济账本 (EnergyLedger · EU 货币)        │
-│  Worker 分发 (调拨/监控/结果聚合)         │
-│  事件总线 (SSE 实时观测)                  │
-│  冲突解决 (CRDT)                         │
-│  推理引擎 (语义/混合/分类)                │
-└──────────────────────────────────────────┘
-```
+> **Layer**: X 横切框架  
+> **Role**: 算力网格 + LLM 网关 + 群体智能引擎  
+> **Stack**: Python 3.10+, uv workspace, hatchling, fastmcp  
+> **Health**: Active — gateway ~90%, mesh ~15%, swarm ~80%
+>
+> 系统全景参见：[`docs/ARCHITECTURE-DIAGRAM.md`](../docs/ARCHITECTURE-DIAGRAM.md)
 
 ---
 
-## 依赖流向
+## 1. 内部架构
+
+```mermaid
+
+graph TB
+    CLI[aetherforge CLI]
+    MCP[aetherforge MCP]
+    GW[llm_gateway]
+    Mesh[compute_mesh]
+    Swarm[swarm_engine]
+    Providers[LLM Providers]
+    Nodes[Compute Nodes]
+
+    CLI --> GW
+    CLI --> Mesh
+    CLI --> Swarm
+    MCP --> GW
+    GW --> Providers
+    Mesh --> Nodes
+    Swarm --> Mesh
 
 ```
-mesh  ──import──▶  gateway  ◀──import──  swarm
-  │                    │                    │
-  │  mesh imports      │  gateway 独立      │  swarm 通过 gateway
-  │  gateway 的         │  不依赖其他          │  ️ 进行 LLM 调用
-  │  Provider/Registry │  两个包              │  (非直接调用 Provider)
-  └────────────────────┴────────────────────┘
+
+## 2. 入口
+
+| Type | Entry | Port / Notes |
+|:--|:--|:--|
+| CLI | `aetherforge` | gateway/mesh/swarm subcommands |
+| MCP stdio | `aetherforge-mcp` | forge_generate, forge_mesh_status, ... |
+
+## 3. 核心模块
+
+| Module | Responsibility |
+|:--|:--|
+| `src/aetherforge/cli.py` | Unified CLI dispatcher |
+| `src/aetherforge/mcp_server.py` | Aggregated MCP server |
+| `packages/gateway/src/llm_gateway/` | LLM provider routing / fallback |
+| `packages/mesh/src/compute_mesh/` | Compute node discovery / scheduler |
+| `packages/swarm/src/swarm_engine/` | Swarm orchestration |
+
+## 4. 测试
+
+```bash
+cd projects/aetherforge && make test
 ```
-
-**单向依赖原则**: `mesh → gateway ← swarm`，不允许反向依赖。
-
----
-
-## 与 eCOS 生态的关系
-
-```
-eCOS L0 MOF ──约束──▶  AetherForge
-                         │
-eCOS I0 Agora ◀──注册──  AetherForge MCP Tools
-                         │
-eCOS X3 价值栈 ◀──成本──  AetherForge (record_llm_cost)
-                         │
-eCOS L4 自我层 ──路由──▶  AetherForge CLI 入口
-```
-
----
-
-## 开发路线
-
-| Phase | 内容 | 状态 |
-|:------|:-----|:----:|
-| P1 | 结构融合 — monorepo + 包迁移 | ✅ 完成 |
-| P2 | 代码融合 — 消除重复 + 统一接口 | 🚧 进行中 |
-| P3 | Mesh Layer 2: 拓扑发现 | 📋 计划 |
-| P4 | Mesh Layer 3: 算力资源池 | 📋 计划 |
-| P5 | Mesh Layer 4: 调度扩展 | 📋 计划 |
-| P6 | Mesh Layer 5: Worker 管理 | 📋 计划 |
