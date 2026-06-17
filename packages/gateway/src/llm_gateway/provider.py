@@ -31,12 +31,12 @@ _COST_LOG = Path(os.environ.get("RUNTIME_HOME", str(Path.home() / "runtime"))) /
 
 
 def record_llm_cost(model: str, input_tokens: int, output_tokens: int) -> None:
-    """Record an LLM call's token usage to the cost log (non-blocking).
-
-    Called from provider implementations after each successful ``complete()``.
-    Failure to write the log never breaks the LLM call.
-    """
+    """Record an LLM call's token usage and deduct from quota ledger."""
     try:
+        from ._legacy.quota_ledger import append_quota_ledger_event
+        from .budget import estimate_cost
+        
+        # 1. Standard Cost Log (Legacy compatible)
         record = {
             "ts": datetime.now(UTC).isoformat(),
             "model": model,
@@ -50,8 +50,20 @@ def record_llm_cost(model: str, input_tokens: int, output_tokens: int) -> None:
             os.write(fd, line)
         finally:
             os.close(fd)
-    except Exception:  # noqa: S110
-        pass  # non-blocking
+            
+        # 2. Update Quota Ledger (Real-time deduction)
+        # Calculate real cost based on pricing registry
+        cost_usd = estimate_cost(model, input_tokens, output_tokens)
+        append_quota_ledger_event(
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost_usd=cost_usd
+        )
+        
+    except Exception as e:  # noqa: S110
+        _log.debug("failed_to_record_cost: %s", e)
+
 
 
 # ---------------------------------------------------------------------------
