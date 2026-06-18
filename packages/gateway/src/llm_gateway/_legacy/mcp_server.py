@@ -60,9 +60,14 @@ async def llm_generate(req: GenerateRequest) -> str:
 
     # ── Phase 4: Pre-call Budget Check ──
     try:
-        # Estimate input tokens (simple character-based estimation)
+        # Estimate input tokens
         prompt_text = "\n".join(str(m.get("content", "")) for m in req.messages)
-        input_tokens = (len(prompt_text) + 3) // 4
+        try:
+            import tiktoken
+            enc = tiktoken.get_encoding("cl100k_base")
+            input_tokens = len(enc.encode(prompt_text))
+        except ImportError:
+            input_tokens = (len(prompt_text) + 3) // 4
 
         # Check against global and local budget
         check_budget_limit(

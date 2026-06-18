@@ -3,7 +3,8 @@
 > **Layer**: X 横切框架  
 > **Role**: 算力网格 + LLM 网关 + 群体智能引擎  
 > **Stack**: Python 3.10+, uv workspace, hatchling, fastmcp  
-> **Health**: Active — gateway ~90%, mesh ~15%, swarm ~80%  
+> **Health**: See local CI and package-level verification  
+> **SSOT**: 运行时健康、包级成熟度、能力并入状态以本项目 CI、本地验证和 workspace governance SSOT 为准
 > **Note**: LLM Gateway 能力已于 2026-06-16 从 `projects/llm-gateway/` 并入 `packages/gateway/`
 >
 > 系统全景参见：[`docs/ARCHITECTURE-DIAGRAM.md`](../docs/ARCHITECTURE-DIAGRAM.md)

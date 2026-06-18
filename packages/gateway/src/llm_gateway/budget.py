@@ -59,23 +59,29 @@ def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float
 
 
 def _register_budget_debt(task_id: str, model_id: str, budget_usd: float, estimated_cost_usd: float) -> str:
-    """Register a budget-rejection debt in OMO."""
+    """Register a budget-rejection debt through the OMO ingress broker."""
     import re
+    import sys
     from datetime import UTC, datetime
-    
-    ws_root = os.environ.get("WORKSPACE") or str(Path.home() / "Workspace")
-    debt_dir = Path(ws_root) / ".omo" / "debt" / "items"
-    
-    if not debt_dir.exists():
+
+    ws_root = Path(os.environ.get("WORKSPACE") or (Path.home() / "Workspace")).resolve()
+    omo_src = ws_root / "projects" / "omo" / "src"
+    if not omo_src.exists():
         return ""
-        
+
+    if str(omo_src) not in sys.path:
+        sys.path.insert(0, str(omo_src))
+
+    try:
+        from omo.omo_ingress import upsert_debt_item
+    except Exception as exc:
+        _log.debug("failed_to_import_omo_ingress: %s", exc)
+        return ""
+
     suffix = re.sub(r"[^A-Za-z0-9]+", "-", task_id).strip("-").upper()[:48] or "UNNAMED"
     debt_id = f"DEBT-OPC-P4-BUDGET-{suffix}"
-    debt_path = debt_dir / f"{debt_id}.yaml"
-    
     now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    
-    import yaml
+    source_ref = f"aetherforge:budget:{task_id}"
     payload = {
         "id": debt_id,
         "title": "OPC P4 budget policy rejected an LLM execution path",
@@ -87,15 +93,27 @@ def _register_budget_debt(task_id: str, model_id: str, budget_usd: float, estima
         "severity": "medium",
         "source": "aetherforge-gateway",
         "registered_at": now_iso,
+        "first_seen_at": now_iso,
         "last_seen_at": now_iso,
+        "occurrence_count": 1,
         "status": "open",
+        "lifecycle_state": "identified",
+        "task_id": task_id,
+        "prerequisite_for": task_id,
         "remediation": "Increase budget or select a cheaper model.",
     }
-    
+
     try:
-        debt_path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False) + "\n")
-        return str(debt_path)
-    except Exception:
+        upsert_debt_item(
+            ws_root / ".omo",
+            debt_data=payload,
+            ingress_plane="projects/aetherforge",
+            source_ref=source_ref,
+            now=now_iso,
+        )
+        return str(ws_root / ".omo" / "debt" / "items" / f"{debt_id}.yaml")
+    except Exception as exc:
+        _log.debug("failed_to_register_budget_debt: %s", exc)
         return ""
 
 
@@ -133,7 +151,7 @@ def check_budget_limit(
             
         raise BudgetExhausted(
             f"Projected cost ${projected_cost:.6f} exceeds budget ${active_limit:.6f} (model={model_id})",
-            spent=0.0,
+            spent=projected_cost,
             cap=active_limit,
             task_id=task_id
         )

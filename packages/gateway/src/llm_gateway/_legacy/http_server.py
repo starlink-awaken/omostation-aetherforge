@@ -51,7 +51,13 @@ class LLMGatewayHandler(BaseHTTPRequestHandler):
         from .budget import check_budget_limit, BudgetExhausted
         try:
             # Estimate tokens
-            input_tokens = (len(prompt) + 3) // 4
+            try:
+                import tiktoken
+                enc = tiktoken.get_encoding("cl100k_base")
+                input_tokens = len(enc.encode(prompt))
+            except ImportError:
+                input_tokens = (len(prompt) + 3) // 4
+                
             check_budget_limit(
                 model_id=model_id,
                 input_tokens=input_tokens,
