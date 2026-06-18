@@ -28,8 +28,20 @@ def append_quota_ledger_event(
     }
     target = ledger_log or LEDGER_LOG
     target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    
+    # ── Phase 15: Atomic Append via fcntl ──
+    import fcntl
+    line = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+    with open(target, "ab") as fh:
+        try:
+            # Exclusive lock, blocking
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            fh.write(line)
+            fh.flush()
+            os.fsync(fh.fileno())
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            
     return target
 
 

@@ -45,10 +45,13 @@ def record_llm_cost(model: str, input_tokens: int, output_tokens: int) -> None:
         }
         _COST_LOG.parent.mkdir(parents=True, exist_ok=True)
         line = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+        import fcntl
         fd = os.open(str(_COST_LOG), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
         try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
             os.write(fd, line)
         finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
             
         # 2. Update Quota Ledger (Real-time deduction)
