@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """llm-gateway CLI — unified LLM access from the command line.
 
+.. deprecated::
+    This legacy CLI is deprecated. Use ``aetherforge-llm-gateway`` instead.
+    Will be removed in v1.0.0.
+
 Usage:
     llm-gateway list                     List available models
     llm-gateway generate <prompt>        Generate from prompt
@@ -11,6 +15,7 @@ Usage:
 
 from __future__ import annotations
 import os
+import warnings
 
 import argparse
 import asyncio
@@ -124,6 +129,12 @@ def cmd_serve(port: int) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    warnings.warn(
+        "llm-gateway CLI is deprecated. Use aetherforge-llm-gateway instead. "
+        "Will be removed in v1.0.0.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     parser = argparse.ArgumentParser(prog="llm-gateway", description="Unified LLM Gateway CLI")
     sub = parser.add_subparsers(dest="cmd")
 

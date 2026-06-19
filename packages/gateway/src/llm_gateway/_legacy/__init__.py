@@ -1,5 +1,9 @@
 """LLM Gateway v0.4 — unified LLM provider abstraction layer.
 
+.. deprecated::
+    This package is deprecated. Use ``llm_gateway`` (non-legacy) instead.
+    Will be removed in v1.0.0.
+
 Stable Public API
 =================
 
