@@ -7,7 +7,7 @@ name = "aetherforge"
 version = "1.0.0"
 description = "AetherForge — 算力网格 + LLM 网关 + 群体智能引擎融合栈"
 license = {text = "MIT"}
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 authors = [
     {name = "eCOS Team"},
 ]
