@@ -13,7 +13,7 @@ keywords = ["swarm", "agent", "multi-agent", "orchestration", "aetherforge"]
 dependencies = [
     "aetherforge-gateway",
     "redis>=8.0.0",
-    "pyyaml>=6.0",
+    "pyyaml>=6.0.3",
 ]
 
 
