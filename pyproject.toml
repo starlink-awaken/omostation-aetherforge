@@ -30,7 +30,7 @@ dependencies = [
     "aetherforge-swarm",
     "aetherforge-mesh",
     "bus-foundation",
-    "fastmcp>=3.4",
+    "fastmcp>=3.4.2",
     "openai>=2.41.1",
     "httpx[socks]>=0.28.1",
 ]
