@@ -6,7 +6,6 @@ Usage:
 
 from __future__ import annotations
 
-import sys
 import time
 
 
@@ -46,8 +45,8 @@ def cmd_dashboard() -> int:
     print("  🖥  算力节点")
     print("  " + "-" * 50)
     try:
-        from compute_mesh.topology.scanner import load_static_nodes, probe_local_daemons, detect_cloud_nodes
         from compute_mesh.topology.network_scanner import NetworkScanner
+        from compute_mesh.topology.scanner import detect_cloud_nodes, load_static_nodes, probe_local_daemons
 
         static = load_static_nodes()
         local = probe_local_daemons()
@@ -82,7 +81,7 @@ def cmd_dashboard() -> int:
         at = r.get("all_time", {})
         print(f"  累计: ${at.get('total_cost',0):.4f} ({at.get('total_requests',0)} req)")
         print(f"  Token: {at.get('total_prompt_tokens',0)} in / {at.get('total_completion_tokens',0)} out")
-        
+
         # DeepSeek balance from cache
         ds = qe.get_quota("deepseek")
         if ds.balance > 0:

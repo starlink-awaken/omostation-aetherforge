@@ -31,7 +31,7 @@ failed = 0
 errors: list[str] = []
 
 
-def test(name: str):
+def register_test(name: str):
     """Decorator to register a test function."""
     def decorator(fn):
         def wrapper():
@@ -52,7 +52,7 @@ def test(name: str):
 # 1. Config
 # ══════════════════════════════════════════════════════════════════════════
 
-@test("Config: load defaults")
+@register_test("Config: load defaults")
 def test_config_defaults():
     from aetherforge.config import load_config
     cfg = load_config()
@@ -63,7 +63,7 @@ def test_config_defaults():
     print(f"    gateway.enabled={cfg.gateway.enabled} rate_limiter.enabled={cfg.rate_limiter.enabled}")
 
 
-@test("Config: write and reload")
+@register_test("Config: write and reload")
 def test_config_write():
     from aetherforge.config import write_default_config, load_config
     tmp = tempfile.mkdtemp()
@@ -78,7 +78,7 @@ def test_config_write():
 # 2. Gateway
 # ══════════════════════════════════════════════════════════════════════════
 
-@test("Gateway: 6 providers importable")
+@register_test("Gateway: 6 providers importable")
 def test_gateway_providers():
     from llm_gateway.providers import (
         ollama_provider, openai_provider, anthropic_provider,
@@ -92,7 +92,7 @@ def test_gateway_providers():
     print(f"    ollama={p_ollama.provider_name} hitl={p_hitl.provider_name}")
 
 
-@test("Gateway: RateLimiter tpm/rpm")
+@register_test("Gateway: RateLimiter tpm/rpm")
 def test_gateway_rate_limiter():
     from llm_gateway.rate_limiter import RateLimiter
     rl = RateLimiter()
@@ -105,7 +105,7 @@ def test_gateway_rate_limiter():
     print(f"    tpm_usage={stats['test']['tpm']['usage_pct']}% limited_models={rl.total_limited_models}")
 
 
-@test("Gateway: RouterPipeline Filter/Score")
+@register_test("Gateway: RouterPipeline Filter/Score")
 def test_gateway_pipeline():
     from llm_gateway.policies import (
         RouterPipeline, OnlineFilter, CostScore, CapabilityFilter,
@@ -136,7 +136,7 @@ def test_gateway_pipeline():
     print(f"    candidates={len(ranked)} top={ranked[0].model.id} score={ranked[0].score:.2f}")
 
 
-@test("Gateway: MetricsCollector")
+@register_test("Gateway: MetricsCollector")
 def test_gateway_metrics():
     from llm_gateway.metrics import MetricsCollector
     mc = MetricsCollector()
@@ -155,7 +155,7 @@ def test_gateway_metrics():
     print(f"    requests={r['total_requests']} errors={r['total_errors']} rate_limits={r['total_rate_limits']}")
 
 
-@test("Gateway: FallbackRule")
+@register_test("Gateway: FallbackRule")
 def test_gateway_fallback():
     from llm_gateway.types import FallbackRule, ModelRoutePolicy
     rule = FallbackRule(model="gpt-4", strategy="speed-first", timeout_ms=10000, cooldown_ms=5000)
@@ -170,7 +170,7 @@ def test_gateway_fallback():
 # 3. Mesh
 # ══════════════════════════════════════════════════════════════════════════
 
-@test("Mesh: TopologyLabels 4-layer")
+@register_test("Mesh: TopologyLabels 4-layer")
 def test_mesh_topology():
     from compute_mesh.topology import TopologyLabels
     tl = TopologyLabels(region="us-east-1", zone="us-east-1a", rack="r01", host="gpu-01")
@@ -184,7 +184,7 @@ def test_mesh_topology():
     print(f"    affinity(zone)={tl.affinity_score(TopologyLabels(zone='us-east-1a')):.2f} dict={d}")
 
 
-@test("Mesh: ComputeNode with topology")
+@register_test("Mesh: ComputeNode with topology")
 def test_mesh_compute_node():
     from compute_mesh.topology import ComputeNode, TopologyLabels, NodeEngineType
     node = ComputeNode(
@@ -205,7 +205,7 @@ def test_mesh_compute_node():
     print(f"    local.zone={node.network_zone} cloud.zone={cloud_node.network_zone}")
 
 
-@test("Mesh: NodeRegistry CRUD")
+@register_test("Mesh: NodeRegistry CRUD")
 def test_mesh_registry():
     from compute_mesh.topology import NodeRegistry, ComputeNode
     reg = NodeRegistry()
@@ -222,7 +222,7 @@ def test_mesh_registry():
     print(f"    count={reg.count()} after add/remove")
 
 
-@test("Mesh: TopologyScanner discovery")
+@register_test("Mesh: TopologyScanner discovery")
 def test_mesh_scanner():
     from compute_mesh.topology import TopologyScanner
     scanner = TopologyScanner()
@@ -232,7 +232,7 @@ def test_mesh_scanner():
     print(f"    discovered {len(nodes)} nodes")
 
 
-@test("Mesh: ComputePool health + best node")
+@register_test("Mesh: ComputePool health + best node")
 def test_mesh_pool():
     from compute_mesh.pool import ComputePool
     pool = ComputePool()
@@ -247,7 +247,7 @@ def test_mesh_pool():
         print(f"    {summary['total']} nodes: {summary['online']} online (no best)")
 
 
-@test("Mesh: CostTracker SQLite dual write")
+@register_test("Mesh: CostTracker SQLite dual write")
 def test_mesh_cost():
     from compute_mesh.pool import CostTracker, CostDB
     from compute_mesh.topology import NodeRegistry
@@ -270,7 +270,7 @@ def test_mesh_cost():
     print(f"    sqlite=2 records cost=0.015 session={r['session']['total_requests']}")
 
 
-@test("Mesh: WorkerRegistry + TaskDispatcher")
+@register_test("Mesh: WorkerRegistry + TaskDispatcher")
 def test_mesh_worker():
     from compute_mesh.worker import WorkerRegistry, TaskDispatcher, MeshWorker
     from compute_mesh.pool import ComputePool
@@ -293,7 +293,7 @@ def test_mesh_worker():
     print(f"    workers={stats['total']} idle={stats['idle']}")
 
 
-@test("Mesh: WorkerMessageBus")
+@register_test("Mesh: WorkerMessageBus")
 def test_mesh_message_bus():
     from compute_mesh.worker.message_bus import WorkerMessageBus
     bus = WorkerMessageBus()
@@ -319,7 +319,7 @@ def test_mesh_message_bus():
     print(f"    delivered={len(msgs)} broadcast={len(msgs_b)} push={len(received)}")
 
 
-@test("Mesh: Queue in MeshScheduler")
+@register_test("Mesh: Queue in MeshScheduler")
 def test_mesh_queue():
     from compute_mesh.scheduler import MeshScheduler
     from compute_mesh.pool import ComputePool
@@ -341,7 +341,7 @@ def test_mesh_queue():
     print(f"    queued={stats['queued']} max={stats['max_size']} dequeued={len(ready)}")
 
 
-@test("Mesh: Auto-scale workers")
+@register_test("Mesh: Auto-scale workers")
 def test_mesh_auto_scale():
     from compute_mesh.pool import ComputePool
     from compute_mesh.worker import WorkerRegistry
@@ -360,7 +360,7 @@ def test_mesh_auto_scale():
 # 4. Swarm
 # ══════════════════════════════════════════════════════════════════════════
 
-@test("Swarm: GatewaySynapse")
+@register_test("Swarm: GatewaySynapse")
 def test_swarm_synapse():
     from swarm_engine import GatewaySynapse
     synapse = GatewaySynapse()
@@ -371,7 +371,7 @@ def test_swarm_synapse():
     print(f"    active providers={health['total_available']} models={len(models)}")
 
 
-@test("Swarm: HierarchicalProcess parse")
+@register_test("Swarm: HierarchicalProcess parse")
 def test_swarm_hp_parse():
     from swarm_engine.hierarchical_process import HierarchicalProcess, SubTask
     hp = HierarchicalProcess()
@@ -388,7 +388,7 @@ def test_swarm_hp_parse():
     print(f"    parse_json={len(subtasks)} parse_fence={len(subtasks2)}")
 
 
-@test("Swarm: HierarchicalProcess DAG")
+@register_test("Swarm: HierarchicalProcess DAG")
 def test_swarm_hp_dag():
     from swarm_engine.hierarchical_process import SubTask
     subtasks = [
@@ -416,7 +416,7 @@ def test_swarm_hp_dag():
 # 5. Cross-layer
 # ══════════════════════════════════════════════════════════════════════════
 
-@test("Cross-layer: Gateway → Mesh integration")
+@register_test("Cross-layer: Gateway → Mesh integration")
 def test_cross_gateway_mesh():
     from compute_mesh.pool import ComputePool
     from compute_mesh.scheduler import MeshScheduler
@@ -437,7 +437,7 @@ def test_cross_gateway_mesh():
     print(f"    providers_mapped={len(status['provider_node_map'])} online={len(status['online_nodes'])}")
 
 
-@test("Cross-layer: Config → RateLimiter integration")
+@register_test("Cross-layer: Config → RateLimiter integration")
 def test_cross_config_limiter():
     from aetherforge.config import load_config
     from llm_gateway.rate_limiter import RateLimiter
@@ -454,7 +454,7 @@ def test_cross_config_limiter():
 # 6. Edge cases
 # ══════════════════════════════════════════════════════════════════════════
 
-@test("Edge: Empty topology scan")
+@register_test("Edge: Empty topology scan")
 def test_edge_empty_scan():
     from compute_mesh.topology import TopologyScanner
     scanner = TopologyScanner()
@@ -464,7 +464,7 @@ def test_edge_empty_scan():
     print(f"    scanned {len(nodes)} nodes (no crash)")
 
 
-@test("Edge: RateLimiter unlimited")
+@register_test("Edge: RateLimiter unlimited")
 def test_edge_unlimited():
     from llm_gateway.rate_limiter import RateLimiter
     rl = RateLimiter()  # no limits set
@@ -473,7 +473,7 @@ def test_edge_unlimited():
     print(f"    unlimited=True limited_models={rl.total_limited_models}")
 
 
-@test("Edge: WorkerRegistry heartbeat timeout")
+@register_test("Edge: WorkerRegistry heartbeat timeout")
 def test_edge_heartbeat():
     from compute_mesh.worker import WorkerRegistry, MeshWorker
     reg = WorkerRegistry(heartbeat_timeout=0.01)  # 10ms timeout
@@ -487,7 +487,7 @@ def test_edge_heartbeat():
     print(f"    stale_detected={stale[0] if stale else 'none'}")
 
 
-@test("Edge: MessageBus full cycle")
+@register_test("Edge: MessageBus full cycle")
 def test_edge_bus_full():
     from compute_mesh.worker.message_bus import WorkerMessageBus
     import tempfile

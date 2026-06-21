@@ -16,7 +16,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 
 
 def cmd_gateway(argv: list[str]) -> int:

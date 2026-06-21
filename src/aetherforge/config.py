@@ -26,7 +26,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 # ── Config dataclasses ─────────────────────────────────────────────────────
 
 
@@ -365,12 +364,12 @@ def load_config(path: str | Path | None = None) -> AetherForgeConfig:
         "AETHERFORGE_RATE_LIMIT_TPM": ("rate_limiter", "default_tpm"),
         "AETHERFORGE_RATE_LIMIT_RPM": ("rate_limiter", "default_rpm"),
     }
-    for env_key, (section, field) in env_overrides.items():
+    for env_key, (section, f_name) in env_overrides.items():
         val = os.environ.get(env_key, "")
         if val:
             if section not in merged:
                 merged[section] = {}
-            merged[section][field] = val
+            merged[section][f_name] = val
 
     return _dict_to_config(merged)
 

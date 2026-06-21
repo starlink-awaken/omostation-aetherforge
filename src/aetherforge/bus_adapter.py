@@ -45,11 +45,11 @@ def emit_event(
     Returns the event id, or None if agora.bus is not importable (e.g.
     running aetherforge in isolation before agora is installed).
     """
-    BusEnvelope, publish = _try_import_bus()
-    if BusEnvelope is None or publish is None:
+    bus_envelope_cls, publish = _try_import_bus()
+    if bus_envelope_cls is None or publish is None:
         logger.debug("agora_bus_unavailable_skipping_event type=%s", event_type)
         return None
-    envelope = BusEnvelope(
+    envelope = bus_envelope_cls(
         type=event_type,
         source=source,
         payload=payload or {},
