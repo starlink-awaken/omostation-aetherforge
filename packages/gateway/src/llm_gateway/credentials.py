@@ -32,7 +32,7 @@ import os
 import sqlite3
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -113,7 +113,8 @@ def fetch_codexbar_quota(provider: str) -> dict[str, Any]:
         return {"status": "unavailable", "reason": "codexbar not installed"}
 
     mapped = _PROVIDER_MAP.get(provider, provider)
-    import subprocess, json
+    import json
+    import subprocess
     try:
         result = subprocess.run(
             [codexbar, "usage", "--format", "json", "--provider", mapped],
@@ -227,7 +228,8 @@ def _import_cc_switch_impl(db_path: str | None = None) -> int:
                     cm.add_key(provider_key, auth_token, base_url=base_url,
                                note=f"from cc-switch: {name}")
                     count += 1
-            except (json.JSONDecodeError, Exception):
+            except (json.JSONDecodeError, Exception) as exc:
+                _log.debug(f"cc-switch import error: {exc}")
                 continue
 
         _log.info("cc-switch import: %d credentials from %s", count, path)
@@ -387,10 +389,10 @@ class CredentialsManager:
         if len(rows) == 1:
             return rows[0]["api_key"]
 
-        # Weighted random selection
+        # Weighted random selection (non-cryptographic use OK)
         import random
         total_weight = sum(r["weight"] for r in rows)
-        r = random.randint(0, total_weight - 1)
+        r = random.randint(0, total_weight - 1)  # noqa: S311 (weighted load balance)
         for row in rows:
             r -= row["weight"]
             if r < 0:

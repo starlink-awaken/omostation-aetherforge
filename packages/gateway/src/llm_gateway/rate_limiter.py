@@ -20,10 +20,8 @@ Usage::
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any
@@ -202,26 +200,26 @@ class RateLimiter:
             return {
                 mid: {
                     "tpm": {
-                        "limit": l.tpm_window.max_amount,
-                        "current": round(l.tpm_window.current, 0),
+                        "limit": lim.tpm_window.max_amount,
+                        "current": round(lim.tpm_window.current, 0),
                         "usage_pct": round(
-                            (l.tpm_window.current / l.tpm_window.max_amount * 100)
-                            if l.tpm_window.max_amount > 0 else 0,
+                            (lim.tpm_window.current / lim.tpm_window.max_amount * 100)
+                            if lim.tpm_window.max_amount > 0 else 0,
                             1,
                         ),
                     },
                     "rpm": {
-                        "limit": l.rpm_window.max_amount,
-                        "current": l.rpm_window.current,
+                        "limit": lim.rpm_window.max_amount,
+                        "current": lim.rpm_window.current,
                         "usage_pct": round(
-                            (l.rpm_window.current / l.rpm_window.max_amount * 100)
-                            if l.rpm_window.max_amount > 0 else 0,
+                            (lim.rpm_window.current / lim.rpm_window.max_amount * 100)
+                            if lim.rpm_window.max_amount > 0 else 0,
                             1,
                         ),
                     },
                 }
-                for mid, l in self._limits.items()
-                if l.is_limited
+                for mid, lim in self._limits.items()
+                if lim.is_limited
             }
 
     def reset(self) -> None:
@@ -232,4 +230,4 @@ class RateLimiter:
     @property
     def total_limited_models(self) -> int:
         with self._lock:
-            return sum(1 for l in self._limits.values() if l.is_limited)
+            return sum(1 for lim in self._limits.values() if lim.is_limited)

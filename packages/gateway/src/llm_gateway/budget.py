@@ -11,15 +11,14 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any
 
-from .quota_engine import QuotaEngine
 from .pricing import PricingRegistry
+from .quota_engine import QuotaEngine
 
 _log = logging.getLogger(__name__)
 
 
-class BudgetExhausted(Exception):
+class BudgetExhaustedError(Exception):
     """Raised when an LLM call would exceed the configured budget."""
 
     def __init__(self, message: str, spent: float, cap: float, task_id: str | None = None):
@@ -31,7 +30,7 @@ class BudgetExhausted(Exception):
 
 def get_remaining_budget() -> float | None:
     """Read the remaining budget from the QuotaEngine.
-    
+
     Returns USD value or None if no budget is configured.
     """
     try:
@@ -52,7 +51,7 @@ def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float
     price = registry.get_price(model_id)
     if not price:
         return 0.0
-    
+
     i_cost = (input_tokens / 1000.0) * price.cost_per_1k_input
     o_cost = (output_tokens / 1000.0) * price.cost_per_1k_output
     return i_cost + o_cost
@@ -127,16 +126,16 @@ def check_budget_limit(
 ) -> None:
     """Pre-call budget check."""
     projected_cost = estimate_cost(model_id, input_tokens, max_output_tokens)
-    
+
     limit_hit = False
     active_limit = 0.0
-    
+
     # 1. Local limit check
     if local_budget_limit is not None:
         if projected_cost > local_budget_limit:
             limit_hit = True
             active_limit = local_budget_limit
-            
+
     # 2. Global limit check
     if not limit_hit:
         remaining = get_remaining_budget()
@@ -144,16 +143,16 @@ def check_budget_limit(
             if projected_cost > remaining:
                 limit_hit = True
                 active_limit = remaining
-                
+
     if limit_hit:
         if task_id:
             _register_budget_debt(task_id, model_id, active_limit, projected_cost)
-            
-        raise BudgetExhausted(
+
+        raise BudgetExhaustedError(
             f"Projected cost ${projected_cost:.6f} exceeds budget ${active_limit:.6f} (model={model_id})",
             spent=projected_cost,
             cap=active_limit,
             task_id=task_id
         )
-            
+
     _log.debug("budget_check_passed: projected_cost=%s", projected_cost)

@@ -12,12 +12,11 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from .policies import RouterPipeline, score_models as _legacy_score
+from .policies import RouterPipeline
 from .rate_limiter import RateLimiter
 from .registry import ModelRegistry
 from .types import (
     DEFAULT_SCHEDULER_CONFIG,
-    FallbackRule,
     LoadInfo,
     ModelRequest,
     ModelRoutePolicy,
@@ -196,12 +195,12 @@ class ModelScheduler:
     # ── Quota rates ──────────────────────────────────────────────────────────
 
     def load_quota_rates(self) -> int:
-        CACHE_PATH = Path.home() / ".runtime" / "cache" / "quota_rates.json"
-        if not CACHE_PATH.exists():
+        cache_path = Path.home() / ".runtime" / "cache" / "quota_rates.json"
+        if not cache_path.exists():
             return 0
         import json
         try:
-            with open(CACHE_PATH) as f:
+            with open(cache_path) as f:
                 data = json.load(f)
         except (json.JSONDecodeError, Exception):
             return 0
