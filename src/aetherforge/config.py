@@ -67,13 +67,8 @@ class TopologyConfig:
 class PoolConfig:
     """Compute pool settings."""
 
-    workers_per_node: int = 2
-    auto_scale: bool = True
     min_workers: int = 1
     max_workers: int = 20
-    scale_up_threshold: float = 0.8
-    scale_down_threshold: float = 0.2
-    scale_cooldown: int = 30  # seconds between scale events
 
 
 @dataclass
@@ -82,7 +77,6 @@ class WorkerConfig:
 
     heartbeat_timeout: float = 60.0
     enable_message_bus: bool = True
-    message_bus_persist: bool = True
 
 
 @dataclass
@@ -161,8 +155,6 @@ class AetherForgeConfig:
                 "health_check_interval": self.topology.health_check_interval,
             },
             "pool": {
-                "workers_per_node": self.pool.workers_per_node,
-                "auto_scale": self.pool.auto_scale,
                 "min_workers": self.pool.min_workers,
                 "max_workers": self.pool.max_workers,
             },
@@ -195,17 +187,11 @@ topology:
   detect_cloud: true
 
 pool:
-  workers_per_node: 2
-  auto_scale: true
   min_workers: 1
   max_workers: 20
-  scale_up_threshold: 0.8
-  scale_down_threshold: 0.2
-  scale_cooldown: 30
 
 worker:
   enable_message_bus: true
-  message_bus_persist: true
   heartbeat_timeout: 60.0
 
 swarm:
@@ -290,20 +276,14 @@ def _dict_to_config(data: dict) -> AetherForgeConfig:
 
     p = data.get("pool", {})
     cfg.pool = PoolConfig(
-        workers_per_node=p.get("workers_per_node", 2),
-        auto_scale=p.get("auto_scale", True),
         min_workers=p.get("min_workers", 1),
         max_workers=p.get("max_workers", 20),
-        scale_up_threshold=p.get("scale_up_threshold", 0.8),
-        scale_down_threshold=p.get("scale_down_threshold", 0.2),
-        scale_cooldown=p.get("scale_cooldown", 30),
     )
 
     w = data.get("worker", {})
     cfg.worker = WorkerConfig(
         heartbeat_timeout=w.get("heartbeat_timeout", 60.0),
         enable_message_bus=w.get("enable_message_bus", True),
-        message_bus_persist=w.get("message_bus_persist", True),
     )
 
     s = data.get("swarm", {})
