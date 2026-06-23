@@ -14,7 +14,7 @@ def cmd_dashboard() -> int:
     t0 = time.time()
 
     # ── 1. 启动 QuotaEngine 后台刷新 ──
-    from llm_gateway.quota_engine import QuotaEngine
+    from aetherforge.gateway import QuotaEngine
     qe = QuotaEngine()
     qe.start()
     ready = qe.wait_ready(timeout=25)
@@ -45,8 +45,7 @@ def cmd_dashboard() -> int:
     print("  🖥  算力节点")
     print("  " + "-" * 50)
     try:
-        from compute_mesh.topology.network_scanner import NetworkScanner
-        from compute_mesh.topology.scanner import detect_cloud_nodes, load_static_nodes, probe_local_daemons
+        from aetherforge.mesh import NetworkScanner, detect_cloud_nodes, load_static_nodes, probe_local_daemons
 
         static = load_static_nodes()
         local = probe_local_daemons()
@@ -74,8 +73,7 @@ def cmd_dashboard() -> int:
     print("  💰  成本")
     print("  " + "-" * 50)
     try:
-        from compute_mesh.pool import CostTracker
-        from compute_mesh.topology import NodeRegistry
+        from aetherforge.mesh import CostTracker, NodeRegistry
         ct = CostTracker(NodeRegistry())
         r = ct.get_report()
         at = r.get("all_time", {})

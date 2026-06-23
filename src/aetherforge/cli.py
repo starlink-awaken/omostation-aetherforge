@@ -20,14 +20,14 @@ import argparse
 
 def cmd_gateway(argv: list[str]) -> int:
     """Delegate to gateway CLI."""
-    from llm_gateway.cli import main as gateway_main
+    from aetherforge.gateway import cli as gateway_main
 
     return gateway_main(argv if argv else ["--help"])
 
 
 def cmd_mesh(argv: list[str]) -> int:
     """Delegate to mesh CLI."""
-    from compute_mesh.api.cli import main as mesh_main
+    from aetherforge.mesh import cli as mesh_main
 
     return mesh_main(argv if argv else ["--help"])
 
@@ -44,7 +44,7 @@ def cmd_swarm(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "run":
-        from swarm_engine.graph_workflow import GraphWorkflow
+        from aetherforge.swarm import GraphWorkflow
 
         # 1. 初始化工作流
         wf = GraphWorkflow()
@@ -56,12 +56,12 @@ def cmd_swarm(argv: list[str]) -> int:
             analysis = f"分析目标: {goal}"
             try:
                 # 尝试调用本地的 llm_gateway
-                from llm_gateway.provider import get_provider
+                from aetherforge.gateway import create_provider
                 # 如果有默认 provider 配置，可以用它生成一些真实的拆解
                 from aetherforge.config import load_config
                 cfg = load_config()
                 if cfg.gateway.default_model:
-                    prov = get_provider(cfg.gateway.default_provider)
+                    prov = create_provider(cfg.gateway.default_provider)
                     resp = prov.generate(f"将以下任务目标拆解为3步，仅输出简短文本: {goal}")
                     analysis = resp.text
             except Exception:
