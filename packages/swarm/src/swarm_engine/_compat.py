@@ -1,17 +1,65 @@
 """
-_compat.py — Compatibility stubs for types migrated from SharedBrain.
+_compat.py — Swarm compatibility layer backed by bus-foundation.
 
-These are placeholder definitions for types that were originally imported
-from nucleus.Z_Microkernel / SharedBrain. Each should eventually be replaced
-with a proper implementation or import once the migration is complete.
+Data‑type stubs (enums, dataclasses) are kept here for import stability.
+Event‑emitting functions now publish onto the real `bus-foundation` event
+bus (OmniEnvelope / EventBusBackend) instead of being no-ops.  All imports
+remain backward‑compatible — callers do not need to change.
+
+  Bus topic conventions:
+    swarm:worker:hatched       — worker successfully spawned
+    swarm:worker:terminated    — worker process exited
+    swarm:agent:send           — point-to-point message from agent
+    swarm:agent:receive        — polled inbox for agent
+    swarm:inference:request    — oracle inference request
+    swarm:inference:response   — oracle inference response
+    swarm:governance:action    — governance lifecycle event
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
 from enum import StrEnum
 from typing import Any, NamedTuple
+
+# ── bus-foundation integration ──────────────────────────────────────────────
+# Import bus-foundation lazily so that swarm_engine can still be imported
+# in environments where bus-foundation is not yet installed (tests that only
+# exercise data-type stubs will still work; the fallback is the old no-op).
+
+def _try_get_bus_publish():
+    """Return (publish_fn, BusEnvelope) or (None, None) if unavailable."""
+    try:
+        from bus_foundation import publish  # type: ignore[import]
+        from bus_foundation.envelope import OmniEnvelope, OmniPlane  # type: ignore[import]
+        return publish, OmniEnvelope, OmniPlane
+    except Exception:
+        return None, None, None
+
+
+def _bus_publish(topic: str, payload: dict, source: str = "swarm_engine._compat") -> None:
+    """Publish a swarm event onto the bus-foundation bus. No-op if unavailable."""
+    publish_fn, OmniEnvelope, OmniPlane = _try_get_bus_publish()
+    if publish_fn is None:
+        _log.debug("bus-foundation unavailable, skipping publish: %s", topic)
+        return
+    try:
+        env = OmniEnvelope(
+            plane=OmniPlane.EVENT,
+            topic=topic,
+            source_uri=source,
+            payload=payload,
+        )
+        publish_fn(env)
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("bus_publish failed topic=%s: %s", topic, exc)
+
+
+# In-process subscriber registry for agent-inbox simulation
+_agent_inboxes: dict[str, list[Any]] = {}
+_agent_inbox_lock = threading.Lock()
 
 # ── Logger ────────────────────────────────────────────────────────────────
 
@@ -544,17 +592,27 @@ class RegistryAgentCard:
 
 
 def agent_send(target: str, message: Any) -> bool:
-    """Stub for bos_agent_router_bridge.agent_send."""
+    """Publish an agent→agent message onto the bus and local inbox."""
+    payload = {"target": target, "message": message}
+    _bus_publish("swarm:agent:send", payload)
+    # Also deliver to local in-process inbox so agent_receive works
+    with _agent_inbox_lock:
+        _agent_inboxes.setdefault(target, []).append(message)
     return True
 
 
 def agent_receive(target: str) -> list[Any]:
-    """Stub for bos_agent_router_bridge.agent_receive."""
-    return []
+    """Drain the in-process inbox for *target* agent."""
+    with _agent_inbox_lock:
+        messages = _agent_inboxes.pop(target, [])
+    if messages:
+        _bus_publish("swarm:agent:receive", {"target": target, "count": len(messages)})
+    return messages
 
 
 def agent_ack(message_id: str) -> bool:
-    """Stub for bos_agent_router_bridge.agent_ack."""
+    """Acknowledge a message — published as a bus event."""
+    _bus_publish("swarm:agent:ack", {"message_id": message_id})
     return True
 
 
@@ -657,12 +715,30 @@ def wait_for_worker_process_start(*args: Any, **kwargs: Any) -> Any:
     return None
 
 
-def emit_worker_hatched(*args: Any, **kwargs: Any) -> None:
-    pass
+def emit_worker_hatched(
+    worker_id: str = "",
+    task_type: str = "",
+    pid: int = 0,
+    **kwargs: Any,
+) -> None:
+    """Publish a 'worker hatched' event onto the bus."""
+    _bus_publish(
+        "swarm:worker:hatched",
+        {"worker_id": worker_id, "task_type": task_type, "pid": pid, **kwargs},
+    )
 
 
-def emit_worker_terminated(*args: Any, **kwargs: Any) -> None:
-    pass
+def emit_worker_terminated(
+    worker_id: str = "",
+    reason: str = "",
+    eu_consumed: float = 0.0,
+    **kwargs: Any,
+) -> None:
+    """Publish a 'worker terminated' event onto the bus."""
+    _bus_publish(
+        "swarm:worker:terminated",
+        {"worker_id": worker_id, "reason": reason, "eu_consumed": eu_consumed, **kwargs},
+    )
 
 
 class RetryExhaustedError(Exception):

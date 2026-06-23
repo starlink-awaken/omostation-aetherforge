@@ -24,6 +24,38 @@ _DEFAULT_HEALTH_TIMEOUT = 5.0
 PoolListener = Callable[[str, ComputeNode], None]
 
 
+def _bus_publish_node_state(node: ComputeNode) -> None:
+    """Publish a mesh:node:status_changed event onto bus-foundation.
+
+    Graceful degradation: if bus-foundation is not installed or unavailable,
+    the error is logged at DEBUG level and the call silently returns.
+    """
+    try:
+        from bus_foundation import publish as _publish  # type: ignore[import]
+        from bus_foundation.envelope import OmniEnvelope, OmniPlane  # type: ignore[import]
+
+        env = OmniEnvelope(
+            plane=OmniPlane.EVENT,
+            topic="mesh:node:status_changed",
+            source_uri="compute_mesh.pool.manager",
+            payload={
+                "node_id": node.node_id,
+                "status": str(node.status),
+                "base_url": getattr(node, "base_url", ""),
+                "network_zone": getattr(node, "network_zone", ""),
+                "load_factor": getattr(node, "load_factor", 0.0),
+            },
+        )
+        _publish(env)
+        _log.debug("bus:mesh:node:status_changed published: node=%s status=%s", node.node_id, node.status)
+    except ImportError:
+        _log.debug("bus-foundation not available, skipping mesh event publish")
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("Failed to publish mesh node state event: %s", exc)
+
+
+
+
 class ComputePool:
     """Aggregates compute nodes from topology, monitors health and load.
 
@@ -211,11 +243,18 @@ class ComputePool:
             self._listeners.remove(listener)
 
     def _notify(self, event: str, node: ComputeNode) -> None:
+        # ── 1. 通知本地 PoolListeners ──
         for listener in self._listeners:
             try:
                 listener(event, node)
             except Exception:
                 _log.exception("Pool listener failed for event %s", event)
+
+        # ── 2. 向 bus-foundation 发布 mesh 状态变更事件（R3 闭环） ──
+        if event == "status_change":
+            _bus_publish_node_state(node)
+
+
 
     # ── Status report ────────────────────────────────────────────────────────
 
