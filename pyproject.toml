@@ -55,7 +55,7 @@ bus-foundation = { path = "../bus-foundation" }
 
 [tool.pytest.ini_options]
 testpaths = ["packages/gateway/tests", "packages/mesh/tests", "packages/swarm/tests"]
-pythonpath = ["packages/gateway", "packages/mesh", "packages/swarm"]
+pythonpath = ["src", "packages/gateway/src", "packages/mesh/src", "packages/swarm/src"]
 minversion = "7.0"
 addopts = "-v --tb=short -q --import-mode=importlib"
 
