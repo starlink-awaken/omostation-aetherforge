@@ -13,10 +13,20 @@ import argparse
 from pathlib import Path
 
 try:
-    from aetherforge.config import get_m1_dir
-    M1_ENGINE_DIR = get_m1_dir("compute_engine")
+    from aetherforge._paths import M1_COMPUTE_ENGINE_DIR as M1_ENGINE_DIR
 except ImportError:
-    M1_ENGINE_DIR = Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
+    try:
+        from aetherforge.config import get_m1_dir
+        M1_ENGINE_DIR = get_m1_dir("compute_engine")
+    except ImportError:
+        import os
+        _override = os.environ.get("AETHERFORGE_M1_COMPUTE_DIR") or ""
+        M1_ENGINE_DIR = (
+            Path(_override) if _override
+            else Path.home() / "Workspace" / "projects" / "ecos"
+                / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
+        )
+
 
 
 def cmd_list(show_cost: bool = False) -> int:

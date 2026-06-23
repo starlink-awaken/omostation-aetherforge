@@ -224,7 +224,7 @@ class LocalWorker:
                 task_type = data.pop("type", "echo")
                 return task_type, data
         except (json.JSONDecodeError, TypeError):
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
         # Legacy plain-text intent — treat as echo so the task completes
         return "echo", {"message": raw}
 

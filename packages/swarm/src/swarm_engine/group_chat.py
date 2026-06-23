@@ -185,7 +185,7 @@ class GroupChat:
             if 0 <= idx < len(self._agents):
                 return self._agents[idx]
         except (ValueError, IndexError):
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
         return self._round_robin_select(turn)
 
     # ── Generation ───────────────────────────────────────────────────────────

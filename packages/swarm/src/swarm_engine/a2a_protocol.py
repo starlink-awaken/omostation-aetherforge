@@ -112,7 +112,7 @@ class DeliveryResult(dict):
                 a2a_transport = spore.get_component("a2a_transport")
                 deliver_frame = a2a_transport.deliver_frame
             except Exception:
-                pass
+                _log.warning("Suppressed exception in %s", __name__)
 
             # TODO-migrate: if deliver_frame is None, import from nucleus.Z_Spore.engine.a2a_transport
             if deliver_frame is None:

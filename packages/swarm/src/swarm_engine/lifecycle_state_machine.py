@@ -150,4 +150,4 @@ class SwarmStateMachine:
             try:
                 self._callbacks.remove(callback)
             except ValueError:
-                pass
+                _log.warning("Suppressed exception in %s", __name__)

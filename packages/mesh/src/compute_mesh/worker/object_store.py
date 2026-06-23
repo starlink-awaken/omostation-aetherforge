@@ -162,7 +162,7 @@ class ObjectStore:
                     conn.commit()
                     conn.close()
                 except Exception:
-                    pass
+                    _log.warning("Suppressed exception in %s", __name__)
         return existed
 
     def exists(self, oid: str) -> bool:
@@ -197,7 +197,7 @@ class ObjectStore:
                     conn.commit()
                     conn.close()
                 except Exception:
-                    pass
+                    _log.warning("Suppressed exception in %s", __name__)
         return len(expired)
 
     # ── Persistence ──────────────────────────────────────────────────────────
@@ -233,7 +233,7 @@ class ObjectStore:
             if row:
                 return dict(row)
         except Exception:
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
         return None
 
     # ── Stats ────────────────────────────────────────────────────────────────
@@ -267,7 +267,7 @@ class ObjectStore:
                     conn.commit()
                     conn.close()
                 except Exception:
-                    pass
+                    _log.warning("Suppressed exception in %s", __name__)
 
 
 _SENTINEL = object()  # sentinel for exists() check

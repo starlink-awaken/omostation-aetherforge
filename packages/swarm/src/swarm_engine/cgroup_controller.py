@@ -114,7 +114,7 @@ class ProcessLevelProvider(IResourceProvider):
                 p.nice(10)  # Lower priority
                 return True
             except (OSError, AttributeError, TypeError):
-                pass
+                _log.warning("Suppressed exception in %s", __name__)
         return False
 
     def get_usage(self) -> dict[str, Any]:

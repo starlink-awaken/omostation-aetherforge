@@ -710,7 +710,7 @@ class SwarmLifecycleManager(ISwarmLifecycle):
             try:
                 self._consensus_monitor.on_result(result)
             except (AttributeError, RuntimeError, TypeError, ValueError):
-                pass
+                _log.warning("Suppressed exception in %s", __name__)
 
     def touch_heartbeat(self, worker_id: str) -> None:
         """Update last_heartbeat timestamp for a worker."""
@@ -757,7 +757,7 @@ class SwarmLifecycleManager(ISwarmLifecycle):
             try:
                 callback(worker_id, old_enum, new_enum)
             except (KeyError, TypeError, ValueError):
-                pass
+                _log.warning("Suppressed exception in %s", __name__)
 
         self._state_machine.register_callback(_wrap)
 

@@ -252,14 +252,14 @@ class Hatcher:
         try:
             self.terminate(worker_id, reason="cancel")
         except KeyError:
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
 
         if self._task_store is not None:
             task_id = f"T-{worker_id[:8]}"
             try:
                 self._task_store.transition(task_id, TaskState.cancelled)
             except KeyError:
-                pass
+                _log.warning("Suppressed exception in %s", __name__)
 
         _emit_hatcher_event("hatcher.worker.cancelled", {"worker_id": worker_id})
         return True
@@ -599,14 +599,14 @@ class Hatcher:
                 write_worker_context,  # noqa: F401
             )
         except ImportError:
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
         try:
             from .organs.engine.agent_cli_bootstrap import (
                 CockpitBinding,  # noqa: F401
                 apply_cockpit_binding,  # noqa: F401
             )
         except ImportError:
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
         spore_id = spore_config.get("id", "unknown")
         capabilities: list[str] = spore_config.get("capabilities", [])
         bootstrap = prepare_agent_cli_bootstrap(
@@ -833,7 +833,7 @@ class Hatcher:
                 process.send_signal(signal.SIGKILL)
                 process.wait(timeout=3.0)
             except (ProcessLookupError, subprocess.TimeoutExpired):
-                pass
+                _log.warning("Suppressed exception in %s", __name__)
 
         with self._lock:
             if handle.worker_id in self._handles:

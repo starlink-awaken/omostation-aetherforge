@@ -572,7 +572,7 @@ class IntentClassifier:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
         else:
             _log.debug("LLM enhance skipped because an event loop is already running.")
             return result

@@ -29,7 +29,8 @@ def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool =
     if show_cost:
         return _cmd_list_cost()
     if use_ssot:
-        m1_dir = Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
+        from llm_gateway.paths import M1_COMPUTE_ENGINE_DIR
+        m1_dir = M1_COMPUTE_ENGINE_DIR
         if m1_dir.exists():
             import asyncio
             reg = ModelRegistry()

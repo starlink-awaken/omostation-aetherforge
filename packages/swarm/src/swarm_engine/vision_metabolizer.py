@@ -94,7 +94,7 @@ class VisionMetabolizer:
                         )
                     )
         except ImportError:
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
 
         # If VisionParser returned an overly simplistic (e.g. 1 task) breakdown from fallback
         if len(tasks) < 3:

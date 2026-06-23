@@ -193,7 +193,7 @@ class QuotaEngine:
             for k in self._creds.list_keys():
                 all_providers.add(k["provider"])
         except Exception:
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
         for p in ["deepseek", "openai", "anthropic", "gemini", "ollama"]:
             all_providers.add(p)
 

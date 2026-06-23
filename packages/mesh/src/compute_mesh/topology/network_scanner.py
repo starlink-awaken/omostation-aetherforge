@@ -160,7 +160,7 @@ class NetworkScanner:
         try:
             return socket.gethostbyname(hostname)
         except (socket.gaierror, OSError):
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
 
         # Try via ClashX proxy DNS (can reach remote LAN/Tailscale)
         try:
@@ -187,7 +187,7 @@ class NetworkScanner:
             if result == 0:
                 return True
         except (ImportError, OSError):
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
 
         # Fallback: direct connect
         try:

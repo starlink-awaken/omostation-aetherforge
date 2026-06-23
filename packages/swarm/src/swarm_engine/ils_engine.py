@@ -136,7 +136,7 @@ class ImmuneLawSystem(ShieldMixin, WitnessMixin):  # type: ignore[misc]
             trap_controller.governor = self
             trap_controller.activate()
         except ImportError:
-            pass
+            _log.warning("Suppressed exception in %s", __name__)
         except (RuntimeError, OSError) as e:
             logger.warning("ProxyTrap activation failed in ILS: %s", e)
 
@@ -716,7 +716,7 @@ class ImmuneLawSystem(ShieldMixin, WitnessMixin):  # type: ignore[misc]
             try:
                 return int(env_circle)
             except ValueError:
-                pass
+                _log.warning("Suppressed exception in %s", __name__)
 
         return 4
 

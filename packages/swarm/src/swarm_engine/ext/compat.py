@@ -77,7 +77,7 @@ class ExecutionCompatHelper:
                         }
                     )
             except (sqlite3.Error, KeyError, AttributeError, OSError):
-                pass
+                _log.debug("Suppressed exception in %s", __name__)
         return {"status": "success", "data": rows}
 
     def task_status(self, params: dict[str, Any] | None) -> dict[str, Any]:
@@ -125,7 +125,7 @@ class ExecutionCompatHelper:
                     "data": [self._result_row_with_metadata(row, metadata_by_task) for row in rows],
                 }
             except (sqlite3.Error, KeyError, AttributeError, OSError):
-                pass
+                _log.debug("Suppressed exception in %s", __name__)
         try:
             from .organs.engine.result_bus import ResultBus  # type: ignore[import-not-found]
 
@@ -209,7 +209,7 @@ class ExecutionCompatHelper:
                         }
                     )
             except (ValueError, TypeError, KeyError, AttributeError):
-                pass
+                _log.debug("Suppressed exception in %s", __name__)
 
         if not data:
             # TODO-migrate: CapabilityRegistry from nucleus unavailable, returning empty data

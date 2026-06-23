@@ -161,7 +161,7 @@ class SwarmPersistence:
             try:
                 self._store.close()
             except (OSError, sqlite3.Error):
-                pass
+                _log.warning("Suppressed exception in %s", __name__)
             self._store = None
             _log.debug("[SwarmPersistence] Closed.")
 
