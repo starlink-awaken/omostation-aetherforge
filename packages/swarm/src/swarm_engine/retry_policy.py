@@ -1,34 +1,17 @@
-from __future__ import annotations
+"""retry_policy.py — Swarm Worker 重试策略（同步场景）
 
-# ---
-# domain: D-Execution
-# layer: organ
-# status: active
-# ---
+提供针对同步 Hatcher Worker 的指数退避重试策略。
+HTTP / async 场景请使用 llm_gateway.retry.RetryConfig + with_retry()。
+
+架构关系：
+  swarm RetryPolicy (本文件)  ── 同步 worker 重试
+  gateway RetryConfig          ── async HTTP LLM 调用重试
+
+两者共享同一套指数退避 + jitter 逻辑，但接口不同：
+  - RetryPolicy.delay_for_attempt(attempt) → float
+  - gateway._backoff(attempt, config) → float
 """
----
-Type: Engine Component
-Status: ACTIVE
-Version: 1.0.0
-Owner: '@Prime'
-Layer: L3
-Summary: 'RetryPolicy — exponential backoff with jitter for Hatcher worker retries.'
-Tags:
-- retry
-- backoff
-- hatcher
-- resilience
-Authority: nucleus/Z-Core/L0-Genome/R0-ACT-SYS-AX01-10_holographic_metadata_axiom.md
----
-"""
-# =============================================================================
-# 0. 形式化摘要 ≝
-# =============================================================================
-# Retry Policy ≡ Module
-# 内涵 ≝ {Retry, Policy}
-# 外延 ≝ {e | e ∈ Organs ∧ implements(e, RetryPolicy)}
-# 功能 ⊢ {Retry_Policy, Init_Retry, Validate_Policy}
-# =============================================================================
+from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
@@ -43,7 +26,7 @@ class RetryPolicy:
     max_attempts:
         Maximum number of retry attempts (excludes the initial attempt).
     backoff_base:
-        Base for exponential delay calculation: ``backoff_base ** attempt``.
+        Base for exponential delay calculation: ``backoff_base ** attempt``
     max_delay:
         Hard upper bound on computed delay (seconds).
     jitter:
@@ -66,6 +49,20 @@ class RetryPolicy:
         if self.jitter:
             delay *= random.uniform(0.5, 1.5)  # noqa: S311
         return delay
+
+    @classmethod
+    def from_gateway_config(cls, config: "object") -> "RetryPolicy":
+        """Convert a llm_gateway.retry.RetryConfig to a RetryPolicy.
+
+        Enables sharing configuration between gateway (async) and
+        swarm (sync) contexts.
+        """
+        return cls(
+            max_attempts=getattr(config, "max_retries", 3),
+            backoff_base=2.0,
+            max_delay=getattr(config, "max_delay_ms", 60_000) / 1000,
+            jitter=True,
+        )
 
 
 @dataclass

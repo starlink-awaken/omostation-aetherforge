@@ -19,11 +19,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sqlite3
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from compute_mesh.pool.db_pool import get_connection
 
 _log = logging.getLogger(__name__)
 
@@ -53,32 +54,30 @@ class CostDB:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._jsonl_path.parent.mkdir(parents=True, exist_ok=True)
 
-        conn = sqlite3.connect(str(self._db_path))
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS cost_records (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts REAL NOT NULL,
-                ts_iso TEXT NOT NULL,
-                node_id TEXT NOT NULL,
-                model TEXT NOT NULL DEFAULT '',
-                prompt_tokens INTEGER NOT NULL DEFAULT 0,
-                completion_tokens INTEGER NOT NULL DEFAULT 0,
-                cost_input REAL NOT NULL DEFAULT 0.0,
-                cost_output REAL NOT NULL DEFAULT 0.0,
-                total_cost REAL NOT NULL DEFAULT 0.0
-            )
-        """)
-        c.execute("""
-            CREATE INDEX IF NOT EXISTS idx_cost_records_ts
-            ON cost_records(ts)
-        """)
-        c.execute("""
-            CREATE INDEX IF NOT EXISTS idx_cost_records_node
-            ON cost_records(node_id)
-        """)
-        conn.commit()
-        conn.close()
+        with get_connection(self._db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS cost_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts REAL NOT NULL,
+                    ts_iso TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    model TEXT NOT NULL DEFAULT '',
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_input REAL NOT NULL DEFAULT 0.0,
+                    cost_output REAL NOT NULL DEFAULT 0.0,
+                    total_cost REAL NOT NULL DEFAULT 0.0
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_cost_records_ts
+                ON cost_records(ts)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_cost_records_node
+                ON cost_records(node_id)
+            """)
+
 
     # ── Record ─────────────────────────────────────────────────────────────---
 
@@ -98,20 +97,18 @@ class CostDB:
 
         # SQLite
         try:
-            conn = sqlite3.connect(str(self._db_path))
-            c = conn.cursor()
-            c.execute(
-                """INSERT INTO cost_records
-                   (ts, ts_iso, node_id, model, prompt_tokens,
-                    completion_tokens, cost_input, cost_output, total_cost)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (now, ts_iso, node_id, model, prompt_tokens,
-                 completion_tokens, cost_input, cost_output, total_cost),
-            )
-            conn.commit()
-            conn.close()
+            with get_connection(self._db_path) as conn:
+                conn.execute(
+                    """INSERT INTO cost_records
+                       (ts, ts_iso, node_id, model, prompt_tokens,
+                        completion_tokens, cost_input, cost_output, total_cost)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (now, ts_iso, node_id, model, prompt_tokens,
+                     completion_tokens, cost_input, cost_output, total_cost),
+                )
         except Exception:
             _log.exception("Failed to write cost to SQLite")
+
 
         # JSONL shadow write
         try:
@@ -158,40 +155,37 @@ class CostDB:
 
         where = " AND ".join(conditions) if conditions else "1=1"
 
-        conn = sqlite3.connect(str(self._db_path))
-        c = conn.cursor()
+        with get_connection(self._db_path) as conn:
+            # Totals
+            row = conn.execute(
+                f"""SELECT
+                       COUNT(*) as total_requests,
+                       COALESCE(SUM(prompt_tokens), 0) as total_prompt_tokens,
+                       COALESCE(SUM(completion_tokens), 0) as total_completion_tokens,
+                       COALESCE(SUM(total_cost), 0.0) as total_cost
+                   FROM cost_records WHERE {where}""",
+                params,
+            ).fetchone()
+            totals = {
+                "total_requests": row[0],
+                "total_prompt_tokens": row[1],
+                "total_completion_tokens": row[2],
+                "total_cost": round(row[3], 6),
+            }
 
-        # Totals
-        c.execute(
-            f"""SELECT
-                   COUNT(*) as total_requests,
-                   COALESCE(SUM(prompt_tokens), 0) as total_prompt_tokens,
-                   COALESCE(SUM(completion_tokens), 0) as total_completion_tokens,
-                   COALESCE(SUM(total_cost), 0.0) as total_cost
-               FROM cost_records WHERE {where}""",
-            params,
-        )
-        row = c.fetchone()
-        totals = {
-            "total_requests": row[0],
-            "total_prompt_tokens": row[1],
-            "total_completion_tokens": row[2],
-            "total_cost": round(row[3], 6),
-        }
-
-        # Per node breakdown
-        c.execute(
-            f"""SELECT
-                   node_id,
-                   COUNT(*) as requests,
-                   COALESCE(SUM(total_cost), 0.0) as cost
-               FROM cost_records WHERE {where}
-               GROUP BY node_id ORDER BY cost DESC""",
-            params,
-        )
-        per_node = {row[0]: {"requests": row[1], "cost": round(row[2], 6)} for row in c.fetchall()}
-
-        conn.close()
+            # Per node breakdown
+            per_node = {
+                r[0]: {"requests": r[1], "cost": round(r[2], 6)}
+                for r in conn.execute(
+                    f"""SELECT
+                           node_id,
+                           COUNT(*) as requests,
+                           COALESCE(SUM(total_cost), 0.0) as cost
+                       FROM cost_records WHERE {where}
+                       GROUP BY node_id ORDER BY cost DESC""",
+                    params,
+                ).fetchall()
+            }
 
         return {
             **totals,
@@ -200,42 +194,34 @@ class CostDB:
             "jsonl_path": str(self._jsonl_path),
         }
 
+
     def get_recent(self, limit: int = 20) -> list[dict[str, Any]]:
         """Return the most recent *limit* cost records."""
-        conn = sqlite3.connect(str(self._db_path))
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        c.execute(
-            """SELECT * FROM cost_records
-               ORDER BY id DESC LIMIT ?""",
-            (limit,),
-        )
-        rows = [dict(row) for row in c.fetchall()]
-        conn.close()
-        return rows
+        with get_connection(self._db_path) as conn:
+            rows = conn.execute(
+                """SELECT * FROM cost_records ORDER BY id DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def get_total_cost(self) -> float:
         """Return the total cost across all records."""
-        conn = sqlite3.connect(str(self._db_path))
-        c = conn.cursor()
-        c.execute("SELECT COALESCE(SUM(total_cost), 0.0) FROM cost_records")
-        val = c.fetchone()[0]
-        conn.close()
+        with get_connection(self._db_path) as conn:
+            val = conn.execute(
+                "SELECT COALESCE(SUM(total_cost), 0.0) FROM cost_records"
+            ).fetchone()[0]
         return val
 
     def get_node_count(self) -> int:
         """Return the number of distinct nodes with cost records."""
-        conn = sqlite3.connect(str(self._db_path))
-        c = conn.cursor()
-        c.execute("SELECT COUNT(DISTINCT node_id) FROM cost_records")
-        val = c.fetchone()[0]
-        conn.close()
+        with get_connection(self._db_path) as conn:
+            val = conn.execute(
+                "SELECT COUNT(DISTINCT node_id) FROM cost_records"
+            ).fetchone()[0]
         return val
 
     def clear(self) -> None:
         """Delete all cost records."""
-        conn = sqlite3.connect(str(self._db_path))
-        c = conn.cursor()
-        c.execute("DELETE FROM cost_records")
-        conn.commit()
-        conn.close()
+        with get_connection(self._db_path) as conn:
+            conn.execute("DELETE FROM cost_records")
+

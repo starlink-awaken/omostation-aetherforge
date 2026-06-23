@@ -44,7 +44,7 @@ MERGED_MODULES = [
     # Dispatch compatibility shim
     "swarm_engine.dispatch.compat",
     # Engine subpackage modules
-    "swarm_engine.engine.a2a_protocol",
+    # NOTE: engine.a2a_protocol removed — merged into swarm_engine.a2a_protocol (P1-1 dedup)
     "swarm_engine.engine.archetype_distiller",
     "swarm_engine.engine.compute_harvester",
     "swarm_engine.engine.compute_pool",

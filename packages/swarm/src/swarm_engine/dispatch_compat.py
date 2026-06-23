@@ -11,6 +11,8 @@ import sqlite3
 from collections.abc import Callable
 from typing import Any
 
+from swarm_engine._compat import CapabilityRegistry
+
 
 class ExecutionCompatHelper:
     """Plain helper for RFC-026 compatibility reads and swarm governance shims."""
@@ -77,7 +79,7 @@ class ExecutionCompatHelper:
                         }
                     )
             except (sqlite3.Error, KeyError, AttributeError, OSError):
-                pass
+                _log.debug("Suppressed exception in %s", __name__)
         return {"status": "success", "data": rows}
 
     def task_status(self, params: dict[str, Any] | None) -> dict[str, Any]:
@@ -125,9 +127,9 @@ class ExecutionCompatHelper:
                     "data": [self._result_row_with_metadata(row, metadata_by_task) for row in rows],
                 }
             except (sqlite3.Error, KeyError, AttributeError, OSError):
-                pass
+                _log.debug("Suppressed exception in %s", __name__)
         try:
-            from .result_bus import ResultBus  # type: ignore[import-not-found]
+            from organs.D_Execution.organs.engine.result_bus import ResultBus  # type: ignore[import-not-found]
 
             results = ResultBus.get_instance().list_results()
         except (ImportError, AttributeError, TypeError, ValueError):
@@ -179,7 +181,9 @@ class ExecutionCompatHelper:
         swarm = getattr(self._agent_orchestrator, "_swarm_manager", None)
         if swarm is None:
             try:
-                daemon_swarm = importlib.import_module("nucleus.Z_Microkernel.infrastructure.bos_daemon.swarm")
+                daemon_swarm = importlib.import_module(
+                    "nucleus.Z_Microkernel.infrastructure.bos_daemon.swarm"  # TODO-migrate
+                )
                 swarm = daemon_swarm.get_lifecycle_manager()
             except (ImportError, AttributeError, RuntimeError, OSError, TypeError, ValueError):
                 swarm = None
@@ -209,13 +213,11 @@ class ExecutionCompatHelper:
                         }
                     )
             except (ValueError, TypeError, KeyError, AttributeError):
-                pass
+                _log.debug("Suppressed exception in %s", __name__)
 
         if not data:
             try:
-                from nucleus.Z_Microkernel.organs.capability_registry import (  # type: ignore[import-not-found]
-                    CapabilityRegistry,
-                )
+                # TODO-migrate: from nucleus.Z_Microkernel.organs.capability_registry import CapabilityRegistry
 
                 registry = CapabilityRegistry()
                 for agent in registry.list_agents():
@@ -235,7 +237,7 @@ class ExecutionCompatHelper:
                             }
                         )
             except ImportError:
-                pass
+                _log.debug("Suppressed exception in %s", __name__)
 
         return {"status": "success", "data": data}
 
@@ -256,11 +258,8 @@ class ExecutionCompatHelper:
         swarm = getattr(self._agent_orchestrator, "_swarm_manager", None)
         if swarm is None:
             try:
-                from nucleus.Z_Microkernel.infrastructure.bos_daemon.swarm import (  # type: ignore[import-not-found]
-                    get_lifecycle_manager,
-                )
-
-                swarm = get_lifecycle_manager()
+                # TODO-migrate: from nucleus.Z_Microkernel.infrastructure.bos_daemon.swarm import get_lifecycle_manager
+                swarm = None
             except (ImportError, AttributeError, RuntimeError, TypeError, ValueError):
                 swarm = None
 
