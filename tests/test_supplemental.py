@@ -32,6 +32,8 @@ def test(name):
         return wrapper
     return dec
 
+test.__test__ = False
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # StepCallbacks (vs CrewAI)
