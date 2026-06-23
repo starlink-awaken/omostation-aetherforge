@@ -1,6 +1,6 @@
 """Example 1: 基础 LLM 调用 — 最简单的入门方式。"""
 
-from llm_gateway.detection import detect_backends, create_provider
+from llm_gateway.detection import detect_backends
 from llm_gateway.provider import LLMRequest
 
 # 1. 自动检测可用的 LLM Provider

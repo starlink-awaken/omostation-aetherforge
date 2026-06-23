@@ -55,7 +55,7 @@ from .ssot_loader import load_ssot_models
 
 __version__ = "0.4.0"
 
-__all__ = (  # noqa: RUF022
+__all__ = (
     # ── Stable public API ──
     "LLMProvider",
     "LLMRequest",

@@ -206,7 +206,7 @@ class M1Loader:
         """Enrich a MachineInfo with a hardware_asset entry."""
         dtype = entry.get("device_type", "")
         model = entry.get("model", "")
-        spec = entry.get("spec", entry.get("specification", ""))
+        entry.get("spec", entry.get("specification", ""))
 
         if dtype == "cpu":
             machine.cpu_model = model

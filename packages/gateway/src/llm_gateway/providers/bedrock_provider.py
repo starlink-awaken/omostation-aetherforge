@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import AsyncIterator
 from typing import Any
 
 from ..provider import LLMProvider, LLMRequest, LLMResponse

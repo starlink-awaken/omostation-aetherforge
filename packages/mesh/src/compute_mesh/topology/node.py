@@ -112,7 +112,7 @@ class ComputeNode:
 
     network_zone: str = ""
     """Network locality: ``"local"``, ``"lan"``, ``"cloud"``, ``"tunnel"``.
-    
+
     If empty, derived from topology: region != '' → cloud, rack == 'local' → local.
     """
 

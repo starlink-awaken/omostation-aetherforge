@@ -18,7 +18,7 @@ from .registry_data_loader import estimate_model_cost
 _log = logging.getLogger(__name__)
 
 
-class BudgetExhausted(Exception):
+class BudgetExhaustedError(Exception):
     """Raised when an LLM call would exceed the configured budget."""
 
     def __init__(self, message: str, spent: float, cap: float, task_id: str | None = None):
@@ -30,7 +30,7 @@ class BudgetExhausted(Exception):
 
 def get_remaining_budget() -> float | None:
     """Read the remaining budget from the quota ledger summary.
-    
+
     Returns USD value or None if no budget is configured.
     """
     try:
@@ -111,16 +111,16 @@ def check_budget_limit(
 ) -> None:
     """Pre-call budget check."""
     projected_cost = estimate_model_cost(model_id, input_tokens, max_output_tokens)
-    
+
     limit_hit = False
     active_limit = 0.0
-    
+
     # 1. Local limit check
     if local_budget_limit is not None:
         if projected_cost > local_budget_limit:
             limit_hit = True
             active_limit = local_budget_limit
-            
+
     # 2. Global limit check (only if local didn't hit)
     if not limit_hit:
         remaining = get_remaining_budget()
@@ -128,16 +128,16 @@ def check_budget_limit(
             if projected_cost > remaining:
                 limit_hit = True
                 active_limit = remaining
-                
+
     if limit_hit:
         if task_id:
             _register_budget_debt(task_id, model_id, active_limit, projected_cost)
-            
-        raise BudgetExhausted(
+
+        raise BudgetExhaustedError(
             f"Projected cost ${projected_cost:.6f} exceeds budget ${active_limit:.6f} (model={model_id})",
             spent=0.0,
             cap=active_limit,
             task_id=task_id
         )
-            
+
     _log.debug("budget_check_passed: projected_cost=%s", projected_cost)

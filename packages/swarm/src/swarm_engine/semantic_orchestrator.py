@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF003
 import logging
 import os
 import sqlite3
@@ -654,7 +653,7 @@ class SemanticOrchestrator:
                 conn = sqlite3.connect(self.db_path)
                 placeholders = ",".join("?" * len(pending))
                 rows = conn.execute(
-                    f"SELECT id, status FROM tasks WHERE id IN ({placeholders})",  # noqa: S608
+                    f"SELECT id, status FROM tasks WHERE id IN ({placeholders})",
                     pending,
                 ).fetchall()
                 conn.close()

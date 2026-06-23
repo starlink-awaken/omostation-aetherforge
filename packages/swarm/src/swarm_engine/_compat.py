@@ -556,3 +556,147 @@ def agent_receive(target: str) -> list[Any]:
 def agent_ack(message_id: str) -> bool:
     """Stub for bos_agent_router_bridge.agent_ack."""
     return True
+
+
+# ── Additional Stubs for Organs Migration ─────────────────────────────────
+
+
+class AgentProfile:
+    """Stub for AgentProfile."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.agent_id: str = kwargs.get("agent_id", "")
+        self.persona: str = kwargs.get("persona", "")
+        self.capabilities: list[str] = kwargs.get("capabilities", [])
+
+
+class IntentParticle:
+    """Stub for IntentParticle."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.intent: str = kwargs.get("intent", "")
+        self.particle_type: str = kwargs.get("particle_type", "VISION")
+        self.estimated_eu: float = kwargs.get("estimated_eu", 10.0)
+
+
+class MetabolicStage(StrEnum):
+    """Stub for MetabolicStage."""
+
+    RAW = "RAW"
+    PARSED = "PARSED"
+    METABOLIZED = "METABOLIZED"
+
+
+class VisionParser:
+    """Stub for VisionParser."""
+
+    def parse(self, vision_text: str, total_eu_budget: float = 0.0) -> list[Any]:
+        return []
+
+
+WORKER_REGISTRY: dict[str, Any] = {}
+
+
+def get_worker_profile(worker_id: str, overrides: dict[str, Any] | None = None) -> Any:
+    """Stub for get_worker_profile."""
+    class _StubProfile:
+        def to_dict(self) -> dict[str, Any]:
+            return {}
+    return _StubProfile()
+
+
+def build_agent_cli_handle(*args: Any, **kwargs: Any) -> Any:
+    return None
+
+
+def inject_agent_cli_soul_env(*args: Any, **kwargs: Any) -> Any:
+    return {}
+
+
+def prepare_agent_cli_bootstrap(*args: Any, **kwargs: Any) -> Any:
+    return None
+
+
+def resolve_agent_cli_command(*args: Any, **kwargs: Any) -> list[str]:
+    return []
+
+
+def spawn_agent_cli_process(*args: Any, **kwargs: Any) -> Any:
+    return None
+
+
+class WorkerProcessExitedError(Exception):
+    """Stub for WorkerProcessExitedError."""
+
+
+class WorkerProcessStartTimeoutError(Exception):
+    """Stub for WorkerProcessStartTimeoutError."""
+
+
+def build_active_worker_handle(*args: Any, **kwargs: Any) -> Any:
+    return None
+
+
+def inject_soul_env(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return {}
+
+
+class HatchError(Exception):
+    """Exception raised when hatcher fails."""
+
+
+class HatchTimeoutError(Exception):
+    """Exception raised when hatching process times out."""
+
+
+def spawn_worker_process(*args: Any, **kwargs: Any) -> Any:
+    return None
+
+
+def wait_for_worker_process_start(*args: Any, **kwargs: Any) -> Any:
+    return None
+
+
+def emit_worker_hatched(*args: Any, **kwargs: Any) -> None:
+    pass
+
+
+def emit_worker_terminated(*args: Any, **kwargs: Any) -> None:
+    pass
+
+
+class RetryExhaustedError(Exception):
+    """Stub for RetryExhaustedError."""
+
+
+class RetryPolicy:
+    """Stub for RetryPolicy."""
+
+
+class RetryState:
+    """Stub for RetryState."""
+
+
+class TaskState(StrEnum):
+    """Stub for TaskState."""
+
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+
+
+class TaskStore:
+    """Stub for TaskStore."""
+
+
+def _thread_worker(*args: Any, **kwargs: Any) -> Any:
+    return None
+
+
+
+
+
+
+
+

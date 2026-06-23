@@ -48,7 +48,7 @@ class LLMGatewayHandler(BaseHTTPRequestHandler):
         model_id = model or provider.default_model
 
         # ── Phase 4: Pre-call Budget Check ──
-        from .budget import check_budget_limit, BudgetExhausted
+        from .budget import BudgetExhausted, check_budget_limit
         try:
             # Estimate tokens
             try:
@@ -57,7 +57,7 @@ class LLMGatewayHandler(BaseHTTPRequestHandler):
                 input_tokens = len(enc.encode(prompt))
             except ImportError:
                 input_tokens = (len(prompt) + 3) // 4
-                
+
             check_budget_limit(
                 model_id=model_id,
                 input_tokens=input_tokens,

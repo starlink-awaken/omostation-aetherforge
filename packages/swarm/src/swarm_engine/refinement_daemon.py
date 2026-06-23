@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF002
 import importlib
 import logging
 import os

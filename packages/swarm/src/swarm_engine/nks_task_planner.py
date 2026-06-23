@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF002
 import sqlite3
 
 """
@@ -31,7 +30,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, TypedDict
 
-from .organs.symphony.models import AgentProfile  # type: ignore[import-not-found]
+from ._compat import AgentProfile
 
 _log = logging.getLogger(__name__)
 

@@ -1,4 +1,3 @@
-# ruff: noqa: RUF003
 # ---
 # domain: D-Intelligence
 # layer: organ

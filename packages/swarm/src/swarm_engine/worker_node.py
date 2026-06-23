@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF001, RUF002
-
 """
 ---
 Type: Module
@@ -86,7 +84,7 @@ class WorkerNode:
     """
 
     # Differentiated by LifeCompiler
-    DEFAULT_CAPABILITIES: list[str] = ["generic", "task_execution"]  # noqa: RUF012
+    DEFAULT_CAPABILITIES: list[str] = ["generic", "task_execution"]
     MAX_CONCURRENT: int = 3
 
     def __init__(

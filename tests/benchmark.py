@@ -22,7 +22,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # ── Benchmark utilities ────────────────────────────────────────────────────
 
 
@@ -126,8 +125,13 @@ def bench_rate_limiter_throttle(n: int):
 @bench("RouterPipeline.select (10 models)", iterations=5_000, warmup=500)
 def bench_pipeline_select(n: int):
     from llm_gateway.policies import (
-        RouterPipeline, OnlineFilter, CapabilityFilter,
-        CostScore, SpeedScore, CapabilityScore, BalancedScore,
+        BalancedScore,
+        CapabilityFilter,
+        CapabilityScore,
+        CostScore,
+        OnlineFilter,
+        RouterPipeline,
+        SpeedScore,
     )
     from llm_gateway.types import ModelDescriptor, ModelRequest
 
@@ -160,8 +164,12 @@ def bench_pipeline_select(n: int):
 @bench("RouterPipeline.select (100 models)", iterations=2_000, warmup=200)
 def bench_pipeline_select_100(n: int):
     from llm_gateway.policies import (
-        RouterPipeline, OnlineFilter, CapabilityFilter,
-        CostScore, SpeedScore, BalancedScore,
+        BalancedScore,
+        CapabilityFilter,
+        CostScore,
+        OnlineFilter,
+        RouterPipeline,
+        SpeedScore,
     )
     from llm_gateway.types import ModelDescriptor, ModelRequest
 

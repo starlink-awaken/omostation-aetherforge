@@ -5,7 +5,6 @@ Connects the worker layer to the pool and gateway for actual execution.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -14,7 +13,6 @@ from typing import Any
 from llm_gateway.provider import LLMRequest, LLMResponse
 
 from ..pool import ComputePool
-from ..topology import NodeStatus
 from .registry import WorkerRegistry
 from .worker import MeshWorker, WorkerStatus
 

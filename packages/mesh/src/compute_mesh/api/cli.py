@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
 from ..pool import ComputePool, CostTracker
 
@@ -65,7 +64,7 @@ def cmd_status() -> int:
 
 def cmd_topology_scan() -> int:
     """Run topology discovery and show results."""
-    pool = _get_pool()
+    _get_pool()
     # Force re-scan
     _get_pool._pool = ComputePool()
     new_pool = _get_pool()
@@ -92,7 +91,7 @@ def cmd_health() -> int:
 def cmd_worker_list() -> int:
     """List registered workers."""
     pool = _get_pool()
-    from ..worker import WorkerRegistry, TaskDispatcher
+    from ..worker import TaskDispatcher, WorkerRegistry
 
     registry = WorkerRegistry()
     dispatcher = TaskDispatcher(pool, registry)
@@ -116,7 +115,7 @@ def cmd_worker_list() -> int:
 def cmd_worker_dispatch(worker_id: str, prompt: str) -> int:
     """Dispatch a generation task to a specific worker."""
     pool = _get_pool()
-    from ..worker import WorkerRegistry, TaskDispatcher
+    from ..worker import TaskDispatcher, WorkerRegistry
 
     registry = WorkerRegistry()
     dispatcher = TaskDispatcher(pool, registry)
@@ -176,7 +175,6 @@ def cmd_generate(prompt: str) -> int:
             print(f"❌ No available provider for node {best.node_id}.")
             return 1
 
-    from llm_gateway.provider import LLMRequest
 
     req = LLMRequest(prompt=prompt)
     resp = provider.complete(req)

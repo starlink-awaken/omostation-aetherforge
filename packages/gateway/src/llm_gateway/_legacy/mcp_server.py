@@ -5,7 +5,7 @@ from typing import Any
 from fastmcp import FastMCP
 from pydantic import BaseModel
 
-from .budget import check_budget_limit, get_remaining_budget, BudgetExhausted
+from .budget import BudgetExhausted, check_budget_limit, get_remaining_budget
 from .detection import detect_backends
 from .provider import LLMRequest, ToolSchema
 from .registry import ModelRegistry
@@ -19,6 +19,7 @@ _scheduler: ModelScheduler | None = None
 
 if M1_ENGINE_DIR.exists():
     import asyncio
+
     from .ssot_loader import load_ssot_models
     load_ssot_models(_registry, str(M1_ENGINE_DIR))
     _scheduler = ModelScheduler(_registry)

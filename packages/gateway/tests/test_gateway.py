@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
-
 
 # ── RateLimiter ──────────────────────────────────────────────────────────────
 
@@ -109,7 +107,7 @@ def _make_models(count: int = 3):
 
 
 def test_pipeline_filter():
-    from llm_gateway.policies import RouterPipeline, OnlineFilter, CostScore
+    from llm_gateway.policies import CostScore, OnlineFilter, RouterPipeline
     from llm_gateway.types import ModelRequest
     models = _make_models(4)
     req = ModelRequest(task="test")
@@ -124,7 +122,7 @@ def test_pipeline_filter():
 
 
 def test_pipeline_capability_filter():
-    from llm_gateway.policies import RouterPipeline, CapabilityFilter, CostScore
+    from llm_gateway.policies import CapabilityFilter, CostScore, RouterPipeline
     from llm_gateway.types import ModelDescriptor, ModelRequest
     models = [
         ModelDescriptor(id="a", provider="t", capabilities=["chat"], is_available=True),
@@ -155,9 +153,9 @@ def test_pipeline_legacy_api():
 
 
 def test_registry_metrics_hook():
-    from llm_gateway.registry import ModelRegistry
     from llm_gateway.metrics import MetricsCollector
     from llm_gateway.rate_limiter import RateLimiter
+    from llm_gateway.registry import ModelRegistry
 
     reg = ModelRegistry()
     mc = MetricsCollector()
@@ -173,8 +171,8 @@ def test_registry_metrics_hook():
 
 
 def test_registry_rate_limit_blocks():
-    from llm_gateway.registry import ModelRegistry
     from llm_gateway.rate_limiter import RateLimiter
+    from llm_gateway.registry import ModelRegistry
 
     reg = ModelRegistry()
     rl = RateLimiter()
@@ -193,9 +191,10 @@ def test_registry_rate_limit_blocks():
 
 def test_all_9_providers_importable():
     from llm_gateway.providers import (
-        AnthropicProvider, AzureOpenAIProvider, BedrockProvider,
-        DeepSeekProvider, GeminiProvider, HitlLLMProvider,
-        OllamaProvider, OpenAIProvider, VertexAIProvider,
+        AnthropicProvider,
+        AzureOpenAIProvider,
+        BedrockProvider,
+        VertexAIProvider,
     )
     assert AnthropicProvider and AzureOpenAIProvider and BedrockProvider and VertexAIProvider
     from llm_gateway.detection import _PROVIDER_REGISTRY

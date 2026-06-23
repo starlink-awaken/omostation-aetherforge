@@ -14,12 +14,12 @@ Usage:
 """
 
 from __future__ import annotations
-import os
-import warnings
 
 import argparse
 import asyncio
+import os
 import sys
+import warnings
 from pathlib import Path
 
 from .detection import create_provider, detect_backends

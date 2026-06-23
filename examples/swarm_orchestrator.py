@@ -2,13 +2,14 @@
 A2A Swarm Automated Pipeline (Model-Driven Software Engineering)
 This orchestrator simulates a software engineering pipeline driven by eCOS v5 A2A Swarm.
 """
-from swarm_engine.group_chat import GroupChat, GroupChatAgent
-import json
 import uuid
+
+from swarm_engine.group_chat import GroupChat, GroupChatAgent
+
 
 def run_software_engineering_pipeline(task_intent: str):
     print(f"🚀 [Swarm Orchestrator] Starting automated pipeline for task: '{task_intent}'")
-    
+
     # 1. Define the Agents
     agents = [
         GroupChatAgent(
@@ -42,24 +43,24 @@ def run_software_engineering_pipeline(task_intent: str):
     # 2. Launch the Swarm GroupChat
     # We want a sequence: PO -> Dev -> Ops -> PO (final approval). Let's use max_turns=4.
     chat = GroupChat(agents=agents, max_turns=4)
-    
+
     try:
         result = chat.run(task_intent)
-        
+
         print("\n" + "=" * 60)
         print(f"✅ [Swarm Orchestrator] Pipeline Completed in {result.total_turns} turns.")
         print("=" * 60)
-        
+
         for msg in result.history:
             role_tag = f"[{msg.agent_role.upper()}]" if msg.agent_role else "[SYSTEM]"
             print(f"\n🗣️ {msg.sender} {role_tag}:")
             print(f"{msg.content}")
             print("-" * 60)
-            
+
         # Mock writing the final artifact
         artifact_path = f".omo/tasks/active/SWARM-TASK-{uuid.uuid4().hex[:6].upper()}.yaml"
         print(f"\n📦 [Swarm Orchestrator] Automatically generated OMO task manifest: {artifact_path}")
-        
+
     except Exception as e:
         print(f"❌ [Swarm Orchestrator] Pipeline failed: {e}")
 

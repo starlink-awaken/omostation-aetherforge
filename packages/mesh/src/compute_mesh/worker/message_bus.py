@@ -243,7 +243,7 @@ class WorkerMessageBus:
     def get_stats(self) -> dict[str, Any]:
         """Return bus statistics."""
         with self._lock:
-            inbox_sizes = {wid: len(msgs) for wid, msgs in self._inbox.items()}
+            {wid: len(msgs) for wid, msgs in self._inbox.items()}
         return {
             "inbox_count": len(self._inbox),
             "pending_messages": sum(len(v) for v in self._inbox.values()),

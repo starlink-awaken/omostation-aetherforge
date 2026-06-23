@@ -5,8 +5,8 @@ Covers: GroupChat, GraphWorkflow, StepCallbacks, ObjectStore, new providers.
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "packages", "gateway", "src"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "packages", "mesh", "src"))
@@ -241,8 +241,9 @@ def test_objectstore_basic():
 
 @test("ObjectStore: TTL expiry")
 def test_objectstore_ttl():
-    from compute_mesh.worker.object_store import ObjectStore
     import time
+
+    from compute_mesh.worker.object_store import ObjectStore
     store = ObjectStore(db_path=None)
     oid = store.put({"temp": True}, ttl=0.05)
     assert store.get(oid) is not None
@@ -252,8 +253,10 @@ def test_objectstore_ttl():
 
 @test("ObjectStore: SQLite persistence")
 def test_objectstore_persist():
+    import os
+    import tempfile
+
     from compute_mesh.worker.object_store import ObjectStore
-    import tempfile, os
     tmp = tempfile.mkdtemp()
     db_path = os.path.join(tmp, "test_objs.db")
     store = ObjectStore(db_path=db_path)
@@ -305,7 +308,9 @@ def test_providers_9():
 @test("Providers: all classes importable")
 def test_providers_import():
     from llm_gateway.providers import (
-        AzureOpenAIProvider, BedrockProvider, VertexAIProvider,
+        AzureOpenAIProvider,
+        BedrockProvider,
+        VertexAIProvider,
     )
     assert AzureOpenAIProvider
     assert BedrockProvider

@@ -63,13 +63,13 @@ class ModelScheduler:
         models list --json 采集的价格数据写入缓存后，
         此方法将 ModelDescriptor 的 cost_per_1k_tokens 更新为真实价格。
         """
-        CACHE_PATH = Path.home() / ".runtime" / "cache" / "quota_rates.json"
-        if not CACHE_PATH.exists():
+        cache_path = Path.home() / ".runtime" / "cache" / "quota_rates.json"
+        if not cache_path.exists():
             self._quota_low_mode = False
             return 0
 
         try:
-            with open(CACHE_PATH) as f:
+            with open(cache_path) as f:
                 data = json.load(f)
         except (json.JSONDecodeError, Exception):
             self._quota_low_mode = False
@@ -162,13 +162,13 @@ class ModelScheduler:
         candidates = [
             m for m in all_models if m.is_available and all(c in m.capabilities for c in request.required_capabilities)
         ]
-        
+
         # ── Phase 4: Local budget limit filtering ──
         if merged_policy.budget_limit_usd is not None:
             from .registry_data_loader import estimate_model_cost
             # Assume 1000 input + 512 output as a standard probe
             candidates = [
-                m for m in candidates 
+                m for m in candidates
                 if estimate_model_cost(m.id, 1000, 512) <= merged_policy.budget_limit_usd
             ]
 

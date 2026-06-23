@@ -1,4 +1,3 @@
-# ruff: noqa: RUF002
 """LLM provider abstraction — unified ABC and dataclasses.
 
 Provides:
@@ -15,14 +14,14 @@ import json
 import logging
 import os
 import time as _time
-
-from .quota_ledger import append_quota_ledger_event
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
+
+from .quota_ledger import append_quota_ledger_event
 
 _T = TypeVar("_T")
 
@@ -101,7 +100,7 @@ def record_llm_cost(
             output_tokens=output_tokens,
             estimated_cost_usd=estimated_cost_usd,
         )
-    except Exception:  # noqa: S110
+    except Exception:
         pass  # non-blocking
 
 
@@ -154,7 +153,7 @@ class LLMRetryExhaustedError(LLMError):
 # ---------------------------------------------------------------------------
 
 
-def _with_llm_retry(  # noqa: UP047
+def _with_llm_retry(
     fn: Callable[[], _T],
     max_retries: int = 3,
     base_delay: float = 1.0,

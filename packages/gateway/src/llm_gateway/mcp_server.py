@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +8,7 @@ from pydantic import BaseModel
 from .detection import detect_backends
 from .provider import LLMRequest, ToolSchema
 from .registry import ModelRegistry
-from .scheduler import ModelScheduler, SchedulerConfig
+from .scheduler import ModelScheduler
 
 # Load L0 M1 compute_engine nodes
 M1_ENGINE_DIR = Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
@@ -18,6 +17,7 @@ _scheduler: ModelScheduler | None = None
 
 if M1_ENGINE_DIR.exists():
     import asyncio
+
     from .ssot_loader import load_ssot_models
     load_ssot_models(_registry, str(M1_ENGINE_DIR))
     try:

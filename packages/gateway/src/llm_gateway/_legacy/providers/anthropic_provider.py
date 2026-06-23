@@ -92,7 +92,7 @@ class AnthropicProvider(LLMProvider):
     async def generate(self, request: LLMRequest) -> LLMResponse:
         try:
             client = self._get_async_client()
-            messages: list[dict] = list(request.context) + [{"role": "user", "content": request.prompt}]  # noqa: RUF005
+            messages: list[dict] = list(request.context) + [{"role": "user", "content": request.prompt}]
             model = request.model or self.default_model
             response = await client.messages.create(  # type: ignore[attr-defined]
                 model=model,
@@ -117,7 +117,7 @@ class AnthropicProvider(LLMProvider):
         started_at = _time.perf_counter()
         try:
             client = self._get_client()
-            messages: list[dict] = list(request.context) + [{"role": "user", "content": request.prompt}]  # noqa: RUF005
+            messages: list[dict] = list(request.context) + [{"role": "user", "content": request.prompt}]
             model = request.model or self.default_model
             response = _with_llm_retry(
                 lambda: client.messages.create(  # type: ignore[attr-defined]
@@ -147,7 +147,7 @@ class AnthropicProvider(LLMProvider):
         try:
             client = self._get_async_client()
             model = request.model or self.default_model
-            messages: list[dict] = list(request.context) + [{"role": "user", "content": request.prompt}]  # noqa: RUF005
+            messages: list[dict] = list(request.context) + [{"role": "user", "content": request.prompt}]
             async with client.messages.stream(  # type: ignore[attr-defined]
                 model=model,
                 max_tokens=request.max_tokens,

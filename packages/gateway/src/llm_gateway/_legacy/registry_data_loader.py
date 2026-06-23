@@ -7,9 +7,8 @@ import yaml
 
 from .providers.base import BaseLLMProvider
 from .registry import ModelRegistry
-from .types import ChatOptions, ChatResult, ModelDescriptor, ModelRequest, ModelRoutePolicy, ModelSelection
 from .scheduler import ModelScheduler
-
+from .types import ChatOptions, ChatResult, ModelDescriptor, ModelRequest, ModelRoutePolicy, ModelSelection
 
 REGISTRY_DATA_DIR = Path(__file__).resolve().parent / "registry_data"
 MODELS_PATH = REGISTRY_DATA_DIR / "models.yaml"

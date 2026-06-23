@@ -10,7 +10,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 try:
@@ -22,8 +21,8 @@ except ImportError:
 
 def cmd_list(show_cost: bool = False) -> int:
     """List models from pricing registry + gateway detection."""
-    from llm_gateway.pricing import PricingRegistry
     from llm_gateway.detection import detect_backends
+    from llm_gateway.pricing import PricingRegistry
 
     pricing = PricingRegistry()
 
@@ -71,7 +70,7 @@ def cmd_list(show_cost: bool = False) -> int:
 
 def cmd_cost(model_id: str) -> int:
     """Query cost for a specific model."""
-    from llm_gateway.detection import detect_backends, create_provider
+    from llm_gateway.detection import detect_backends
 
     for p in detect_backends():
         if model_id in p.available_models():

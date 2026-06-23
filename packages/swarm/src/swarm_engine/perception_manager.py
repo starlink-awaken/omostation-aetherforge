@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF002, RUF003
 import asyncio
 
 # ---
@@ -143,7 +142,7 @@ class PerceptionManager:
 
         _log.info("[*] PerceptionManager initialized")
 
-    def monitor_filesystem(self, path: str, callback: Callable = None) -> str:  # noqa: RUF013
+    def monitor_filesystem(self, path: str, callback: Callable = None) -> str:
         """
         监控文件系统变化
 
@@ -236,7 +235,7 @@ class PerceptionManager:
         # 简化实现：使用轮询
         # 可以扩展为使用 watchdog 库
 
-    async def async_monitor_filesystem(self, path: str, callback: Callable = None) -> str:  # noqa: RUF013
+    async def async_monitor_filesystem(self, path: str, callback: Callable = None) -> str:
         """
         异步监控文件系统变化（使用 watchdog）
 
@@ -488,7 +487,7 @@ class PerceptionManager:
         # 实际应该根据事件类型和配置通知相应的 Agent 或 Tool
         _log.info("📢 [Perception] Notifying recipients for event: {event['event_type']}")
 
-    def get_events(self, event_type: str = None, limit: int = 100) -> list[dict]:  # noqa: RUF013
+    def get_events(self, event_type: str = None, limit: int = 100) -> list[dict]:
         """
         获取事件
 

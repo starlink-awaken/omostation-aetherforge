@@ -932,7 +932,7 @@ class SwarmLifecycleManager(ISwarmLifecycle):
             return
 
         try:
-            loop.create_task(api.store(key=key, value=value, importance=0.3, ttl=3600.0))  # noqa: RUF006
+            loop.create_task(api.store(key=key, value=value, importance=0.3, ttl=3600.0))
         except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
             logger.debug(
                 "[SwarmLifecycleManager] metadata persistence skipped: %s",

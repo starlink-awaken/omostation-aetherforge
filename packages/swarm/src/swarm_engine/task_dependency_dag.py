@@ -136,7 +136,7 @@ class TaskDAG:
                     continue
                 if color[dep] == GRAY:
                     cycle_start = path.index(dep)
-                    cycles.append(path[cycle_start:] + [dep])  # noqa: RUF005
+                    cycles.append(path[cycle_start:] + [dep])
                 elif color[dep] == WHITE:
                     dfs(dep)
             path.pop()

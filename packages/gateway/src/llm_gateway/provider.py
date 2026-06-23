@@ -1,4 +1,3 @@
-# ruff: noqa: RUF002
 """LLM provider abstraction — unified ABC and dataclasses.
 
 Provides:
@@ -35,7 +34,7 @@ def record_llm_cost(model: str, input_tokens: int, output_tokens: int) -> None:
     try:
         from ._legacy.quota_ledger import append_quota_ledger_event
         from .budget import estimate_cost
-        
+
         # 1. Standard Cost Log (Legacy compatible)
         record = {
             "ts": datetime.now(UTC).isoformat(),
@@ -53,7 +52,7 @@ def record_llm_cost(model: str, input_tokens: int, output_tokens: int) -> None:
         finally:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
-            
+
         # 2. Update Quota Ledger (Real-time deduction)
         # Calculate real cost based on pricing registry
         cost_usd = estimate_cost(model, input_tokens, output_tokens)
@@ -63,8 +62,8 @@ def record_llm_cost(model: str, input_tokens: int, output_tokens: int) -> None:
             output_tokens=output_tokens,
             estimated_cost_usd=cost_usd
         )
-        
-    except Exception as e:  # noqa: S110
+
+    except Exception as e:
         _log.debug("failed_to_record_cost: %s", e)
 
 
@@ -91,7 +90,7 @@ class LLMRetryExhaustedError(LLMError):
 # ---------------------------------------------------------------------------
 
 
-def _with_llm_retry(  # noqa: UP047
+def _with_llm_retry(
     fn: Callable[[], _T],
     max_retries: int = 3,
     base_delay: float = 1.0,

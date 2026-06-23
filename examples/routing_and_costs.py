@@ -1,10 +1,10 @@
 """Example 3: 智能路由 + 限流 + 成本追踪。"""
 
-from llm_gateway.policies import RouterPipeline, OnlineFilter, CostScore, SpeedScore
-from llm_gateway.rate_limiter import RateLimiter
-from llm_gateway.types import ModelDescriptor, ModelRequest
 from compute_mesh.pool import CostTracker
 from compute_mesh.topology import NodeRegistry
+from llm_gateway.policies import CostScore, OnlineFilter, RouterPipeline, SpeedScore
+from llm_gateway.rate_limiter import RateLimiter
+from llm_gateway.types import ModelDescriptor, ModelRequest
 
 # 1. 构建自定义路由 pipeline
 pipeline = RouterPipeline()
@@ -46,6 +46,6 @@ tracker = CostTracker(NodeRegistry())
 tracker.record("gpt-4", prompt_tokens=500, completion_tokens=200, model="gpt-4")
 tracker.record("local-llama", prompt_tokens=1000, completion_tokens=500, model="llama3")
 report = tracker.get_report()
-print(f"\n💰 成本报告:")
+print("\n💰 成本报告:")
 print(f"  会话总计: ${report['session']['total_cost']:.4f}")
 print(f"  累计总计: ${report['all_time']['total_cost']:.4f}")

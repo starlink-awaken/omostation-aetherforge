@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF001, RUF002
 from ._compat import ProjectPaths
 
 """
@@ -609,7 +608,7 @@ class ExecutionScheduler:
                     params.append(finished_at)
                 params.append(task_id)
                 with conn:
-                    conn.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE task_id = ?", params)  # noqa: S608
+                    conn.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE task_id = ?", params)
                 # Emit transition log — always, not just for audit events
                 _log.info("STATE task_id=%s transition=%s→%s", task_id, old_status, new_status)
                 return True

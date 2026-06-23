@@ -9,7 +9,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-
 AUDIT_DIR = Path(
     os.environ.get(
         "LLM_GATEWAY_AUDIT_DIR",
@@ -33,7 +32,7 @@ class LLMCallAuditRecord(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _check_ts(self) -> "LLMCallAuditRecord":
+    def _check_ts(self) -> LLMCallAuditRecord:
         if not self.ts.endswith("Z"):
             raise ValueError("ts must end with Z")
         return self

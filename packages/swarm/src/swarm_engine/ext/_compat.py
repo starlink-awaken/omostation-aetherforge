@@ -59,7 +59,7 @@ class InferenceOracle:
             cls._instance = cls()
         return cls._instance
 
-    def infer(self, prompt: str, **kwargs: Any) -> str:  # noqa: ARG002
+    def infer(self, prompt: str, **kwargs: Any) -> str:
         _log.warning("InferenceOracle stub invoked for %r", prompt[:40])
         return ""
 

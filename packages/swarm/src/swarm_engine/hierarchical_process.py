@@ -189,7 +189,7 @@ class HierarchicalProcess:
         """Execute subtasks in topological order respecting dependencies."""
         executed: set[str] = set()
         remaining = {s.id for s in subtasks}
-        lookup = {s.id: s for s in subtasks}
+        {s.id: s for s in subtasks}
 
         max_iter = len(subtasks) * 2
         for _ in range(max_iter):

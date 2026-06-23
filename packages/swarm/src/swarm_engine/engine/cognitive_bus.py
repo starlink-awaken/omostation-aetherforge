@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF001, RUF002, RUF003
 from swarm_engine._compat import InferenceOracle
 
 """

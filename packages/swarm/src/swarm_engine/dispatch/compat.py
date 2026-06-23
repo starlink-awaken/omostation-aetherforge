@@ -141,7 +141,7 @@ class ExecutionCompatHelper:
             return {}
         placeholders = ",".join("?" for _ in task_ids)
         rows = conn.execute(
-            f"SELECT task_id, metadata FROM task_records WHERE task_id IN ({placeholders})",  # noqa: S608
+            f"SELECT task_id, metadata FROM task_records WHERE task_id IN ({placeholders})",
             tuple(task_ids),
         ).fetchall()
         metadata_by_task: dict[str, dict[str, Any]] = {}

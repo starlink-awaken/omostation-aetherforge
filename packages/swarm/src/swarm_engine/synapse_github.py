@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF003
-
 """
 ---
 Type: Module
@@ -56,7 +54,7 @@ class GithubSynapse:
         self._constraint_check(f"query_issue: {repo}/{issue_id}")
 
         try:
-            result = subprocess.run(  # noqa: S603
+            result = subprocess.run(
                 [
                     self.binary,
                     "issue",
@@ -83,7 +81,7 @@ class GithubSynapse:
         self._constraint_check(f"list_prs: {repo}")
 
         try:
-            result = subprocess.run(  # noqa: S603
+            result = subprocess.run(
                 [
                     self.binary,
                     "pr",
@@ -109,7 +107,7 @@ class GithubSynapse:
     def validate_internal_state(self) -> bool:
         # 检查二进制文件是否存在
         try:
-            subprocess.run([self.binary, "--version"], capture_output=True)  # noqa: S603
+            subprocess.run([self.binary, "--version"], capture_output=True)
             return True
         except (subprocess.CalledProcessError, OSError) as e:
             _log.error("%s: %s", type(e).__name__, e)

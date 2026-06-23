@@ -93,7 +93,7 @@ class GatewaySynapse:
             A dict with keys ``"response"`` (str), ``"model"`` (str),
             ``"provider"`` (str), ``"tokens_in"`` (int), ``"tokens_out"`` (int).
         """
-        from llm_gateway.detection import create_provider, detect_backends
+        from llm_gateway.detection import detect_backends
         from llm_gateway.provider import LLMRequest
 
         # Try to find a provider that has this model

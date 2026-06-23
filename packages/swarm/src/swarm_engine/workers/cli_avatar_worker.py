@@ -217,7 +217,7 @@ class CliAvatarWorker(ISynapseWorker):
             # Fallback to basic context injection
             task_prompt = ContextInjector.generate_hifi_prompt(self.persona, msg, sandbox_path)
 
-        cmd = self.cli_command + [task_prompt]  # noqa: RUF005
+        cmd = self.cli_command + [task_prompt]
 
         try:
             logger.info(f"[{self.worker_id}] Spawning {self.cli_command[0]} in {sandbox_path}")

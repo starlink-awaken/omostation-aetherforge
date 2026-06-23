@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF001, RUF002, RUF003
-
 """
 ---
 Type: Module
@@ -61,8 +59,7 @@ from typing import Any
 
 import yaml
 
-from .organs.engine.agent_daemon_base import AgentDaemonBase  # type: ignore[import-not-found]
-from .organs.worker_profile import WORKER_REGISTRY, get_worker_profile  # type: ignore[import-not-found]
+from ._compat import AgentDaemonBase, WORKER_REGISTRY, get_worker_profile
 
 _log = logging.getLogger(__name__)
 HAS_WORKER_PROFILE = True
@@ -269,7 +266,7 @@ class UniversalWorker(AgentDaemonBase):
 
         _log.info("[>] direct_exec: %s (cwd=%s, timeout=%ss)", command, cwd, timeout)
         try:
-            result = subprocess.run(  # noqa: S602
+            result = subprocess.run(
                 shlex.split(command),
                 capture_output=True,
                 text=True,
@@ -313,7 +310,7 @@ class UniversalWorker(AgentDaemonBase):
         merged_env = {**os.environ, **extra_env}
         _log.info("[>] subprocess: %s (timeout=%ss)", args, timeout)
         try:
-            result = subprocess.run(  # noqa: S603
+            result = subprocess.run(
                 args,
                 capture_output=True,
                 text=True,

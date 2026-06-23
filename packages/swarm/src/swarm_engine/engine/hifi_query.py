@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF001, RUF003
-
 """
 ---
 Type: Module

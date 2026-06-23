@@ -60,6 +60,12 @@ MERGED_MODULES = [
     "swarm_engine.engine.swarm_emergence",
     "swarm_engine.engine.swarm_optimizer",
     "swarm_engine.execution_scheduler",
+    # Newly reconciled legacy modules
+    "swarm_engine.hatcher_core",
+    "swarm_engine.ils_engine",
+    "swarm_engine.nks_task_planner",
+    "swarm_engine.universal_worker",
+    "swarm_engine.vision_metabolizer",
 ]
 
 

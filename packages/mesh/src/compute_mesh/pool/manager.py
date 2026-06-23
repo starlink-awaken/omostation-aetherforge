@@ -267,7 +267,7 @@ class ComputePool:
         Returns:
             Dict with ``added``, ``removed``, ``total`` counts.
         """
-        from ..worker import TaskDispatcher, WorkerRegistry
+        from ..worker import TaskDispatcher
 
         dispatcher = TaskDispatcher(self, worker_registry)
         total_workers = worker_registry.count()
@@ -323,4 +323,4 @@ class ComputePool:
 
 
 # Import socket at module level for _probe_node
-import socket  # noqa: E402
+import socket

@@ -11,11 +11,11 @@
 
     qe = QuotaEngine()
     qe.start()                     # 启动后台刷新线程
-    
+
     # 立即返回缓存数据 (从不阻塞)
     quota = qe.get_quota("deepseek")
     status = qe.get_all_status()
-    
+
     qe.stop()                      # 停止后台线程
 """
 
@@ -27,10 +27,8 @@ import os
 import subprocess
 import threading
 import time
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from typing import Any
 
 from .credentials import CredentialsManager
@@ -75,7 +73,7 @@ class ProviderData:
     quota_source: str = ""  # codexbar | local | unknown
     error: str = ""
     updated_at: float = 0.0
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "provider": self.provider,

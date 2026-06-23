@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF002, RUF003
-
 """
 ---
 Type: Module
@@ -97,7 +95,7 @@ class SynapseHub:
         _log.info("⚙️ [SynapseHub] 执行指令: %s", final_cmd)
 
         try:
-            result = subprocess.run(  # noqa: S602
+            result = subprocess.run(
                 shlex.split(final_cmd),
                 capture_output=True,
                 text=True,

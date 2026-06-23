@@ -2,7 +2,6 @@
 
 import pytest
 
-
 MODULES = [
     "swarm_engine.ext.archetype_distiller",
     "swarm_engine.ext.cluster",

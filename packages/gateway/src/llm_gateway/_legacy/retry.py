@@ -56,7 +56,7 @@ def _backoff(attempt: int, config: RetryConfig) -> float:
     return min(ms, config.max_delay_ms)
 
 
-async def with_retry(  # noqa: UP047
+async def with_retry(
     fn: Callable[[], Awaitable[T]],
     on_retry: Callable[[int, int | None, float], None] | None = None,
     config: RetryConfig | None = None,

@@ -11,7 +11,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 
 
 def cmd_list() -> int:
@@ -68,7 +67,7 @@ def cmd_quota(provider: str = "") -> int:
         elif src == "codexbar":
             desc = q.get("reset_description", "")
             print(f"{provider}:")
-            print(f"  Source:   codexbar (实时配额)")
+            print("  Source:   codexbar (实时配额)")
             print(f"  Used:     {q.get('used', 0)}%")
             if desc:
                 print(f"  Detail:   {desc}")

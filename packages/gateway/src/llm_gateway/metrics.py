@@ -27,7 +27,7 @@ import logging
 import threading
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -199,4 +199,4 @@ class MetricsCollector:
 
 
 # Import os for file writing
-import os  # noqa: E402
+import os

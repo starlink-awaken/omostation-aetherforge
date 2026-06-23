@@ -65,7 +65,7 @@ def test_config_defaults():
 
 @register_test("Config: write and reload")
 def test_config_write():
-    from aetherforge.config import write_default_config, load_config
+    from aetherforge.config import load_config, write_default_config
     tmp = tempfile.mkdtemp()
     path = os.path.join(tmp, "aetherforge.yaml")
     write_default_config(path)
@@ -81,8 +81,8 @@ def test_config_write():
 @register_test("Gateway: 6 providers importable")
 def test_gateway_providers():
     from llm_gateway.providers import (
-        ollama_provider, openai_provider, anthropic_provider,
-        gemini_provider, deepseek_provider, hitl_provider,
+        hitl_provider,
+        ollama_provider,
     )
     # Instantiate all
     p_ollama = ollama_provider.OllamaProvider()
@@ -108,8 +108,11 @@ def test_gateway_rate_limiter():
 @register_test("Gateway: RouterPipeline Filter/Score")
 def test_gateway_pipeline():
     from llm_gateway.policies import (
-        RouterPipeline, OnlineFilter, CostScore, CapabilityFilter,
-        BudgetFilter, SpeedScore, BalancedScore,
+        BalancedScore,
+        CapabilityFilter,
+        CostScore,
+        OnlineFilter,
+        RouterPipeline,
     )
     from llm_gateway.types import ModelDescriptor, ModelRequest
 
@@ -186,7 +189,7 @@ def test_mesh_topology():
 
 @register_test("Mesh: ComputeNode with topology")
 def test_mesh_compute_node():
-    from compute_mesh.topology import ComputeNode, TopologyLabels, NodeEngineType
+    from compute_mesh.topology import ComputeNode, NodeEngineType, TopologyLabels
     node = ComputeNode(
         node_id="test",
         engine_type=NodeEngineType.LOCAL_DAEMON,
@@ -207,7 +210,7 @@ def test_mesh_compute_node():
 
 @register_test("Mesh: NodeRegistry CRUD")
 def test_mesh_registry():
-    from compute_mesh.topology import NodeRegistry, ComputeNode
+    from compute_mesh.topology import ComputeNode, NodeRegistry
     reg = NodeRegistry()
     n1 = ComputeNode(node_id="n1")
     n2 = ComputeNode(node_id="n2")
@@ -249,9 +252,10 @@ def test_mesh_pool():
 
 @register_test("Mesh: CostTracker SQLite dual write")
 def test_mesh_cost():
-    from compute_mesh.pool import CostTracker, CostDB
-    from compute_mesh.topology import NodeRegistry
     import tempfile
+
+    from compute_mesh.pool import CostDB, CostTracker
+    from compute_mesh.topology import NodeRegistry
 
     tmp = tempfile.mkdtemp()
     db = CostDB(db_path=os.path.join(tmp, "test.db"), jsonl_path=os.path.join(tmp, "test.jsonl"))
@@ -272,8 +276,8 @@ def test_mesh_cost():
 
 @register_test("Mesh: WorkerRegistry + TaskDispatcher")
 def test_mesh_worker():
-    from compute_mesh.worker import WorkerRegistry, TaskDispatcher, MeshWorker
     from compute_mesh.pool import ComputePool
+    from compute_mesh.worker import TaskDispatcher, WorkerRegistry
 
     pool = ComputePool()
     pool.scan()
@@ -315,14 +319,14 @@ def test_mesh_message_bus():
     bus.send("w3", {"push": True})
     assert len(received) == 1
 
-    stats = bus.get_stats()
+    bus.get_stats()
     print(f"    delivered={len(msgs)} broadcast={len(msgs_b)} push={len(received)}")
 
 
 @register_test("Mesh: Queue in MeshScheduler")
 def test_mesh_queue():
-    from compute_mesh.scheduler import MeshScheduler
     from compute_mesh.pool import ComputePool
+    from compute_mesh.scheduler import MeshScheduler
     from llm_gateway.types import ModelRequest
 
     pool = ComputePool()
@@ -337,7 +341,7 @@ def test_mesh_queue():
 
     ready = mesh_sched.dequeue_ready()
     # May be empty if no nodes are online
-    stats2 = mesh_sched.get_queue_stats()
+    mesh_sched.get_queue_stats()
     print(f"    queued={stats['queued']} max={stats['max_size']} dequeued={len(ready)}")
 
 
@@ -373,7 +377,7 @@ def test_swarm_synapse():
 
 @register_test("Swarm: HierarchicalProcess parse")
 def test_swarm_hp_parse():
-    from swarm_engine.hierarchical_process import HierarchicalProcess, SubTask
+    from swarm_engine.hierarchical_process import HierarchicalProcess
     hp = HierarchicalProcess()
     # Test JSON parsing
     subtasks = hp._parse_subtasks('[{"id":"s1","description":"Research","agent_role":"researcher","depends_on":[]}]')
@@ -420,7 +424,6 @@ def test_swarm_hp_dag():
 def test_cross_gateway_mesh():
     from compute_mesh.pool import ComputePool
     from compute_mesh.scheduler import MeshScheduler
-    from compute_mesh.topology import TopologyScanner
     from llm_gateway.registry import ModelRegistry
     from llm_gateway.scheduler import ModelScheduler as GatewayScheduler
 
@@ -439,8 +442,9 @@ def test_cross_gateway_mesh():
 
 @register_test("Cross-layer: Config → RateLimiter integration")
 def test_cross_config_limiter():
-    from aetherforge.config import load_config
     from llm_gateway.rate_limiter import RateLimiter
+
+    from aetherforge.config import load_config
 
     cfg = load_config()
     limiter = RateLimiter()
@@ -475,11 +479,10 @@ def test_edge_unlimited():
 
 @register_test("Edge: WorkerRegistry heartbeat timeout")
 def test_edge_heartbeat():
-    from compute_mesh.worker import WorkerRegistry, MeshWorker
+    from compute_mesh.worker import MeshWorker, WorkerRegistry
     reg = WorkerRegistry(heartbeat_timeout=0.01)  # 10ms timeout
     w = MeshWorker(worker_id="test-w", node_id="test-n")
     reg.register(w)
-    import time
     time.sleep(0.02)
     stale = reg.check_stale()
     assert "test-w" in stale
@@ -489,8 +492,9 @@ def test_edge_heartbeat():
 
 @register_test("Edge: MessageBus full cycle")
 def test_edge_bus_full():
-    from compute_mesh.worker.message_bus import WorkerMessageBus
     import tempfile
+
+    from compute_mesh.worker.message_bus import WorkerMessageBus
 
     tmp = tempfile.mkdtemp()
     bus = WorkerMessageBus(db_path=os.path.join(tmp, "bus.db"))

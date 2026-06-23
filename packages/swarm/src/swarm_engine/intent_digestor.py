@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF001, RUF002, RUF003
 from ._compat import Gateway, ProjectPaths
 
 """
@@ -218,7 +217,7 @@ class IntentDigestor:
                         raise RuntimeError("EnergyLedger unavailable")
                 balance = ledger.get_balance()
 
-                is_ok, level, reason = self.lock.validate_energy_budget(sub_particles, balance)  # noqa: RUF059
+                is_ok, level, reason = self.lock.validate_energy_budget(sub_particles, balance)
                 if level == "FATAL":
                     _log.info("🛑 [Digestor] 能量审计失败 (FATAL): {reason}")
                     self._update_particle_stage(root_particle.id, MetabolicStage.EXCRETED)

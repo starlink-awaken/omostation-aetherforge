@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import re
 import socket
 import subprocess
 from datetime import datetime
@@ -216,7 +214,7 @@ class NetworkScanner:
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 peers = data.get("Peer", {})
-                self_ip = data.get("Self", {}).get("TailscaleIPs", [None])[0]
+                data.get("Self", {}).get("TailscaleIPs", [None])[0]
                 now = datetime.now().timestamp()
 
                 for peer_id, peer in peers.items():
@@ -302,11 +300,11 @@ class NetworkScanner:
                        config.get("port",
                        config.get("external-controller", "")))
             if listen:
-                node_id = f"proxy-clashx"
+                node_id = "proxy-clashx"
                 if not any(n.node_id == node_id for n in self._nodes):
                     self._nodes.append(ComputeNode(
                         node_id=node_id,
-                        name=f"ClashX Proxy",
+                        name="ClashX Proxy",
                         engine_type=NodeEngineType.SSH_TUNNEL,
                         base_url=f"socks5://127.0.0.1:{listen}" if isinstance(listen, int) else str(listen),
                         network_zone="proxy",

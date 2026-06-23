@@ -14,13 +14,11 @@ import time
 from threading import Lock
 from typing import Any
 
-from llm_gateway.policies import RouterPipeline, OnlineFilter, ZoneAffinityScore
-from llm_gateway.rate_limiter import RateLimiter
+from llm_gateway.policies import OnlineFilter, RouterPipeline, ZoneAffinityScore
 from llm_gateway.scheduler import ModelScheduler as GatewayScheduler
 from llm_gateway.types import ModelRequest, ModelRoutePolicy, ModelSelection
 
 from ..pool import ComputePool
-from ..topology import NodeStatus
 
 _log = logging.getLogger(__name__)
 
@@ -90,7 +88,7 @@ class MeshScheduler:
             return None
 
         # Get online node IDs
-        online_node_ids = {n.node_id for n in self._pool.get_online()}
+        {n.node_id for n in self._pool.get_online()}
         preferred_zone = request.metadata.get("preferred_zone", "") if hasattr(request, "metadata") and request.metadata else ""
 
         # Build mesh-aware pipeline

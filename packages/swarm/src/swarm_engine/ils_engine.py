@@ -39,8 +39,13 @@ from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
-ShieldMixin: type = object
-WitnessMixin: type = object
+class ShieldMixin:
+    pass
+
+
+class WitnessMixin:
+    pass
+
 _log = logging.getLogger(__name__)
 
 from .ils_defaults import DefaultAuthorizer, DefaultEventLogger, DefaultHealthChecker

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF001, RUF003
 from swarm_engine._compat import ProjectPaths
 
 """
@@ -127,7 +126,7 @@ class ComputeHarvester:
     def _harvest_ollama(self) -> list[dict[str, Any]]:
         nodes = []
         try:
-            res = subprocess.run(["ollama", "list"], capture_output=True, text=True)  # noqa: S607
+            res = subprocess.run(["ollama", "list"], capture_output=True, text=True)
             for line in res.stdout.splitlines()[1:]:
                 parts = line.split()
                 if parts:

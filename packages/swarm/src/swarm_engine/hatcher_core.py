@@ -40,33 +40,29 @@ from ._events import (  # type: ignore[import-not-found]
     _PROCESS_POLL_INTERVAL_S,
     _emit_hatcher_event,
 )
-from .exceptions import HatchError, HatchTimeoutError  # type: ignore[import-not-found]
-from .organs.engine.agent_cli_bootstrap import (  # type: ignore[import-not-found]
+from ._compat import (
+    HatchError,
+    HatchTimeoutError,
     build_agent_cli_handle,
     inject_agent_cli_soul_env,
     prepare_agent_cli_bootstrap,
     resolve_agent_cli_command,
     spawn_agent_cli_process,
-)
-from .organs.engine.hatch_runtime import (  # type: ignore[import-not-found]
     WorkerProcessExitedError,
     WorkerProcessStartTimeoutError,
     build_active_worker_handle,
     inject_soul_env,
     spawn_worker_process,
     wait_for_worker_process_start,
-)
-from .organs.engine.hatcher_events import (  # type: ignore[import-not-found]
     emit_worker_hatched,
     emit_worker_terminated,
-)
-from .organs.engine.retry_policy import (  # type: ignore[import-not-found]
     RetryExhaustedError,
     RetryPolicy,
     RetryState,
+    TaskState,
+    TaskStore,
+    _thread_worker,
 )
-from .organs.engine.task_store import TaskState, TaskStore  # type: ignore[import-not-found]
-from .thread_worker import _thread_worker  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
