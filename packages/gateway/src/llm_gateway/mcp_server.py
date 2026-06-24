@@ -12,25 +12,13 @@ from .scheduler import ModelScheduler
 
 from .paths import M1_COMPUTE_ENGINE_DIR as M1_ENGINE_DIR
 
-_registry = ModelRegistry()
-_scheduler: ModelScheduler | None = None
-
-if M1_ENGINE_DIR.exists():
-    import asyncio
-
-    from .ssot_loader import load_ssot_models
-    load_ssot_models(_registry, str(M1_ENGINE_DIR))
-    try:
-        _count = asyncio.run(_registry.refresh())
-        _loaded_rates = _scheduler.load_quota_rates()
-        print(f"[llm-gateway] Loaded {_count} models, {_loaded_rates} with real prices from quota_rates.json")
-    except Exception as e:
-        print(f"[llm-gateway] M1 nodes loaded but refresh failed: {e}")
-    _scheduler = ModelScheduler(_registry)
-else:
-    print(f"[llm-gateway] M1 engine dir not found: {M1_ENGINE_DIR}")
+# Heavy loading is moved to the server startup hook.
 
 mcp = FastMCP("llm-gateway")
+
+@mcp.prompt()
+def get_prompt() -> str:
+    return "This is the LLM Gateway MCP Server."
 
 
 class GenerateRequest(BaseModel):
@@ -80,8 +68,23 @@ async def llm_generate(req: GenerateRequest) -> str:
 
 
 def main():
-    mcp.run()
+    if M1_ENGINE_DIR.exists():
+        import asyncio
+        from .ssot_loader import load_ssot_models
+        
+        _registry = ModelRegistry()
+        load_ssot_models(_registry, str(M1_ENGINE_DIR))
+        _scheduler = ModelScheduler(_registry)
+        try:
+            _models = asyncio.run(_registry.refresh())
+            _loaded_rates = _scheduler.load_quota_rates()
+            print(f"[llm-gateway] Loaded {len(_models)} models, {_loaded_rates} with real prices from quota_rates.json")
+        except Exception as e:
+            print(f"[llm-gateway] M1 nodes loaded but refresh failed: {e}")
+    else:
+        print(f"[llm-gateway] M1 engine dir not found: {M1_ENGINE_DIR}")
 
+    mcp.run()
 
 if __name__ == "__main__":
     main()

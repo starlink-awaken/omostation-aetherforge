@@ -335,12 +335,12 @@ class HybridIntentClassifier:
     def _init_llm_client(self) -> None:
         """Initialize LLM client (lazy load)."""
         try:
-            from .organs.synapse_ollama import OllamaSynapse  # type: ignore[import-not-found]
+            from .synapse_gateway import GatewaySynapse  # type: ignore[import-not-found]
 
-            self._llm_client = OllamaSynapse()
-            _log.info("LLM client initialized (OllamaSynapse)")
+            self._llm_client = GatewaySynapse()
+            _log.info("LLM client initialized (GatewaySynapse)")
         except ImportError:
-            _log.error("Failed to import OllamaSynapse, LLM path disabled")
+            _log.error("Failed to import GatewaySynapse, LLM path disabled")
             self._enable_llm = False
             self._llm_client = None
 

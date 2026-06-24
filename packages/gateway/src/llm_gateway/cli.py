@@ -59,7 +59,7 @@ def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool =
     return 0
 
 
-def cmd_generate(prompt: str, model: str | None, provider_name: str | None) -> int:
+def cmd_generate(prompt: str, model: str | None, provider_name: str | None, strategy: str = "balanced") -> int:
     if provider_name:
         providers = [create_provider(provider_name)]
     else:

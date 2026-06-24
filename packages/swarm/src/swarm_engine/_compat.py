@@ -30,26 +30,26 @@ from typing import Any, NamedTuple
 # exercise data-type stubs will still work; the fallback is the old no-op).
 
 def _try_get_bus_publish():
-    """Return (publish_fn, BusEnvelope) or (None, None) if unavailable."""
+    """Return (publish_fn, BusEnvelope, EventType) or (None, None, None) if unavailable."""
     try:
         from bus_foundation import publish  # type: ignore[import]
-        from bus_foundation.envelope import OmniEnvelope, OmniPlane  # type: ignore[import]
-        return publish, OmniEnvelope, OmniPlane
+        from bus_foundation.envelope import BusEnvelope, EventType  # type: ignore[import]
+        return publish, BusEnvelope, EventType
     except Exception:
         return None, None, None
 
 
 def _bus_publish(topic: str, payload: dict, source: str = "swarm_engine._compat") -> None:
     """Publish a swarm event onto the bus-foundation bus. No-op if unavailable."""
-    publish_fn, OmniEnvelope, OmniPlane = _try_get_bus_publish()
+    publish_fn, BusEnvelope, EventType = _try_get_bus_publish()
     if publish_fn is None:
         _log.debug("bus-foundation unavailable, skipping publish: %s", topic)
         return
     try:
-        env = OmniEnvelope(
-            plane=OmniPlane.EVENT,
+        env = BusEnvelope(
+            event_type=EventType.INFO,
             topic=topic,
-            source_uri=source,
+            source=source,
             payload=payload,
         )
         publish_fn(env)

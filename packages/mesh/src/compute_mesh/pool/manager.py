@@ -32,12 +32,12 @@ def _bus_publish_node_state(node: ComputeNode) -> None:
     """
     try:
         from bus_foundation import publish as _publish  # type: ignore[import]
-        from bus_foundation.envelope import OmniEnvelope, OmniPlane  # type: ignore[import]
+        from bus_foundation.envelope import BusEnvelope, EventType  # type: ignore[import]
 
-        env = OmniEnvelope(
-            plane=OmniPlane.EVENT,
+        env = BusEnvelope(
+            event_type=EventType.INFO,
             topic="mesh:node:status_changed",
-            source_uri="compute_mesh.pool.manager",
+            source="compute_mesh.pool.manager",
             payload={
                 "node_id": node.node_id,
                 "status": str(node.status),
@@ -134,9 +134,26 @@ class ComputePool:
 
     def health_check_all(self) -> dict[str, bool]:
         """Probe all registered nodes. Returns ``{node_id: is_alive}``."""
+        import concurrent.futures
+
         results: dict[str, bool] = {}
-        for node in self._registry.get_all():
-            results[node.node_id] = self.health_check_node(node.node_id)
+        nodes = self._registry.get_all()
+        if not nodes:
+            return results
+            
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(nodes), 20)) as executor:
+            future_to_node = {
+                executor.submit(self.health_check_node, node.node_id): node.node_id
+                for node in nodes
+            }
+            for future in concurrent.futures.as_completed(future_to_node):
+                node_id = future_to_node[future]
+                try:
+                    results[node_id] = future.result()
+                except Exception:
+                    _log.exception("Health check failed for node %s", node_id)
+                    results[node_id] = False
+
         return results
 
     def _probe_node(self, node: ComputeNode) -> bool:

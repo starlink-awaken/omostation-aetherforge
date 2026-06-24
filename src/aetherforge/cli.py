@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
 
 
 def cmd_gateway(argv: list[str]) -> int:
@@ -38,12 +39,35 @@ def cmd_swarm(argv: list[str]) -> int:
     subparsers = parser.add_subparsers(dest="command")
 
     run_parser = subparsers.add_parser("run", help="Run a multi-agent task workflow")
-    run_parser.add_argument("--goal", required=True, help="Task goal to execute")
+    run_parser.add_argument("--goal", required=False, help="Task goal to execute")
     run_parser.add_argument("--json", action="store_true", help="Print outputs in JSON format")
 
     args = parser.parse_args(argv)
 
     if args.command == "run":
+        import sys
+        import select
+        import json
+
+        goal = args.goal
+        is_json_output = args.json
+
+        # Fallback to stdin JSON (Agora StdioAdapter support)
+        if not goal:
+            # Check if stdin has data
+            if select.select([sys.stdin], [], [], 0.0)[0]:
+                try:
+                    payload = json.loads(sys.stdin.read())
+                    kwargs = payload.get("kwargs", {})
+                    goal = kwargs.get("goal", "")
+                    is_json_output = True  # Force JSON output for adapter
+                except Exception:
+                    pass
+
+        if not goal:
+            print("❌ Error: --goal is required or must be provided via stdin JSON.", file=sys.stderr)
+            return 1
+
         from aetherforge.swarm import GraphWorkflow
 
         # 1. 初始化工作流
@@ -77,14 +101,14 @@ def cmd_swarm(argv: list[str]) -> int:
         wf.set_entry("任务规划")
 
         # 2. 运行
-        initial_state = {"goal": args.goal}
+        initial_state = {"goal": goal}
         state = wf.run(initial_state)
 
         # 3. 结果输出
-        if args.json:
+        if is_json_output:
             import json
             output_data = {
-                "goal": args.goal,
+                "goal": goal,
                 "status": "success" if not state.get("_errors") else "failed",
                 "steps": [
                     {
@@ -111,13 +135,18 @@ def cmd_swarm(argv: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    print("⚠️ AetherForge 独立 CLI 已弃用，请使用 cockpit 替代", file=sys.stderr)
     if argv is None:
         import sys
         argv = sys.argv[1:]
 
-    if not argv:
+    if not argv or argv[0] in ("-h", "--help"):
         print("Usage: aetherforge {gateway,mesh,swarm} [subcommand_args]")
-        return 1
+        print("\nCommands:")
+        print("  gateway   LLM Gateway (List models, generate, MCP, serve)")
+        print("  mesh      Compute Mesh (List nodes, status, topology-scan, health)")
+        print("  swarm     Swarm Engine (Run multi-agent workflows)")
+        return 0 if argv and argv[0] in ("-h", "--help") else 1
 
     domain = argv[0]
     sub_args = argv[1:]
