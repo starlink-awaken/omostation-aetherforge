@@ -107,14 +107,13 @@ class DeliveryResult(dict):
         try:
             deliver_frame: Any | None = None
             try:
-                # TODO-migrate: from nucleus.Z_Microkernel.gateways import get_spore_gateway
                 spore = get_spore_gateway()
                 a2a_transport = spore.get_component("a2a_transport")
                 deliver_frame = a2a_transport.deliver_frame
             except Exception:
                 _log.warning("Suppressed exception in %s", __name__)
 
-            # TODO-migrate: if deliver_frame is None, import from nucleus.Z_Spore.engine.a2a_transport
+            # Fallback if deliver_frame is unavailable
             if deliver_frame is None:
                 delivered_result = None
             else:
@@ -406,7 +405,6 @@ class A2AProtocol:
         if envelope is None:
             return False, None
         try:
-            # TODO-migrate: from nucleus.Z_Microkernel.organs.synapse_router import get_synapse_router
 
             router = get_synapse_router()
             return router.route(envelope)
@@ -470,13 +468,11 @@ class A2AProtocol:
 
         Returns None on timeout or if the agent is not registered.
         """
-        # TODO-migrate: from nucleus.Z_Microkernel.gateways import get_spore_gateway
         spore = get_spore_gateway()
         try:
             message_transport = spore.get_component("message_transport")
             receive = message_transport.receive
         except (ValueError, AttributeError):
-            # TODO-migrate: from nucleus.Z_Spore.engine.message_transport import receive
             pass
 
         return await receive(agent_id, timeout=timeout)

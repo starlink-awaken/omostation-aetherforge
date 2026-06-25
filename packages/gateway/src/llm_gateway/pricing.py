@@ -55,110 +55,10 @@ class ModelPrice:
         }
 
 
-# ── Built-in default pricing (covers most common models) ─────────────────────
+# ── Built-in default pricing (covers models NOT in M1 YAML) ─────────────────
 
 _DEFAULT_PRICING: list[dict[str, Any]] = [
-    # OpenAI
-    {
-        "model_id": "gpt-4o",
-        "provider": "openai",
-        "cost_in": 0.0025,
-        "cost_out": 0.01,
-        "ctx": 128000,
-        "caps": ["chat", "vision", "tools"],
-    },
-    {
-        "model_id": "gpt-4o-mini",
-        "provider": "openai",
-        "cost_in": 0.00015,
-        "cost_out": 0.0006,
-        "ctx": 128000,
-        "caps": ["chat", "vision", "tools"],
-    },
-    {
-        "model_id": "gpt-4-turbo",
-        "provider": "openai",
-        "cost_in": 0.01,
-        "cost_out": 0.03,
-        "ctx": 128000,
-        "caps": ["chat", "vision"],
-    },
-    {
-        "model_id": "gpt-3.5-turbo",
-        "provider": "openai",
-        "cost_in": 0.0005,
-        "cost_out": 0.0015,
-        "ctx": 16384,
-        "caps": ["chat"],
-    },
-    # Anthropic
-    {
-        "model_id": "claude-3-5-sonnet-20241022",
-        "provider": "anthropic",
-        "cost_in": 0.003,
-        "cost_out": 0.015,
-        "ctx": 200000,
-        "caps": ["chat", "vision"],
-    },
-    {
-        "model_id": "claude-3-opus-20240229",
-        "provider": "anthropic",
-        "cost_in": 0.015,
-        "cost_out": 0.075,
-        "ctx": 200000,
-        "caps": ["chat", "vision"],
-    },
-    {
-        "model_id": "claude-3-haiku-20240307",
-        "provider": "anthropic",
-        "cost_in": 0.00025,
-        "cost_out": 0.00125,
-        "ctx": 200000,
-        "caps": ["chat"],
-    },
-    # Google
-    {
-        "model_id": "gemini-1.5-pro",
-        "provider": "gemini",
-        "cost_in": 0.00125,
-        "cost_out": 0.005,
-        "ctx": 1000000,
-        "caps": ["chat", "vision", "embedding"],
-    },
-    {
-        "model_id": "gemini-1.5-flash",
-        "provider": "gemini",
-        "cost_in": 0.000075,
-        "cost_out": 0.0003,
-        "ctx": 1000000,
-        "caps": ["chat", "vision"],
-    },
-    {
-        "model_id": "gemini-2.0-flash",
-        "provider": "gemini",
-        "cost_in": 0.0001,
-        "cost_out": 0.0004,
-        "ctx": 1000000,
-        "caps": ["chat", "vision", "tools"],
-    },
-    # DeepSeek
-    {
-        "model_id": "deepseek-chat",
-        "provider": "deepseek",
-        "cost_in": 0.0005,
-        "cost_out": 0.0015,
-        "ctx": 65536,
-        "caps": ["chat"],
-    },
-    {
-        "model_id": "deepseek-reasoner",
-        "provider": "deepseek",
-        "cost_in": 0.001,
-        "cost_out": 0.002,
-        "ctx": 65536,
-        "caps": ["chat", "reasoning"],
-    },
-    # Ollama (local = free)
+    # Ollama (local models — discovered at runtime, hardcoded for pricing only)
     {"model_id": "llama3", "provider": "ollama", "cost_in": 0.0, "cost_out": 0.0, "ctx": 8192, "caps": ["chat"]},
     {"model_id": "llama3.1", "provider": "ollama", "cost_in": 0.0, "cost_out": 0.0, "ctx": 131072, "caps": ["chat"]},
     {
@@ -177,7 +77,7 @@ _DEFAULT_PRICING: list[dict[str, Any]] = [
         "ctx": 262144,
         "caps": ["chat", "vision", "tools", "thinking"],
     },
-    # HITL
+    # HITL (human-in-the-loop — special, never in M1)
     {
         "model_id": "human-expert",
         "provider": "hitl",

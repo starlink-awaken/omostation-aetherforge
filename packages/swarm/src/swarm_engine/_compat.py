@@ -435,17 +435,6 @@ class InferenceOracle:
         return None
 
 
-class ResultBus:
-    """Stub result bus."""
-
-    @classmethod
-    def get_instance(cls) -> ResultBus:
-        return cls()
-
-    def drain_results(self, worker_id: str) -> list[Any]:
-        return []
-
-
 class Gateway:
     """Stub gateway reference."""
 
@@ -489,26 +478,6 @@ class KnowledgeEnhancementMixin:
         pass
 
 
-class ContextInjector:
-    """Stub context injector."""
-
-    @classmethod
-    def prepare_environment(cls, **kwargs: Any) -> Any:
-        return None
-
-    @classmethod
-    def generate_hifi_prompt(cls, **kwargs: Any) -> str:
-        return ""
-
-
-class AssociationEngine:
-    """Stub association engine."""
-
-    @classmethod
-    def get_instance(cls) -> AssociationEngine:
-        return cls()
-
-
 # ── Functions ─────────────────────────────────────────────────────────────
 
 _synapse_registry_cache: Any | None = None
@@ -545,11 +514,6 @@ class _BOSAgentRouterBridge:
 
 
 bos_agent_router_bridge = _BOSAgentRouterBridge()
-
-
-def managed_connection(uri: str = "", **kwargs: Any) -> Any:
-    """Stub — returns a managed connection."""
-    return None
 
 
 # ── Internal Stubs ────────────────────────────────────────────────────────

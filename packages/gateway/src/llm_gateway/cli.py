@@ -48,7 +48,7 @@ def _get_quota_status() -> dict[str, dict]:
         return {}
 
 
-def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool = False) -> int:
+def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool = False, show_group: bool = False) -> int:
     if show_quota:
         return _cmd_list_quota()
     if show_cost:
@@ -67,52 +67,69 @@ def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool =
             sched = ModelScheduler(reg)
             loaded = sched.load_quota_rates()
             models = reg.list_models()
-            print(f"L0 M1 compute_engine ({len(models)} models, {loaded} with real prices):")
             # Load quota info (lazy init, cached across calls)
             quota_info: dict[str, dict] = _get_quota_status()
-            for m in models:
-                cost = m.cost_per_1k_tokens
-                c_in = cost.get("input", "?")
-                c_out = cost.get("output", "?")
-                # Extract provider from model id (format: "ENG-XX/model-name")
-                prov_key = m.id.split("/")[0] if "/" in m.id else ""
-                # Map compute engine name → quota provider name
-                if prov_key == "ENG-CC-SWITCH":
-                    # Extract model provider from model name
-                    model_name = m.id.split("/")[-1].lower() if "/" in m.id else ""
-                    if model_name.startswith("claude"):
-                        q_prov = "anthropic"
-                    elif model_name.startswith("gpt") or model_name.startswith("o1"):
-                        q_prov = "openai"
-                    elif model_name.startswith("deepseek"):
-                        q_prov = "deepseek"
-                    elif model_name.startswith("gemini"):
-                        q_prov = "gemini"
-                    elif "minimax" in model_name:
-                        q_prov = "minimax"
+
+            if show_group:
+                from collections import defaultdict
+                groups: dict[str, list] = defaultdict(list)
+                for m in models:
+                    engine = m.id.split("/")[0] if "/" in m.id else "unknown"
+                    groups[engine].append(m)
+                print(f"L0 M1 compute_engine ({len(models)} models, {len(groups)} engines):")
+                for engine_name in sorted(groups):
+                    emodels = groups[engine_name]
+                    print(f"  ┌─ {engine_name} ({len(emodels)} models)")
+                    for m in emodels[:5]:  # Show first 5
+                        cost = m.cost_per_1k_tokens
+                        c_in = cost.get("input", "?")
+                        c_out = cost.get("output", "?")
+                        print(f"  │  🟢 {m.id.split('/')[-1]:45s} in=${c_in} out=${c_out}")
+                    if len(emodels) > 5:
+                        print(f"  │  ... and {len(emodels)-5} more")
+                    print()
+            else:
+                print(f"L0 M1 compute_engine ({len(models)} models, {loaded} with real prices):")
+                for m in models:
+                    cost = m.cost_per_1k_tokens
+                    c_in = cost.get("input", "?")
+                    c_out = cost.get("output", "?")
+                    # Extract provider from model id (format: "ENG-XX/model-name")
+                    prov_key = m.id.split("/")[0] if "/" in m.id else ""
+                    # Map compute engine name → quota provider name
+                    if prov_key == "ENG-CC-SWITCH":
+                        model_name = m.id.split("/")[-1].lower() if "/" in m.id else ""
+                        if model_name.startswith("claude"):
+                            q_prov = "anthropic"
+                        elif model_name.startswith("gpt") or model_name.startswith("o1"):
+                            q_prov = "openai"
+                        elif model_name.startswith("deepseek"):
+                            q_prov = "deepseek"
+                        elif model_name.startswith("gemini"):
+                            q_prov = "gemini"
+                        elif "minimax" in model_name:
+                            q_prov = "minimax"
+                        else:
+                            q_prov = ""
+                        q = quota_info.get(q_prov, {}) if q_prov else {}
                     else:
-                        q_prov = ""
-                    q = quota_info.get(q_prov, {}) if q_prov else {}
-                else:
-                    # Direct mapping for dedicated compute engines
-                    q = quota_info.get(prov_key, {})
-                    if not q:
-                        # Fall back to extracted provider name (e.g. "ENG-ANTHROPIC-CLOUD" → "anthropic")
-                        name_parts = prov_key.replace("ENG-", "").lower().split("-")
-                        for part in name_parts:
-                            if part in quota_info:
-                                q = quota_info[part]
-                                break
-                q_str = ""
-                if q:
-                    pct = q.get("pct", 100)
-                    if pct < 10:
-                        q_str = f"  🔴 quota={pct:.0f}%"
-                    elif pct < 50:
-                        q_str = f"  🟡 quota={pct:.0f}%"
-                    else:
-                        q_str = f"  🟢 quota={pct:.0f}%"
-                print(f"  🟢 {m.id:50s} in=${c_in} out=${c_out}{q_str}")
+                        q = quota_info.get(prov_key, {})
+                        if not q:
+                            name_parts = prov_key.replace("ENG-", "").lower().split("-")
+                            for part in name_parts:
+                                if part in quota_info:
+                                    q = quota_info[part]
+                                    break
+                    q_str = ""
+                    if q:
+                        pct = q.get("pct", 100)
+                        if pct < 10:
+                            q_str = f"  🔴 quota={pct:.0f}%"
+                        elif pct < 50:
+                            q_str = f"  🟡 quota={pct:.0f}%"
+                        else:
+                            q_str = f"  🟢 quota={pct:.0f}%"
+                    print(f"  🟢 {m.id:50s} in=${c_in} out=${c_out}{q_str}")
             return 0
 
     providers = detect_backends()
@@ -270,6 +287,7 @@ def main(argv: list[str] | None = None) -> int:
     list_p.add_argument("--ssot", action="store_true", help="从 L0 M1 节点加载")
     list_p.add_argument("--quota", "-q", action="store_true", help="显示配额大盘")
     list_p.add_argument("--cost", "-c", action="store_true", help="显示模型定价")
+    list_p.add_argument("--group", "-g", action="store_true", help="按 Engine 分组展示")
 
     gen = sub.add_parser("generate", help="Generate LLM response")
     gen.add_argument("prompt")
@@ -296,6 +314,7 @@ def main(argv: list[str] | None = None) -> int:
             use_ssot=getattr(args, "ssot", False),
             show_quota=getattr(args, "quota", False),
             show_cost=getattr(args, "cost", False),
+            show_group=getattr(args, "group", False),
         )
     elif args.cmd == "generate":
         return cmd_generate(

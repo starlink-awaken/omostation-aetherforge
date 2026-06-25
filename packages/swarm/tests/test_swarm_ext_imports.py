@@ -6,7 +6,6 @@ MODULES = [
     "swarm_engine.ext.archetype_distiller",
     "swarm_engine.ext.cluster",
     "swarm_engine.ext.cognitive_bus",
-    "swarm_engine.ext.compat",
     "swarm_engine.ext.compute_harvester",
     "swarm_engine.ext.compute_pool",
     "swarm_engine.ext.compute_pool_shard",

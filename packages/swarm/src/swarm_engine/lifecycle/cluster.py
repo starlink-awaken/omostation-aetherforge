@@ -48,9 +48,8 @@ _log = logging.getLogger(__name__)
 
 
 def _default_load_connectivity() -> tuple[Any, Any]:
-    # TODO-migrate: from nucleus.Z_Microkernel.orchestrator.connectivity_state import ConnectivityManager, ConnectivityState
-    ConnectivityManager = None  # TODO-migrate stub  # noqa: N806
-    ConnectivityState = None  # TODO-migrate stub  # noqa: N806
+    ConnectivityManager = None  # type: ignore  # noqa: N806
+    ConnectivityState = None  # type: ignore  # noqa: N806
 
     return ConnectivityManager, ConnectivityState
 

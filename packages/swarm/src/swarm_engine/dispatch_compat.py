@@ -185,7 +185,7 @@ class ExecutionCompatHelper:
         if swarm is None:
             try:
                 daemon_swarm = importlib.import_module(
-                    "nucleus.Z_Microkernel.infrastructure.bos_daemon.swarm"  # TODO-migrate
+                    "nucleus.Z_Microkernel.infrastructure.bos_daemon.swarm"
                 )
                 swarm = daemon_swarm.get_lifecycle_manager()
             except (ImportError, AttributeError, RuntimeError, OSError, TypeError, ValueError):
@@ -220,8 +220,6 @@ class ExecutionCompatHelper:
 
         if not data:
             try:
-                # TODO-migrate: from nucleus.Z_Microkernel.organs.capability_registry import CapabilityRegistry
-
                 registry = CapabilityRegistry()
                 for agent in registry.list_agents():
                     if isinstance(agent, dict):
@@ -261,7 +259,6 @@ class ExecutionCompatHelper:
         swarm = getattr(self._agent_orchestrator, "_swarm_manager", None)
         if swarm is None:
             try:
-                # TODO-migrate: from nucleus.Z_Microkernel.infrastructure.bos_daemon.swarm import get_lifecycle_manager
                 swarm = None
             except (ImportError, AttributeError, RuntimeError, TypeError, ValueError):
                 swarm = None

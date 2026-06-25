@@ -33,14 +33,11 @@ MERGED_MODULES = [
     "swarm_engine.synapse_hub",
     "swarm_engine.worker_dispatcher",
     "swarm_engine.worker_node",
-    # Dispatch compatibility shim
-    "swarm_engine.dispatch.compat",
     # ext subpackage modules (engine/ removed as duplicate, ext/ is canonical)
     "swarm_engine.ext.archetype_distiller",
     "swarm_engine.ext.compute_harvester",
     "swarm_engine.ext.compute_pool",
     "swarm_engine.ext.compute_pool_shard",
-    "swarm_engine.ext.compat",
     "swarm_engine.ext.ego_dispatch_loop",
     "swarm_engine.ext.hifi_query",
     "swarm_engine.ext.knowledge_enhancement_mixin",
