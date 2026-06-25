@@ -227,6 +227,7 @@ class PricingRegistry:
             return
         import yaml
 
+        # Load MODEL-PRICING-*.yaml (legacy format)
         for yaml_file in M1_MODEL_DIR.glob("MODEL-PRICING-*.yaml"):
             try:
                 with open(yaml_file) as f:
@@ -235,21 +236,57 @@ class PricingRegistry:
                     continue
                 entries = data if isinstance(data, list) else [data]
                 for entry in entries:
-                    mp = ModelPrice(
-                        model_id=entry.get("model_id", ""),
-                        provider=entry.get("provider", ""),
-                        cost_per_1k_input=float(entry.get("cost_per_1k_input", entry.get("cost_in", 0))),
-                        cost_per_1k_output=float(entry.get("cost_per_1k_output", entry.get("cost_out", 0))),
-                        context_window=int(entry.get("context_window", entry.get("ctx", 4096))),
-                        capabilities=entry.get("capabilities", entry.get("caps", [])),
-                        display_name=entry.get("display_name", ""),
-                        metadata=entry,
-                    )
-                    if mp.model_id and mp.provider:
-                        key = f"{mp.provider}/{mp.model_id}"
-                        self._prices[key] = mp  # YAML overrides defaults
+                    self._load_pricing_entry(entry)
             except Exception as exc:
                 _log.debug("Failed to load pricing YAML %s: %s", yaml_file, exc)
+
+        # Load MODEL-BREW-*.yaml (new format with engine_ref + models[])
+        for yaml_file in sorted(M1_MODEL_DIR.glob("MODEL-BREW-*.yaml")):
+            try:
+                with open(yaml_file) as f:
+                    data = yaml.safe_load(f)
+                if not data or "models" not in data:
+                    continue
+                # Derive provider from engine_ref or filename
+                engine_ref = data.get("engine_ref", "")
+                if engine_ref and engine_ref != "ENG-CC-SWITCH":
+                    # Clean engine names: "ENG-ANTHROPIC-CLOUD" → "anthropic"
+                    provider = engine_ref.replace("ENG-", "").split("-")[0].lower()
+                elif engine_ref == "ENG-CC-SWITCH":
+                    # CC-SWITCH is a proxy hosting multiple providers;
+                    # use filename as the actual provider name
+                    provider = yaml_file.stem.replace("MODEL-BREW-", "").lower()
+                else:
+                    provider = ""
+                for model in data["models"]:
+                    entry = {
+                        "model_id": model.get("model_id", ""),
+                        "provider": provider,
+                        "cost_per_1k_input": model.get("cost_per_1k_input", 0),
+                        "cost_per_1k_output": model.get("cost_per_1k_output", 0),
+                        "context_window": model.get("context_window", 128000),
+                        "capabilities": model.get("capabilities", ["chat"]),
+                        "display_name": model.get("display_name", ""),
+                    }
+                    self._load_pricing_entry(entry)
+            except Exception as exc:
+                _log.debug("Failed to load model YAML %s: %s", yaml_file, exc)
+
+    def _load_pricing_entry(self, entry: dict) -> None:
+        """Load a single pricing entry into the registry."""
+        mp = ModelPrice(
+            model_id=entry.get("model_id", ""),
+            provider=entry.get("provider", ""),
+            cost_per_1k_input=float(entry.get("cost_per_1k_input", entry.get("cost_in", 0))),
+            cost_per_1k_output=float(entry.get("cost_per_1k_output", entry.get("cost_out", 0))),
+            context_window=int(entry.get("context_window", entry.get("ctx", 4096))),
+            capabilities=entry.get("capabilities", entry.get("caps", [])),
+            display_name=entry.get("display_name", ""),
+            metadata=entry,
+        )
+        if mp.model_id and mp.provider:
+            key = f"{mp.provider}/{mp.model_id}"
+            self._prices[key] = mp
 
     # ── Public API ───────────────────────────────────────────────────────────
 

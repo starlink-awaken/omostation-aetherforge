@@ -41,11 +41,14 @@ _log = logging.getLogger(__name__)
 logger = logging.getLogger("bos.arterial_orchestrator")
 
 if TYPE_CHECKING:
-    from .organs.engine.possession_multi_session import (  # type: ignore[import-not-found]
-        PossessionMultiSession,
-    )
-    from .organs.engine.result_bus import ResultBus
-    from .organs.voice_session_particle_queue import QueuedSessionParticle  # type: ignore[import-not-found]
+    # BROKEN IMPORT (nucleus migration incomplete): from .organs.engine.possession_multi_session import (  # type: ignore[import-not-found]
+    # PossessionMultiSession,
+    # )
+    PossessionMultiSession = None  # type: ignore[assignment]
+    # BROKEN IMPORT: from .organs.engine.result_bus import ResultBus
+    ResultBus = None  # type: ignore[assignment]
+    # BROKEN IMPORT: from .organs.voice_session_particle_queue import QueuedSessionParticle  # type: ignore[import-not-found]
+    QueuedSessionParticle = None  # type: ignore[assignment]
 
 try:
     from nucleus.Z_Spore.interfaces.structured_error import (  # type: ignore[import-not-found]
@@ -89,7 +92,7 @@ class WorkerDispatcher:
         return "W-SYSTEM-PROXY"
 
     def resolve_target(self, task_id: str, capability: str) -> str | None:
-        from .organs.engine.capability_registry import TaskRequest  # type: ignore[import-not-found]
+        # BROKEN IMPORT: from .organs.engine.capability_registry import TaskRequest  # type: ignore[import-not-found]
 
         if self._registry is not None:
             try:
@@ -152,7 +155,7 @@ class WorkerDispatcher:
         if store_get(tid) is not None:
             return
 
-        from .organs.engine.task_store import TaskRecord, TaskState  # type: ignore[import-not-found]
+        # BROKEN IMPORT: from .organs.engine.task_store import TaskRecord, TaskState  # type: ignore[import-not-found]
 
         source_surface = str(handoff_context.get("source_surface", "")).strip() if handoff_context else ""
         task_type = f"{source_surface}_handoff" if source_surface else "session_handoff"
@@ -187,7 +190,7 @@ class WorkerDispatcher:
         cap: str,
         handoff_context: dict[str, Any] | None = None,
     ) -> bool:
-        from .organs.engine.task_store import TaskState
+        # BROKEN IMPORT: from .organs.engine.task_store import TaskState
 
         if handoff_context is not None:
             self._bootstrap_handoff_task_record(
@@ -232,7 +235,7 @@ class WorkerDispatcher:
         result: Any | None = None,
         error: str | None = None,
     ) -> dict[str, Any]:
-        from .organs.engine.task_store import TaskState
+        # BROKEN IMPORT: from .organs.engine.task_store import TaskState
 
         if not hasattr(self._store, "transition") or not hasattr(self._store, "get"):
             raise RuntimeError("task store unavailable for execution outcome")
@@ -261,7 +264,7 @@ class WorkerDispatcher:
         }
 
     def consume_task_results(self, worker_id: str, *, task_id: str | None = None) -> list[dict[str, Any]]:
-        from .organs.engine.result_bus import ResultBus  # type: ignore[import-not-found]
+        # BROKEN IMPORT: from .organs.engine.result_bus import ResultBus  # type: ignore[import-not-found]
 
         bus = ResultBus.get_instance()
         drained = bus.drain_task_results(worker_id, task_id) if task_id is not None else bus.drain_results(worker_id)
@@ -331,9 +334,9 @@ class WorkerDispatcher:
         """Dispatch queued voice particles for a session without polling the DB."""
         if self._session_particle_queue is None:
             try:
-                from .organs.voice_session_particle_queue import (
-                    get_default_voice_session_particle_queue,
-                )
+                # BROKEN IMPORT (nucleus migration incomplete): from .organs.voice_session_particle_queue import (
+                # get_default_voice_session_particle_queue,
+                # )
 
                 self._session_particle_queue = get_default_voice_session_particle_queue()
             except ImportError:
@@ -419,14 +422,14 @@ class WorkerDispatcher:
         }
 
     def get_swarm_manager(self) -> Any:
-        from .organs.agent_orchestrator import SwarmDispatchError  # type: ignore[import-not-found]
+        # BROKEN IMPORT: from .organs.agent_orchestrator import SwarmDispatchError  # type: ignore[import-not-found]
 
         with self._swarm_lock:
             if self._swarm_manager is None:
                 try:
-                    from .organs.swarm_lifecycle_manager import (  # type: ignore[import-not-found]
-                        SwarmLifecycleManager as SwarmLifecycleManagerClass,
-                    )
+                    # BROKEN IMPORT (nucleus migration incomplete): from .organs.swarm_lifecycle_manager import (  # type: ignore[import-not-found]
+                    # SwarmLifecycleManager as SwarmLifecycleManagerClass,
+                    # )
 
                     self._swarm_manager = SwarmLifecycleManagerClass()
                     logger.info("[Orchestrator] SwarmLifecycleManager initialised.")
@@ -573,7 +576,7 @@ class WorkerDispatcher:
         eu_budget: float = 1.0,
         soul_context: Mapping[str, object] | None = None,
     ) -> Any:
-        from .organs.agent_orchestrator import SwarmDispatchError
+        # BROKEN IMPORT: from .organs.agent_orchestrator import SwarmDispatchError
 
         try:
             swarm = self.get_swarm_manager()
@@ -639,12 +642,12 @@ class WorkerDispatcher:
             return None
 
     def wait_for_swarm(self, worker_id: str, timeout_s: float = 30.0) -> Any:
-        result_bus_class: type[ResultBus] | None = None
+        result_bus_class: type | None = None
         try:
             try:
-                from .organs.engine.result_bus import ResultBus as ResultBusClass
+                from .organs.engine.result_bus import ResultBus as ResultBusClass  # type: ignore[import-not-found]
             except ImportError:
-                from engine.result_bus import ResultBus as ResultBusClass  # type: ignore[import-not-found]
+                from engine.result_bus import ResultBus as ResultBusClass  # type: ignore[no-redef, import-not-found]
             result_bus_class = ResultBusClass
         except ImportError:
             result_bus_class = None
@@ -682,18 +685,19 @@ class WorkerDispatcher:
     def aggregate_results(self, worker_ids: list[str], task_id: str = "") -> Any:
         try:
             try:
-                from .organs.result_aggregator import ResultAggregator  # type: ignore[import-not-found]
+                from result_aggregator import (
+                    ResultAggregator,  # type: ignore[import-not-found]  # BROKEN IMPORT: .organs
+                )
             except ImportError:
-                from result_aggregator import ResultAggregator  # type: ignore[no-redef, import-not-found]
+                raise
         except ImportError as exc:
             logger.error("[Orchestrator] ResultAggregator not available: %s", exc)
             raise
         result_bus_class: type[ResultBus] | None = None
         try:
-            try:
-                from .organs.engine.result_bus import ResultBus as ResultBusClass
-            except ImportError:
-                from engine.result_bus import ResultBus as ResultBusClass
+            from engine.result_bus import (
+                ResultBus as ResultBusClass,  # type: ignore[import-not-found]  # BROKEN IMPORT: .organs
+            )
             result_bus_class = ResultBusClass
         except ImportError:
             result_bus_class = None

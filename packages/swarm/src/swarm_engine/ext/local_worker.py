@@ -41,7 +41,7 @@ _PYTHON_SANDBOX_RUNNER = """from __future__ import annotations
 import json
 import sys
 
-from .organs.security_utils import safe_exec_sandbox
+# BROKEN IMPORT: from .organs.security_utils import safe_exec_sandbox
 from typing import Any
 
 
@@ -126,7 +126,7 @@ class LocalWorker:
 
     def _get_store(self) -> TaskStoreProtocol:
         if self._store is None:
-            from .organs.engine.task_store import TaskStore  # type: ignore[import-not-found]
+            # BROKEN IMPORT: from .organs.engine.task_store import TaskStore  # type: ignore[import-not-found]
 
             db = self._config.db_path or ":memory:"
             self._store = TaskStore(db_path=db)
@@ -175,7 +175,7 @@ class LocalWorker:
 
     async def _poll_and_execute(self) -> None:
         """Poll for pending and retryable tasks by priority and execute them."""
-        from .organs.engine.task_store import TaskState
+        # BROKEN IMPORT: from .organs.engine.task_store import TaskState
 
         store = self._get_store()
 
@@ -231,7 +231,7 @@ class LocalWorker:
     # -- execution -----------------------------------------------------------
 
     async def _run_task(self, task_id: str, intent: TaskIntent, payload: TaskPayload) -> None:
-        from .organs.engine.task_store import TaskState
+        # BROKEN IMPORT: from .organs.engine.task_store import TaskState
 
         store = self._get_store()
         async with self._semaphore:
@@ -380,10 +380,10 @@ class LocalWorker:
         """
         import asyncio
 
-        from .organs.llm.provider import LLMRequest  # type: ignore[import-not-found]
-        from .organs.llm.provider_factory import (  # type: ignore[import-not-found]
-            get_default_factory,
-        )
+        # BROKEN IMPORT: from .organs.llm.provider import LLMRequest  # type: ignore[import-not-found]
+        # BROKEN IMPORT (nucleus migration incomplete): from .organs.llm.provider_factory import (  # type: ignore[import-not-found]
+        # get_default_factory,
+        # )
 
         factory = get_default_factory()
         request = LLMRequest(
@@ -397,7 +397,7 @@ class LocalWorker:
             # ── Model-aware provider routing ──
             # If the user specified a model name, match it to a provider.
             # Otherwise fall back to priority order (ollama → deepseek → ...).
-            from .organs.llm.provider import LLMProvider
+            # BROKEN IMPORT: from .organs.llm.provider import LLMProvider
 
             model_lower = model.lower().strip() if model else ""
 
@@ -421,9 +421,9 @@ class LocalWorker:
 
             # ── If no explicit model match, use quota-aware priority ──
             if provider is None or not provider.is_available():
-                from .organs.llm.quota_router import (  # type: ignore[import-not-found]
-                    get_quota_aware_priority,
-                )
+                # BROKEN IMPORT (nucleus migration incomplete): from .organs.llm.quota_router import (  # type: ignore[import-not-found]
+                # get_quota_aware_priority,
+                # )
 
                 for pname in get_quota_aware_priority():
                     candidate = _match_provider(pname)
@@ -470,7 +470,7 @@ class LocalWorker:
                     data = _json.loads(raw)
                 except _json.JSONDecodeError as exc:
                     raise RuntimeError(f"Ollama JSON parse error: {exc} | raw={raw[:200]}") from exc
-                from .organs.llm.provider import LLMResponse
+                # BROKEN IMPORT: from .organs.llm.provider import LLMResponse
 
                 response = LLMResponse(
                     content=data.get("response", "").strip(),

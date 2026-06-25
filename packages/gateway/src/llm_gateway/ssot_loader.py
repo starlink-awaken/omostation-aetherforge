@@ -18,6 +18,7 @@ from typing import Any
 import yaml
 
 from .provider import LLMRequest
+from .providers.anthropic_compat import AnthropicCompatProvider
 from .providers.base import BaseLLMProvider
 from .providers.ollama_provider import OllamaProvider
 from .providers.openai_provider import OpenAIProvider
@@ -54,51 +55,40 @@ def _get_credentials_for(provider_name: str) -> dict | None:
     """Look up credentials from CredentialsManager by provider name."""
     try:
         from .credentials import CredentialsManager
+
         cm = CredentialsManager()
+
+        # Find the actual provider name in credentials table
+        def _find_key(prov: str) -> str | None:
+            """Try direct and aliased provider names."""
+            for name in [prov, _PROVIDER_ALIASES.get(prov, prov)]:
+                key = cm.get_key(name)
+                if key:
+                    return key
+            return None
+
+        api_key = _find_key(provider_name)
+        if not api_key:
+            return None
+
         keys = cm.list_keys(provider_name)
-        if not keys:
-            # Fall back to provider name matching (e.g. "anthropic" in credentials)
-            for entry_key in ["claude", "anthropic"]:
-                k = cm.list_keys(entry_key)
-                if k:
-                    keys = k
-                    break
-        if keys:
-            # Return first active key's details (need direct DB access for base_url)
-            # Use direct SQLite query for full data
-            import sqlite3
-            from pathlib import Path
-            db = Path.home() / ".aetherforge" / "credentials.db"
-            if db.exists():
-                conn = sqlite3.connect(str(db))
-                conn.row_factory = sqlite3.Row
-                c = conn.cursor()
-                # Try direct match first, then aliases
-                row = c.execute(
-                    """SELECT api_key, base_url, provider FROM credentials
-                       WHERE provider = ? AND is_active = 1
-                       LIMIT 1""",
-                    (provider_name,),
-                ).fetchone()
-                if not row:
-                    # Try alias lookup
-                    alias_map = {"anthropic": "claude", "openai": "openai",
-                                 "deepseek": "deepseek", "gemini": "gemini"}
-                    alias = alias_map.get(provider_name, provider_name)
-                    row = c.execute(
-                        """SELECT api_key, base_url, provider FROM credentials
-                           WHERE provider = ? AND is_active = 1
-                           LIMIT 1""",
-                        (alias,),
-                    ).fetchone()
-                conn.close()
-                if row:
-                    return {"api_key": row["api_key"],
-                            "base_url": row["base_url"],
-                            "provider": row["provider"]}
+        base_url = keys[0].get("note", "") if keys else ""
+
+        return {"api_key": api_key, "base_url": base_url}
     except Exception as e:
         _log.debug("Credentials lookup failed for %s: %s", provider_name, e)
     return None
+
+
+# Map compute_engine name tokens to credential provider names
+_PROVIDER_ALIASES: dict[str, str] = {
+    "anthropic": "claude",
+    "deepseek": "deepseek",
+    "openai": "openai",
+    "minimax": "minimax",
+    "gemini": "gemini",
+    "openrouter": "openrouter",
+}
 
 
 class SSOTProviderAdapter(BaseLLMProvider):
@@ -135,6 +125,9 @@ class SSOTProviderAdapter(BaseLLMProvider):
         if "openai" in self.protocols:
             self._underlying = OpenAIProvider(**kwargs)
             self._provider_type = "openai"
+        elif "anthropic" in self.protocols:
+            self._underlying = AnthropicCompatProvider(**kwargs)
+            self._provider_type = "anthropic"
         elif self._type == "local_daemon" or "ollama" in self.protocols:
             self._underlying = OllamaProvider(base_url=self.base_url)
             self._provider_type = "ollama"

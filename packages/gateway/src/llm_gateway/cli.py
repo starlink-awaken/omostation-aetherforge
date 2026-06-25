@@ -14,12 +14,38 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from typing import Any
 
 from .detection import create_provider, detect_backends
 from .provider import LLMRequest
 from .registry import ModelRegistry
 from .scheduler import ModelScheduler
 from .ssot_loader import load_ssot_models
+
+# ── Module-level QuotaEngine singleton (stays running across CLI calls) ──────
+_QUOTA_ENGINE: Any = None
+
+
+def _get_quota_status() -> dict[str, dict]:
+    """Lazy-init QuotaEngine, keep it running in background."""
+    global _QUOTA_ENGINE
+    if _QUOTA_ENGINE is None:
+        try:
+            from .quota_engine import QuotaEngine
+
+            _QUOTA_ENGINE = QuotaEngine()
+            _QUOTA_ENGINE.start()
+            _QUOTA_ENGINE.wait_ready(timeout=8)  # Wait for first data batch
+        except Exception:
+            return {}
+    try:
+        all_status = _QUOTA_ENGINE.get_all_status()
+        return {
+            p: {"pct": s.quota_pct, "source": s.quota_source or "local", "available": s.available}
+            for p, s in all_status.items()
+        }
+    except Exception:
+        return {}
 
 
 def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool = False) -> int:
@@ -42,11 +68,51 @@ def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool =
             loaded = sched.load_quota_rates()
             models = reg.list_models()
             print(f"L0 M1 compute_engine ({len(models)} models, {loaded} with real prices):")
+            # Load quota info (lazy init, cached across calls)
+            quota_info: dict[str, dict] = _get_quota_status()
             for m in models:
                 cost = m.cost_per_1k_tokens
                 c_in = cost.get("input", "?")
                 c_out = cost.get("output", "?")
-                print(f"  🟢 {m.id:50s} in=${c_in} out=${c_out}")
+                # Extract provider from model id (format: "ENG-XX/model-name")
+                prov_key = m.id.split("/")[0] if "/" in m.id else ""
+                # Map compute engine name → quota provider name
+                if prov_key == "ENG-CC-SWITCH":
+                    # Extract model provider from model name
+                    model_name = m.id.split("/")[-1].lower() if "/" in m.id else ""
+                    if model_name.startswith("claude"):
+                        q_prov = "anthropic"
+                    elif model_name.startswith("gpt") or model_name.startswith("o1"):
+                        q_prov = "openai"
+                    elif model_name.startswith("deepseek"):
+                        q_prov = "deepseek"
+                    elif model_name.startswith("gemini"):
+                        q_prov = "gemini"
+                    elif "minimax" in model_name:
+                        q_prov = "minimax"
+                    else:
+                        q_prov = ""
+                    q = quota_info.get(q_prov, {}) if q_prov else {}
+                else:
+                    # Direct mapping for dedicated compute engines
+                    q = quota_info.get(prov_key, {})
+                    if not q:
+                        # Fall back to extracted provider name (e.g. "ENG-ANTHROPIC-CLOUD" → "anthropic")
+                        name_parts = prov_key.replace("ENG-", "").lower().split("-")
+                        for part in name_parts:
+                            if part in quota_info:
+                                q = quota_info[part]
+                                break
+                q_str = ""
+                if q:
+                    pct = q.get("pct", 100)
+                    if pct < 10:
+                        q_str = f"  🔴 quota={pct:.0f}%"
+                    elif pct < 50:
+                        q_str = f"  🟡 quota={pct:.0f}%"
+                    else:
+                        q_str = f"  🟢 quota={pct:.0f}%"
+                print(f"  🟢 {m.id:50s} in=${c_in} out=${c_out}{q_str}")
             return 0
 
     providers = detect_backends()
@@ -97,7 +163,14 @@ def cmd_generate(
         if not md:
             print(f"Model '{model}' not found in SSOT registry.", file=sys.stderr)
             return 1
+        from .route_scheduler import RouteScheduler
         from .types import ChatOptions
+
+        # Route-aware generation: use RouteScheduler for provider selection
+        sched = RouteScheduler()
+        route = sched.select(task=prompt, model=md.name, strategy=strategy)
+        if route:
+            print(f"[{route.provider}/{route.model}] cost=${route.cost_per_1k_input:.4f}/1K  quota={route.quota_pct:.0f}%  strategy={strategy}", file=sys.stderr)
 
         opts = ChatOptions()
         result = asyncio.run(reg.chat(md.id, [{"role": "user", "content": prompt}], opts))

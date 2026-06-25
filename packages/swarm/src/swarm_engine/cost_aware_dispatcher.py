@@ -28,7 +28,10 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .organs.engine.task_store import TaskRecord  # type: ignore[import-not-found]
+    try:
+        from .organs.engine.task_store import TaskRecord  # type: ignore[import-not-found]
+    except ImportError:
+        pass  # organs package not available, degraded mode
 
 _log = logging.getLogger(__name__)
 

@@ -351,7 +351,10 @@ class UniversalWorker(AgentDaemonBase):
         _log.info("[>] python exec (%d chars)", len(code))
 
         # Security: Use centralized sandbox execution
-        from .organs.security_utils import safe_exec_sandbox  # type: ignore[import-not-found]
+        try:
+            from .organs.security_utils import safe_exec_sandbox  # type: ignore[import-not-found]
+        except ImportError:
+            pass  # organs package not available, degraded mode
 
         exec_result = safe_exec_sandbox(code, capture_stdout=True)
 

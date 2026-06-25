@@ -108,32 +108,54 @@ class WorkerState(StrEnum):  # type: ignore[no-redef]
     REAPED = "REAPED"
 
 
-# ─── engine subcomponents (extracted) ────────────────────────────────────────
-from .organs.engine.lifecycle.call_dispatcher import CallDispatcher  # type: ignore[import-not-found]
-from .organs.engine.lifecycle.cluster import ClusterCoordinator  # type: ignore[import-not-found]
-from .organs.engine.lifecycle.events import SwarmEventEmitter  # type: ignore[import-not-found]
-from .organs.engine.lifecycle.governance import SwarmGovernance  # type: ignore[import-not-found]
-from .organs.engine.lifecycle.parallel_dispatch import ParallelDispatch  # type: ignore[import-not-found]
-from .organs.engine.lifecycle.persistence import SwarmPersistence  # type: ignore[import-not-found]
-from .organs.engine.lifecycle.state_machine import (  # type: ignore[import-not-found]
-    InvalidTransitionError,
-    SwarmStateMachine,
-)
-from .organs.engine.lifecycle.watchdog import SwarmWatchdog  # type: ignore[import-not-found]
-from .organs.engine.lifecycle.worker_pool import (  # type: ignore[import-not-found]
-    WorkerNotFoundError,
-    WorkerPool,
-)
-from .organs.engine.worker_hatch_attempt import WorkerHatchAttempt  # type: ignore[import-not-found]
-from .organs.engine.worker_hatch_gatekeeper import (  # type: ignore[import-not-found]
-    WorkerHatchGatekeeper,
-)
-from .organs.engine.worker_reap_orchestrator import (  # type: ignore[import-not-found]
-    WorkerReapOrchestrator,
-)
-from .organs.swarm_worker_governance_controller import (  # type: ignore[import-not-found]
-    WorkerGovernanceController,
-)
+# ─── engine subcomponents (extracted, graceful degradation) ────────────────
+# These imports reference a legacy .organs.* structure from a failed nucleus
+# migration. They are wrapped in try/except to allow the module to load with
+# degraded functionality when the organs package is absent.
+try:
+    from .organs.engine.lifecycle.call_dispatcher import CallDispatcher  # type: ignore[import-not-found]
+    from .organs.engine.lifecycle.cluster import ClusterCoordinator  # type: ignore[import-not-found]
+    from .organs.engine.lifecycle.events import SwarmEventEmitter  # type: ignore[import-not-found]
+    from .organs.engine.lifecycle.governance import SwarmGovernance  # type: ignore[import-not-found]
+    from .organs.engine.lifecycle.parallel_dispatch import ParallelDispatch  # type: ignore[import-not-found]
+    from .organs.engine.lifecycle.persistence import SwarmPersistence  # type: ignore[import-not-found]
+    from .organs.engine.lifecycle.state_machine import (  # type: ignore[import-not-found]
+        InvalidTransitionError,
+        SwarmStateMachine,
+    )
+    from .organs.engine.lifecycle.watchdog import SwarmWatchdog  # type: ignore[import-not-found]
+    from .organs.engine.lifecycle.worker_pool import (  # type: ignore[import-not-found]
+        WorkerNotFoundError,
+        WorkerPool,
+    )
+    from .organs.engine.worker_hatch_attempt import WorkerHatchAttempt  # type: ignore[import-not-found]
+    from .organs.engine.worker_hatch_gatekeeper import (  # type: ignore[import-not-found]
+        WorkerHatchGatekeeper,
+    )
+    from .organs.engine.worker_reap_orchestrator import (  # type: ignore[import-not-found]
+        WorkerReapOrchestrator,
+    )
+    from .organs.swarm_worker_governance_controller import (  # type: ignore[import-not-found]
+        WorkerGovernanceController,
+    )
+    _HAS_ORGANS = True
+except ImportError:
+    CallDispatcher = None  # type: ignore[assignment,misc]
+    ClusterCoordinator = None  # type: ignore[assignment,misc]
+    SwarmEventEmitter = None  # type: ignore[assignment,misc]
+    SwarmGovernance = None  # type: ignore[assignment,misc]
+    ParallelDispatch = None  # type: ignore[assignment,misc]
+    SwarmPersistence = None  # type: ignore[assignment,misc]
+    InvalidTransitionError = Exception  # type: ignore[assignment,misc]
+    SwarmStateMachine = None  # type: ignore[assignment,misc]
+    SwarmWatchdog = None  # type: ignore[assignment,misc]
+    WorkerNotFoundError = Exception  # type: ignore[assignment,misc]
+    WorkerPool = None  # type: ignore[assignment,misc]
+    WorkerHatchAttempt = None  # type: ignore[assignment,misc]
+    WorkerHatchGatekeeper = None  # type: ignore[assignment,misc]
+    WorkerReapOrchestrator = None  # type: ignore[assignment,misc]
+    WorkerGovernanceController = None  # type: ignore[assignment,misc]
+    _HAS_ORGANS = False
 
 _COMPAT_MODULE_NAME = "organs.D_Execution.organs.swarm_lifecycle_manager"
 

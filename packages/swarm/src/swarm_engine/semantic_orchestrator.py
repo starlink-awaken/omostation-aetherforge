@@ -8,8 +8,9 @@ import uuid
 from typing import Any
 
 from ._compat import ProjectPaths
-from .organs.capability_matcher import CapabilityMatcher  # type: ignore[import-not-found]
-from .organs.engine.vision_parser import TaskEnvelope, VisionParser  # type: ignore[import-not-found]
+
+# BROKEN IMPORT: from .organs.capability_matcher import CapabilityMatcher  # type: ignore[import-not-found]
+# BROKEN IMPORT: from .organs.engine.vision_parser import TaskEnvelope, VisionParser  # type: ignore[import-not-found]
 
 """
 ---
@@ -75,10 +76,10 @@ _DEFAULT_DB_PATH = str(ProjectPaths.get_db_path("execution", "tasks.db"))
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-from .organs.intent_particle import (  # type: ignore[import-not-found]
-    IntentParticle,
-    MetabolicStage,
-)
+# BROKEN IMPORT (nucleus migration incomplete): from .organs.intent_particle import (  # type: ignore[import-not-found]
+# IntentParticle,
+# MetabolicStage,
+# )
 
 
 class SemanticOrchestrator:
@@ -231,7 +232,7 @@ class SemanticOrchestrator:
             list[IntentParticle]: 完成任务拆解与角色分配后的子意图粒子列表
         """
         try:
-            from .organs.intent_digestor import IntentDigestor  # type: ignore[import-not-found]
+            # BROKEN IMPORT: from .organs.intent_digestor import IntentDigestor  # type: ignore[import-not-found]
 
             digestor = IntentDigestor(db_path=self.db_path)
 

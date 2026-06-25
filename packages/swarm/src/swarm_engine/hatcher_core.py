@@ -189,7 +189,10 @@ class Hatcher:
         worker_pool: Any | None = None,
     ) -> str:
         """Dispatch *task* through a :class:`WorkerPool` when available."""
-        from .organs.engine.worker_pool import WorkerPool  # type: ignore[import-not-found]
+        try:
+            from .organs.engine.worker_pool import WorkerPool  # type: ignore[import-not-found]
+        except ImportError:
+            pass  # organs package not available, degraded mode
 
         pool: WorkerPool | None = worker_pool if isinstance(worker_pool, WorkerPool) else None
 
@@ -210,10 +213,13 @@ class Hatcher:
                 payload = task.get("payload", task)
                 await asyncio.sleep(0)
                 return f"local:{payload!r}"
-            from .organs.llm.provider import LLMRequest  # type: ignore[import-not-found]
-            from .organs.llm.provider_factory import (  # type: ignore[import-not-found]
-                get_default_factory,
-            )
+            try:
+                from .organs.llm.provider import LLMRequest  # type: ignore[import-not-found]
+                from .organs.llm.provider_factory import (  # type: ignore[import-not-found]
+                    get_default_factory,
+                )
+            except ImportError:
+                pass  # organs package not available, degraded mode
 
             if task_type in ("llm_generate", "async_llm_generate"):
                 provider = get_default_factory().get_best_available()
@@ -476,10 +482,14 @@ class Hatcher:
         soul_context: dict | None = None,
     ) -> WorkerHandle:
         """Spawn a swarm worker as an in-process daemon thread."""
+        result_bus_cls = None
         try:
-            from .organs.engine.result_bus import ResultBus  # type: ignore[import-not-found]
+            from .organs.engine.result_bus import ResultBus as result_bus_cls  # type: ignore[import-not-found]
         except ImportError:
-            from engine.result_bus import ResultBus  # type: ignore[no-redef, import-not-found]
+            try:
+                from engine.result_bus import ResultBus as result_bus_cls  # type: ignore[no-redef, import-not-found]
+            except ImportError:
+                pass
 
         spore_id = spore_config.get("id", "unknown")
         capabilities: list[str] = spore_config.get("capabilities", [])
@@ -495,7 +505,7 @@ class Hatcher:
         for _k, _v in _thread_env.items():
             os.environ.setdefault(_k, _v)
 
-        result_bus = ResultBus.get_instance()
+        result_bus = result_bus_cls.get_instance() if result_bus_cls else None
         cancel_event = threading.Event()
 
         thread = threading.Thread(
