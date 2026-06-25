@@ -138,6 +138,6 @@ def load_ssot_models(registry: ModelRegistry, m1_dir: str) -> None:
                 continue
 
             if config and isinstance(config, dict):
-                if config.get("type") == "compute_engine" and config.get("status") == "active":
+                if config.get("type") in ("compute_engine", "ComputeEngine") and config.get("status") == "active":
                     provider = SSOTProviderAdapter(config)
                     registry.register(provider)

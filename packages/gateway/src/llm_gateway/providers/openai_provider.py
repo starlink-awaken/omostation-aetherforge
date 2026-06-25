@@ -33,6 +33,26 @@ class OpenAIProvider(LLMProvider):
         return "openai"
 
     def available_models(self) -> list[str]:
+        # 本地端点：查询 /v1/models 获取真实模型列表
+        if self.base_url and any(
+            host in self.base_url for host in ["localhost", "127.0.0.1"]
+        ):
+            try:
+                import httpx
+                import json
+                resp = httpx.get(
+                    f"{self.base_url.rstrip('/')}/models",
+                    headers={"Authorization": "Bearer ignore"},
+                    timeout=5,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    models = [m["id"] for m in data.get("data", []) if "id" in m]
+                    if models:
+                        return models
+            except Exception:
+                pass
+            return [self.default_model]
         return ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
 
     def __init__(
@@ -53,6 +73,11 @@ class OpenAIProvider(LLMProvider):
     # ------------------------------------------------------------------
 
     def is_available(self) -> bool:
+        # 本地端点（localhost/127.0.0.1）不需要 api_key
+        if self.base_url and any(
+            host in self.base_url for host in ["localhost", "127.0.0.1"]
+        ):
+            return True
         if not self._api_key or self._api_key == "MOCK_KEY":
             return False
         try:
