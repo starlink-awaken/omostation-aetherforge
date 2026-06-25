@@ -14,7 +14,7 @@ venv/
 .venv.bak/
 
 # ── uv ──
-uv.lock
+# uv.lock must be committed per workspace AGENTS.md convention
 
 # ── IDE ──
 .idea/
