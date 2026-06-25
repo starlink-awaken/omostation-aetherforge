@@ -74,9 +74,7 @@ class SwarmMonitor:
         条件: 至少 1 个 Agent 在线，且（任务数 < 10 或 错误率 < 20%）。
         小样本时（<10 任务）不因少量错误判定不健康。
         """
-        has_online = any(
-            time.time() - hb < 60 for hb in self._agent_heartbeats.values()
-        )
+        has_online = any(time.time() - hb < 60 for hb in self._agent_heartbeats.values())
         if not has_online:
             return False
         if self._total_tasks < 10:

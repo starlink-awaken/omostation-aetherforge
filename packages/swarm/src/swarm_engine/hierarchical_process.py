@@ -162,6 +162,7 @@ class HierarchicalProcess:
         except json.JSONDecodeError:
             # Try to extract JSON array from the text
             import re
+
             match = re.search(r"\[.*?\]", text, re.DOTALL)
             if match:
                 try:
@@ -175,12 +176,14 @@ class HierarchicalProcess:
 
         subtasks = []
         for i, item in enumerate(data):
-            subtasks.append(SubTask(
-                id=item.get("id", f"step-{i + 1}"),
-                description=item.get("description", ""),
-                agent_role=item.get("agent_role", "worker"),
-                depends_on=item.get("depends_on", []),
-            ))
+            subtasks.append(
+                SubTask(
+                    id=item.get("id", f"step-{i + 1}"),
+                    description=item.get("description", ""),
+                    agent_role=item.get("agent_role", "worker"),
+                    depends_on=item.get("depends_on", []),
+                )
+            )
         return subtasks
 
     # ── Phase 2: Execute ─────────────────────────────────────────────────────
@@ -211,10 +214,7 @@ class HierarchicalProcess:
 
     def _execute_single(self, subtask: SubTask, context: str) -> str:
         """Execute a single subtask via the LLM."""
-        system = (
-            f"You are a {subtask.agent_role} agent. "
-            "Complete your assigned subtask concisely and thoroughly."
-        )
+        system = f"You are a {subtask.agent_role} agent. Complete your assigned subtask concisely and thoroughly."
         user_msg = f"Task: {subtask.description}"
         if context:
             user_msg = f"Context: {context}\n\n{user_msg}"
@@ -241,9 +241,7 @@ class HierarchicalProcess:
     def _synthesize(self, prompt: str, subtasks: list[SubTask], context: str) -> str:
         """Ask the manager to synthesize subtask results into a final answer."""
         results_text = "\n\n".join(
-            f"### {s.id} ({s.agent_role}): {s.description}\n{s.result[:500]}"
-            for s in subtasks
-            if s.result
+            f"### {s.id} ({s.agent_role}): {s.description}\n{s.result[:500]}" for s in subtasks if s.result
         )
 
         ctx_hint = f"\nContext: {context}" if context else ""

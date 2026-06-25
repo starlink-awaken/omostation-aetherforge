@@ -50,10 +50,8 @@ def _bus_publish_node_state(node: ComputeNode) -> None:
         _log.debug("bus:mesh:node:status_changed published: node=%s status=%s", node.node_id, node.status)
     except ImportError:
         _log.debug("bus-foundation not available, skipping mesh event publish")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.warning("Failed to publish mesh node state event: %s", exc)
-
-
 
 
 class ComputePool:
@@ -140,12 +138,9 @@ class ComputePool:
         nodes = self._registry.get_all()
         if not nodes:
             return results
-            
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(nodes), 20)) as executor:
-            future_to_node = {
-                executor.submit(self.health_check_node, node.node_id): node.node_id
-                for node in nodes
-            }
+            future_to_node = {executor.submit(self.health_check_node, node.node_id): node.node_id for node in nodes}
             for future in concurrent.futures.as_completed(future_to_node):
                 node_id = future_to_node[future]
                 try:
@@ -270,8 +265,6 @@ class ComputePool:
         # ── 2. 向 bus-foundation 发布 mesh 状态变更事件（R3 闭环） ──
         if event == "status_change":
             _bus_publish_node_state(node)
-
-
 
     # ── Status report ────────────────────────────────────────────────────────
 

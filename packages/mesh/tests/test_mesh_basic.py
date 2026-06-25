@@ -17,4 +17,5 @@ class TestMesh:
     def test_initialization(self):
         """测试初始化"""
         from aetherforge.mesh import __init__
+
         assert __init__ is not None

@@ -18,9 +18,7 @@ class RedisMessageBroker(MessageBroker):
     Extends the base MessageBroker interface (duck-typing) for compatibility.
     """
 
-    def __init__(
-        self, redis_url: str = "redis://localhost:6379/0", prefix: str = "swarm:"
-    ) -> None:
+    def __init__(self, redis_url: str = "redis://localhost:6379/0", prefix: str = "swarm:") -> None:
         super().__init__()
         self._redis = redis.from_url(redis_url, decode_responses=True)
         self._prefix = prefix
@@ -92,9 +90,7 @@ class RedisMessageBroker(MessageBroker):
 
         def listener() -> None:
             while self._run_pubsub:
-                message = self._pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=1.0
-                )
+                message = self._pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message and message["type"] == "message":
                     try:
                         role_msg = RoleMessage.from_json(message["data"])
@@ -102,9 +98,7 @@ class RedisMessageBroker(MessageBroker):
                         with self._lock:
                             for role_id in self._registered_roles:
                                 if role_id != role_msg.sender_role_id:
-                                    self._redis.lpush(
-                                        self._get_queue_key(role_id), message["data"]
-                                    )
+                                    self._redis.lpush(self._get_queue_key(role_id), message["data"])
                     except Exception as e:
                         _log.error(f"Failed to process broadcast message: {e}")
                 time.sleep(0.01)

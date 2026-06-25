@@ -13,6 +13,9 @@
 
 from __future__ import annotations
 
+from fastmcp import FastMCP
+
+from aetherforge.gateway import llm_generate
 from aetherforge.mesh import (
     mesh_cost_report,
     mesh_generate,
@@ -20,8 +23,6 @@ from aetherforge.mesh import (
     mesh_list_nodes,
     mesh_status,
 )
-from aetherforge.gateway import llm_generate
-from fastmcp import FastMCP
 
 mcp = FastMCP("aetherforge")
 

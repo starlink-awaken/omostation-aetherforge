@@ -109,6 +109,7 @@ class AnthropicCompatProvider(LLMProvider):
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
         import httpx
+
         body = self._build_body(request)
         try:
             async with httpx.AsyncClient(timeout=60) as client:
@@ -125,6 +126,7 @@ class AnthropicCompatProvider(LLMProvider):
 
     def complete(self, request: LLMRequest) -> LLMResponse:
         import httpx
+
         body = self._build_body(request)
         try:
             with httpx.Client(timeout=60) as client:

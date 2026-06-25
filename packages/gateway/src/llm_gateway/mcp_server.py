@@ -1,20 +1,20 @@
 import json
-from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
 from pydantic import BaseModel
 
 from .detection import detect_backends
+from .paths import M1_COMPUTE_ENGINE_DIR as M1_ENGINE_DIR
+from .paths import M1_MODEL_DIR
 from .provider import LLMRequest, ToolSchema
 from .registry import ModelRegistry
 from .scheduler import ModelScheduler
 
-from .paths import M1_COMPUTE_ENGINE_DIR as M1_ENGINE_DIR
-
 # Heavy loading is moved to the server startup hook.
 
 mcp = FastMCP("llm-gateway")
+
 
 @mcp.prompt()
 def get_prompt() -> str:
@@ -70,10 +70,11 @@ async def llm_generate(req: GenerateRequest) -> str:
 def main():
     if M1_ENGINE_DIR.exists():
         import asyncio
+
         from .ssot_loader import load_ssot_models
-        
+
         _registry = ModelRegistry()
-        load_ssot_models(_registry, str(M1_ENGINE_DIR))
+        load_ssot_models(_registry, str(M1_ENGINE_DIR), str(M1_MODEL_DIR) if M1_MODEL_DIR.exists() else None)
         _scheduler = ModelScheduler(_registry)
         try:
             _models = asyncio.run(_registry.refresh())
@@ -85,6 +86,7 @@ def main():
         print(f"[llm-gateway] M1 engine dir not found: {M1_ENGINE_DIR}")
 
     mcp.run()
+
 
 if __name__ == "__main__":
     main()

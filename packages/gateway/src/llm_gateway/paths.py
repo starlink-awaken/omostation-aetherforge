@@ -15,6 +15,11 @@ if _M1_DIR_OVERRIDE:
     M1_COMPUTE_ENGINE_DIR = Path(_M1_DIR_OVERRIDE)
 else:
     M1_COMPUTE_ENGINE_DIR = (
-        Path.home() / "Workspace" / "projects" / "ecos"
-        / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
+        Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
     )
+
+# Path to M1 model definitions (model_id, pricing, capabilities)
+M1_MODEL_DIR = (
+    Path.home() / "Workspace" / "projects" / "ecos"
+    / "src" / "ecos" / "ssot" / "mof" / "m1" / "model"
+)

@@ -27,6 +27,7 @@ _log = logging.getLogger(__name__)
 # Default M1 root
 try:
     from aetherforge.config import get_m1_dir
+
     M1_DIR = get_m1_dir("").parent  # get_m1_dir("") → m1/, .parent → mof/
 except ImportError:
     M1_DIR = Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1"
@@ -40,13 +41,13 @@ class MachineInfo:
     """Physical machine information from compute_node + hardware_asset."""
 
     node_id: str = ""
-    device_type: str = ""        # mac_mini, laptop, desktop, cloud_vm, ...
-    os: str = ""                 # macOS 15, ubuntu 24.04, ...
-    hostname: str = ""           # macmini.local
-    cpu_model: str = ""          # Intel Core i7-13500H
+    device_type: str = ""  # mac_mini, laptop, desktop, cloud_vm, ...
+    os: str = ""  # macOS 15, ubuntu 24.04, ...
+    hostname: str = ""  # macmini.local
+    cpu_model: str = ""  # Intel Core i7-13500H
     cpu_cores: int = 0
     ram_gb: int = 0
-    gpu_model: str = ""          # NVIDIA RTX 4060 Laptop, Apple M2
+    gpu_model: str = ""  # NVIDIA RTX 4060 Laptop, Apple M2
     gpu_vram_gb: int = 0
     disk_gb: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -81,8 +82,8 @@ class NetworkZoneInfo:
     """Network zone definition from network_zone/ YAMLs."""
 
     zone_id: str = ""
-    zone_type: str = ""            # localhost, lan, vpn, proxy, wan
-    latency_profile: str = ""      # ultra_low, low, medium, high, unpredictable
+    zone_type: str = ""  # localhost, lan, vpn, proxy, wan
+    latency_profile: str = ""  # ultra_low, low, medium, high, unpredictable
     description: str = ""
 
     @property

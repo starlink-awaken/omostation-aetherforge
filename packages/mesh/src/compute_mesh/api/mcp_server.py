@@ -37,7 +37,9 @@ async def mesh_list_nodes() -> str:
     for n in sorted(nodes, key=lambda x: (x.network_zone, x.node_id)):
         icon = "🟢" if n.is_online else "🔴"
         load = f"{n.load_factor:.1f}"
-        lines.append(f"  {icon} {n.node_id:28s} {n.engine_type.value:15s} zone={n.network_zone} load={load} status={n.status.value}")
+        lines.append(
+            f"  {icon} {n.node_id:28s} {n.engine_type.value:15s} zone={n.network_zone} load={load} status={n.status.value}"
+        )
     return "\n".join(lines)
 
 

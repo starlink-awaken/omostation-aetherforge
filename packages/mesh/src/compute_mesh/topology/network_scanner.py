@@ -47,7 +47,9 @@ PROXY_CONFIG_PATHS = [
 # iCloud ClashX config paths
 ICLOUD_BASE = Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs"
 
-CLASHX_ICLOUD_PATH = Path.home() / "Library" / "Mobile Documents" / "iCloud~com~west2online~ClashX" / "Documents" / "config.yaml"
+CLASHX_ICLOUD_PATH = (
+    Path.home() / "Library" / "Mobile Documents" / "iCloud~com~west2online~ClashX" / "Documents" / "config.yaml"
+)
 
 # ClashX iCloud path (from user)
 # Proxy server for outbound scans
@@ -113,17 +115,19 @@ class NetworkScanner:
             for port, etype, name, label in services:
                 if self._check_port(ip, port):
                     node_id = f"{name}-{hostname.split('.')[0]}"
-                    self._nodes.append(ComputeNode(
-                        node_id=node_id,
-                        name=f"{label} @ {hostname}",
-                        engine_type=etype,
-                        base_url=f"http://{ip}:{port}",
-                        network_zone="lan",
-                        status=NodeStatus.ONLINE,
-                        topology=TopologyLabels(host=hostname),
-                        last_seen=now,
-                        tags={"discovery": "mdns"},
-                    ))
+                    self._nodes.append(
+                        ComputeNode(
+                            node_id=node_id,
+                            name=f"{label} @ {hostname}",
+                            engine_type=etype,
+                            base_url=f"http://{ip}:{port}",
+                            network_zone="lan",
+                            status=NodeStatus.ONLINE,
+                            topology=TopologyLabels(host=hostname),
+                            last_seen=now,
+                            tags={"discovery": "mdns"},
+                        )
+                    )
                     _log.info("  mDNS: found %s at %s:%d", label, ip, port)
 
     def _discover_mdns_hosts(self) -> list[str]:
@@ -165,6 +169,7 @@ class NetworkScanner:
         # Try via ClashX proxy DNS (can reach remote LAN/Tailscale)
         try:
             import socks
+
             s = socks.socksocket()
             s.set_proxy(socks.SOCKS5, PROXY_HOST, PROXY_PORT)
             s.settimeout(1.5)
@@ -179,6 +184,7 @@ class NetworkScanner:
         # Try via proxy (can reach remote LAN/Tailscale hosts)
         try:
             import socks
+
             s = socks.socksocket()
             s.set_proxy(socks.SOCKS5, PROXY_HOST, PROXY_PORT)
             s.settimeout(timeout)
@@ -209,7 +215,9 @@ class NetworkScanner:
         try:
             result = subprocess.run(
                 ["tailscale", "status", "--json"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode == 0:
                 data = json.loads(result.stdout)
@@ -224,36 +232,42 @@ class NetworkScanner:
                         continue
 
                     # Check if Ollama or LM Studio is running on the peer
-                    for port, etype, name in [(11434, NodeEngineType.LOCAL_DAEMON, "ollama"),
-                                               (1234, NodeEngineType.LOCAL_DAEMON, "lm-studio")]:
+                    for port, etype, name in [
+                        (11434, NodeEngineType.LOCAL_DAEMON, "ollama"),
+                        (1234, NodeEngineType.LOCAL_DAEMON, "lm-studio"),
+                    ]:
                         if self._check_port(ip, port, timeout=1):
                             node_id = f"{name}-ts-{hostname.lower()}"
-                            self._nodes.append(ComputeNode(
-                                node_id=node_id,
-                                name=f"{name.title()} @ {hostname} (Tailscale)",
-                                engine_type=etype,
-                                base_url=f"http://{ip}:{port}",
-                                network_zone="tailscale",
-                                status=NodeStatus.ONLINE,
-                                topology=TopologyLabels(zone="tailscale", host=hostname),
-                                last_seen=now,
-                                tags={"discovery": "tailscale"},
-                            ))
+                            self._nodes.append(
+                                ComputeNode(
+                                    node_id=node_id,
+                                    name=f"{name.title()} @ {hostname} (Tailscale)",
+                                    engine_type=etype,
+                                    base_url=f"http://{ip}:{port}",
+                                    network_zone="tailscale",
+                                    status=NodeStatus.ONLINE,
+                                    topology=TopologyLabels(zone="tailscale", host=hostname),
+                                    last_seen=now,
+                                    tags={"discovery": "tailscale"},
+                                )
+                            )
                             _log.info("  Tailscale: found %s at %s:%d", name, ip, port)
 
                     # Even without known services, add as generic node
                     node_id = f"ts-{hostname.lower()}"
                     if not any(n.node_id == node_id for n in self._nodes):
-                        self._nodes.append(ComputeNode(
-                            node_id=node_id,
-                            name=f"Tailscale: {hostname}",
-                            engine_type=NodeEngineType.REMOTE_WORKER,
-                            network_zone="tailscale",
-                            status=NodeStatus.ONLINE,
-                            topology=TopologyLabels(zone="tailscale", host=hostname),
-                            last_seen=now,
-                            tags={"discovery": "tailscale", "tailscale_ip": ip},
-                        ))
+                        self._nodes.append(
+                            ComputeNode(
+                                node_id=node_id,
+                                name=f"Tailscale: {hostname}",
+                                engine_type=NodeEngineType.REMOTE_WORKER,
+                                network_zone="tailscale",
+                                status=NodeStatus.ONLINE,
+                                topology=TopologyLabels(zone="tailscale", host=hostname),
+                                last_seen=now,
+                                tags={"discovery": "tailscale", "tailscale_ip": ip},
+                            )
+                        )
                         _log.info("  Tailscale: discovered %s (%s)", hostname, ip)
             else:
                 _log.debug("tailscale status returned %d", result.returncode)
@@ -282,35 +296,37 @@ class NetworkScanner:
             proxies = self._extract_proxies(config, config_path)
             for proxy in proxies:
                 node_id = f"proxy-{proxy['name'].lower().replace(' ', '-')}"
-                self._nodes.append(ComputeNode(
-                    node_id=node_id,
-                    name=f"Proxy: {proxy['name']}",
-                    engine_type=NodeEngineType.SSH_TUNNEL,
-                    base_url=proxy.get("url", ""),
-                    network_zone="proxy",
-                    status=NodeStatus.ONLINE,
-                    topology=TopologyLabels(zone="proxy"),
-                    last_seen=now,
-                    tags={"discovery": "proxy", "proxy_type": proxy.get("type", "")},
-                    metadata={"proxy_config": proxy},
-                ))
+                self._nodes.append(
+                    ComputeNode(
+                        node_id=node_id,
+                        name=f"Proxy: {proxy['name']}",
+                        engine_type=NodeEngineType.SSH_TUNNEL,
+                        base_url=proxy.get("url", ""),
+                        network_zone="proxy",
+                        status=NodeStatus.ONLINE,
+                        topology=TopologyLabels(zone="proxy"),
+                        last_seen=now,
+                        tags={"discovery": "proxy", "proxy_type": proxy.get("type", "")},
+                        metadata={"proxy_config": proxy},
+                    )
+                )
 
             # Add the proxy listen address as a node
-            listen = config.get("mixed-port",
-                       config.get("port",
-                       config.get("external-controller", "")))
+            listen = config.get("mixed-port", config.get("port", config.get("external-controller", "")))
             if listen:
                 node_id = "proxy-clashx"
                 if not any(n.node_id == node_id for n in self._nodes):
-                    self._nodes.append(ComputeNode(
-                        node_id=node_id,
-                        name="ClashX Proxy",
-                        engine_type=NodeEngineType.SSH_TUNNEL,
-                        base_url=f"socks5://127.0.0.1:{listen}" if isinstance(listen, int) else str(listen),
-                        network_zone="proxy",
-                        status=NodeStatus.ONLINE,
-                        tags={"discovery": "proxy", "config_path": str(config_path)},
-                    ))
+                    self._nodes.append(
+                        ComputeNode(
+                            node_id=node_id,
+                            name="ClashX Proxy",
+                            engine_type=NodeEngineType.SSH_TUNNEL,
+                            base_url=f"socks5://127.0.0.1:{listen}" if isinstance(listen, int) else str(listen),
+                            network_zone="proxy",
+                            status=NodeStatus.ONLINE,
+                            tags={"discovery": "proxy", "config_path": str(config_path)},
+                        )
+                    )
                     _log.info("  Proxy: ClashX listening on %s", listen)
 
     def _load_proxy_config(self, path: Path) -> dict[str, Any] | None:
@@ -318,6 +334,7 @@ class NetworkScanner:
         try:
             if path.suffix in (".yaml", ".yml"):
                 import yaml
+
                 with open(path) as f:
                     return yaml.safe_load(f)
             elif path.suffix == ".json":
@@ -345,13 +362,15 @@ class NetworkScanner:
                         port = entry.get("port", 0)
                         ptype = entry.get("type", "")
                         if server and port:
-                            proxies.append({
-                                "name": name,
-                                "type": ptype,
-                                "server": server,
-                                "port": port,
-                                "url": f"{ptype}://{server}:{port}" if ptype else f"tcp://{server}:{port}",
-                            })
+                            proxies.append(
+                                {
+                                    "name": name,
+                                    "type": ptype,
+                                    "server": server,
+                                    "port": port,
+                                    "url": f"{ptype}://{server}:{port}" if ptype else f"tcp://{server}:{port}",
+                                }
+                            )
         return proxies
 
     # ── Phase 4: iCloud ClashX ───────────────────────────────────────────────
@@ -377,16 +396,18 @@ class NetworkScanner:
                         proxies = self._extract_proxies(config, path)
                         for proxy in proxies:
                             nid = f"icloud-proxy-{proxy['name'].lower()[:20]}"
-                            self._nodes.append(ComputeNode(
-                                node_id=nid,
-                                name=f"iCloud Proxy: {proxy['name']}",
-                                engine_type=NodeEngineType.SSH_TUNNEL,
-                                base_url=proxy.get("url", ""),
-                                network_zone="proxy",
-                                status=NodeStatus.ONLINE,
-                                tags={"discovery": "icloud", "config_path": str(path)},
-                            ))
-                            _log.info("  iCloud ClashX: found proxy %s", proxy['name'])
+                            self._nodes.append(
+                                ComputeNode(
+                                    node_id=nid,
+                                    name=f"iCloud Proxy: {proxy['name']}",
+                                    engine_type=NodeEngineType.SSH_TUNNEL,
+                                    base_url=proxy.get("url", ""),
+                                    network_zone="proxy",
+                                    status=NodeStatus.ONLINE,
+                                    tags={"discovery": "icloud", "config_path": str(path)},
+                                )
+                            )
+                            _log.info("  iCloud ClashX: found proxy %s", proxy["name"])
 
     # ── Discovery info ─────────────────────────────────────────────────────
 
@@ -401,8 +422,7 @@ class NetworkScanner:
     @staticmethod
     def _tailscale_available() -> bool:
         try:
-            result = subprocess.run(["tailscale", "version"],
-                                  capture_output=True, timeout=2)
+            result = subprocess.run(["tailscale", "version"], capture_output=True, timeout=2)
             return result.returncode == 0
         except (FileNotFoundError, OSError):
             return False

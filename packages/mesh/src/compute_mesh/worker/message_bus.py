@@ -160,8 +160,7 @@ class WorkerMessageBus:
                 """INSERT OR IGNORE INTO messages
                    (id, sender, recipient, msg_type, payload, timestamp)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (msg.id, msg.sender, msg.recipient, msg.msg_type,
-                 json.dumps(msg.payload), msg.timestamp),
+                (msg.id, msg.sender, msg.recipient, msg.msg_type, json.dumps(msg.payload), msg.timestamp),
             )
             conn.commit()
             conn.close()

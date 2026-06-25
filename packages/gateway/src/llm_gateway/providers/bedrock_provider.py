@@ -68,6 +68,7 @@ class BedrockProvider(LLMProvider):
             return False
         try:
             import boto3  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -75,6 +76,7 @@ class BedrockProvider(LLMProvider):
     def _get_runtime(self) -> Any:
         if self._runtime is None:
             import boto3
+
             session = boto3.Session(
                 aws_access_key_id=self._aws_key,
                 aws_secret_access_key=self._aws_secret,
@@ -129,7 +131,9 @@ class BedrockProvider(LLMProvider):
             input_tokens = body.get("prompt_token_count", 0)
             output_tokens = body.get("generation_token_count", 0)
         else:
-            content = body.get("results", [{}])[0].get("outputText", "") if "results" in body else body.get("completion", "")
+            content = (
+                body.get("results", [{}])[0].get("outputText", "") if "results" in body else body.get("completion", "")
+            )
 
         return LLMResponse(
             content=content,
@@ -146,6 +150,7 @@ class BedrockProvider(LLMProvider):
 
         try:
             import boto3  # noqa: F401
+
             response = client.invoke_model(
                 modelId=model,
                 contentType="application/json",

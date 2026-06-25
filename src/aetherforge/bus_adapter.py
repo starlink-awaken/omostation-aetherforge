@@ -16,6 +16,7 @@ We do NOT replace aetherforge's internal event bus (it has its own
 back-pressure semantics tuned for swarm loops); we mirror high-value
 events outward.
 """
+
 from __future__ import annotations
 
 import logging

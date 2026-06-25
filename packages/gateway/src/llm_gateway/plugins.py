@@ -74,9 +74,7 @@ def discover_plugins() -> int:
                     register_plugin(ep.name, cls)
                     count += 1
                 else:
-                    _log.warning(
-                        "Plugin %s does not inherit from LLMProvider, skipping", ep.name
-                    )
+                    _log.warning("Plugin %s does not inherit from LLMProvider, skipping", ep.name)
             except Exception as exc:
                 _log.warning("Failed to load plugin %s: %s", ep.name, exc)
     except Exception:
@@ -100,9 +98,7 @@ def list_plugins() -> list[str]:
     return list(_plugin_registry.keys())
 
 
-def create_plugin_provider(
-    name: str, **kwargs: Any
-) -> LLMProvider:
+def create_plugin_provider(name: str, **kwargs: Any) -> LLMProvider:
     """Instantiate a plugin provider by name.
 
     Args:

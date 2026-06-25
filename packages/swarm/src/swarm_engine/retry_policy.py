@@ -11,6 +11,7 @@ HTTP / async 场景请使用 llm_gateway.retry.RetryConfig + with_retry()。
   - RetryPolicy.delay_for_attempt(attempt) → float
   - gateway._backoff(attempt, config) → float
 """
+
 from __future__ import annotations
 
 import random
@@ -51,7 +52,7 @@ class RetryPolicy:
         return delay
 
     @classmethod
-    def from_gateway_config(cls, config: "object") -> "RetryPolicy":
+    def from_gateway_config(cls, config: object) -> RetryPolicy:
         """Convert a llm_gateway.retry.RetryConfig to a RetryPolicy.
 
         Enables sharing configuration between gateway (async) and

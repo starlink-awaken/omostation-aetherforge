@@ -89,7 +89,9 @@ class MeshScheduler:
 
         # Get online node IDs
         {n.node_id for n in self._pool.get_online()}
-        preferred_zone = request.metadata.get("preferred_zone", "") if hasattr(request, "metadata") and request.metadata else ""
+        preferred_zone = (
+            request.metadata.get("preferred_zone", "") if hasattr(request, "metadata") and request.metadata else ""
+        )
 
         # Build mesh-aware pipeline
         pipeline = RouterPipeline()
@@ -168,11 +170,13 @@ class MeshScheduler:
         with self._queue_lock:
             if len(self._queue) >= self._max_queue_size:
                 return False
-            self._queue.append({
-                "request": request,
-                "policy": policy,
-                "enqueued_at": time.time(),
-            })
+            self._queue.append(
+                {
+                    "request": request,
+                    "policy": policy,
+                    "enqueued_at": time.time(),
+                }
+            )
         return True
 
     def dequeue_ready(self) -> list[tuple[ModelRequest, ModelRoutePolicy | None]]:
@@ -186,9 +190,7 @@ class MeshScheduler:
             for entry in self._queue:
                 # Check if any node is now online with capacity
                 online = self._pool.get_online()
-                has_capacity = any(
-                    n.active_requests < n.max_concurrency for n in online
-                )
+                has_capacity = any(n.active_requests < n.max_concurrency for n in online)
                 if has_capacity:
                     ready.append((entry["request"], entry["policy"]))
                 else:

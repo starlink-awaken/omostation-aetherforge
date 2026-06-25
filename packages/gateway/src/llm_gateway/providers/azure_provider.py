@@ -60,6 +60,7 @@ class AzureOpenAIProvider(LLMProvider):
             return False
         try:
             import openai  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -67,6 +68,7 @@ class AzureOpenAIProvider(LLMProvider):
     def _get_client(self) -> Any:
         if self._client is None:
             import openai
+
             self._client = openai.AzureOpenAI(
                 api_key=self._api_key,
                 azure_endpoint=self._endpoint,
@@ -77,6 +79,7 @@ class AzureOpenAIProvider(LLMProvider):
     def _get_async_client(self) -> Any:
         if self._async_client is None:
             import openai
+
             self._async_client = openai.AsyncAzureOpenAI(
                 api_key=self._api_key,
                 azure_endpoint=self._endpoint,
@@ -151,8 +154,11 @@ class AzureOpenAIProvider(LLMProvider):
 
         try:
             stream = await client.chat.completions.create(
-                model=model, messages=messages, stream=True,
-                max_tokens=request.max_tokens, temperature=request.temperature,
+                model=model,
+                messages=messages,
+                stream=True,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
             )
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:

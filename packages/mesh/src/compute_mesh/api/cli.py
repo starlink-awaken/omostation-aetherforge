@@ -43,7 +43,9 @@ def cmd_list() -> int:
     for n in sorted(nodes, key=lambda x: (x.network_zone, x.node_id)):
         icon = "🟢" if n.is_online else ("🟡" if n.status.value == "degraded" else "🔴")
         load = f"{n.load_factor:.1f}"
-        print(f"{icon} {n.node_id:28s} {n.engine_type.value:16s} {n.network_zone:8s} {n.status.value:8s} {load:6s} {n.base_url}")
+        print(
+            f"{icon} {n.node_id:28s} {n.engine_type.value:16s} {n.network_zone:8s} {n.status.value:8s} {load:6s} {n.base_url}"
+        )
     return 0
 
 
@@ -58,6 +60,7 @@ def cmd_status() -> int:
         "zones": summary["zones"],
     }
     import json
+
     print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0
 
@@ -104,10 +107,14 @@ def cmd_worker_list() -> int:
 
     print(f"👷 AetherForge Workers — {len(workers)} total:")
     stats = registry.get_stats()
-    print(f"   Idle: {stats['idle']} | Busy: {stats['busy']} | Error: {stats['error']} | Completed: {stats['total_completed']}")
+    print(
+        f"   Idle: {stats['idle']} | Busy: {stats['busy']} | Error: {stats['error']} | Completed: {stats['total_completed']}"
+    )
     print()
     for w in sorted(workers, key=lambda x: x.node_id):
-        icon = {"idle": "🟢", "busy": "🟡", "error": "🔴", "draining": "🔵", "terminated": "⚫"}.get(w.status.value, "⚪")
+        icon = {"idle": "🟢", "busy": "🟡", "error": "🔴", "draining": "🔵", "terminated": "⚫"}.get(
+            w.status.value, "⚪"
+        )
         print(f"  {icon} {w.worker_id:30s} node={w.node_id:20s} status={w.status.value:10s} load={w.current_load:.1f}")
     return 0
 
@@ -142,6 +149,7 @@ def cmd_cost() -> int:
     report = tracker.get_report()
 
     import json
+
     print(json.dumps(report, indent=2, ensure_ascii=False))
     print(f"\n📁 Log: {report['log_path']}")
     return 0
@@ -174,7 +182,6 @@ def cmd_generate(prompt: str) -> int:
         else:
             print(f"❌ No available provider for node {best.node_id}.")
             return 1
-
 
     req = LLMRequest(prompt=prompt)
     resp = provider.complete(req)

@@ -28,9 +28,11 @@ try:
 except ImportError:
     # Fallback if aetherforge top-level is not installed (standalone mesh usage)
     import os
+
     _override = os.environ.get("AETHERFORGE_M1_COMPUTE_DIR") or os.environ.get("LLM_GATEWAY_M1_DIR") or ""
     M1_ENGINE_DIR = (
-        Path(_override) if _override
+        Path(_override)
+        if _override
         else Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
     )
 

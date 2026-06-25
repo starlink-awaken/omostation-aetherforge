@@ -16,7 +16,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 
 
 def cmd_gateway(argv: list[str]) -> int:
@@ -45,9 +44,9 @@ def cmd_swarm(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "run":
-        import sys
-        import select
         import json
+        import select
+        import sys
 
         goal = args.goal
         is_json_output = args.json
@@ -80,9 +79,10 @@ def cmd_swarm(argv: list[str]) -> int:
             analysis = f"分析目标: {goal}"
             try:
                 # 尝试调用本地的 llm_gateway
-                from aetherforge.gateway import create_provider
                 # 如果有默认 provider 配置，可以用它生成一些真实的拆解
                 from aetherforge.config import load_config
+                from aetherforge.gateway import create_provider
+
                 cfg = load_config()
                 if cfg.gateway.default_model:
                     prov = create_provider(cfg.gateway.default_provider)
@@ -107,6 +107,7 @@ def cmd_swarm(argv: list[str]) -> int:
         # 3. 结果输出
         if is_json_output:
             import json
+
             output_data = {
                 "goal": goal,
                 "status": "success" if not state.get("_errors") else "failed",
@@ -114,18 +115,18 @@ def cmd_swarm(argv: list[str]) -> int:
                     {
                         "name": step["node"],
                         "status": "ok" if step["status"] == "ok" else "failed",
-                        "error": step.get("error")
+                        "error": step.get("error"),
                     }
                     for step in state.get("_history", [])
                 ],
-                "result": state.get("output", "")
+                "result": state.get("output", ""),
             }
             print(json.dumps(output_data, ensure_ascii=False, indent=2))
         else:
             print(f"🎯 Swarm Goal: {args.goal}")
             print(f"📄 Plan: {state.get('plan')}")
             print(f"💡 Result: {state.get('output')}")
-        
+
         return 1 if state.get("_errors") else 0
 
     else:
@@ -133,12 +134,12 @@ def cmd_swarm(argv: list[str]) -> int:
         return 1
 
 
-
 def main(argv: list[str] | None = None) -> int:
-    print("⚠️ AetherForge 独立 CLI 已弃用，请使用 cockpit 替代", file=sys.stderr)
+    import sys as _sys
+
+    print("⚠️ AetherForge 独立 CLI 已弃用，请使用 cockpit 替代", file=_sys.stderr)
     if argv is None:
-        import sys
-        argv = sys.argv[1:]
+        argv = _sys.argv[1:]
 
     if not argv or argv[0] in ("-h", "--help"):
         print("Usage: aetherforge {gateway,mesh,swarm} [subcommand_args]")
@@ -161,7 +162,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Unknown domain: {domain}")
         print("Usage: aetherforge {gateway,mesh,swarm} [subcommand_args]")
         return 1
-
 
 
 if __name__ == "__main__":

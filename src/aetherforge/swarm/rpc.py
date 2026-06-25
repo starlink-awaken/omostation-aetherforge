@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import sys
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -15,32 +15,31 @@ if swarm_src_path not in sys.path:
 
 # 现在可以安全地导入了
 from swarm_engine.graph_workflow import GraphWorkflow
-from aetherforge.gateway import create_provider
+
 from aetherforge.config import load_config
+from aetherforge.gateway import create_provider
 
 _log = logging.getLogger(__name__)
+
 
 def run_swarm_workflow(goal: str, **kwargs: Any) -> dict[str, Any]:
     """
     BOS RPC 调用入口: bos://capability/swarm/run
-    
+
     解析并处理该 BOS URI 路由，驱动底层 GraphWorkflow (Swarm 引擎) 执行多智能体任务。
-    
+
     Args:
         goal: 任务目标
         **kwargs: 扩展参数
     """
     if not goal:
-        return {
-            "status": "failed",
-            "error": "Goal parameter is required"
-        }
-        
+        return {"status": "failed", "error": "Goal parameter is required"}
+
     _log.info("[Swarm RPC] Initializing GraphWorkflow for goal: %s", goal)
-    
+
     # 1. 实例化工作流引擎
     wf = GraphWorkflow()
-    
+
     # 2. 定义 Swarm 协调节点
     @wf.node("任务规划", description="分析并分解任务目标")
     def plan_task(state: dict[str, Any]) -> dict[str, Any]:
@@ -51,7 +50,7 @@ def run_swarm_workflow(goal: str, **kwargs: Any) -> dict[str, Any]:
             cfg = load_config()
             model = kwargs.get("model") or getattr(cfg.gateway, "default_model", None)
             provider_name = kwargs.get("provider") or getattr(cfg.gateway, "default_provider", None)
-            
+
             if model and provider_name:
                 prov = create_provider(provider_name)
                 resp = prov.generate(f"将以下任务目标拆解为3步，仅输出简短文本: {task_goal}")
@@ -68,27 +67,23 @@ def run_swarm_workflow(goal: str, **kwargs: Any) -> dict[str, Any]:
     # 3. 关联有向图拓扑
     wf.add_edge("任务规划", "任务执行")
     wf.set_entry("任务规划")
-    
+
     # 4. 执行工作流
     initial_state = {"goal": goal}
     state = wf.run(initial_state)
-    
+
     # 5. 格式化返回结果 (保证是标准的序列化 dict)
     errors = state.get("_errors", [])
     history = state.get("_history", [])
-    
+
     return {
         "status": "success" if not errors else "failed",
         "goal": goal,
         "plan": state.get("plan", ""),
         "result": state.get("output", ""),
         "steps": [
-            {
-                "name": step["node"],
-                "status": "ok" if step["status"] == "ok" else "failed",
-                "error": step.get("error")
-            }
+            {"name": step["node"], "status": "ok" if step["status"] == "ok" else "failed", "error": step.get("error")}
             for step in history
         ],
-        "errors": [str(e) for e in errors]
+        "errors": [str(e) for e in errors],
     }

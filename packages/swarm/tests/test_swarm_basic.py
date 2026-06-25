@@ -7,4 +7,5 @@ class TestSwarm:
     def test_initialization(self):
         """测试初始化"""
         from aetherforge.swarm import __init__
+
         assert __init__ is not None

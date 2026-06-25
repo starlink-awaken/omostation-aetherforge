@@ -33,12 +33,14 @@ def record_llm_cost(model: str, input_tokens: int, output_tokens: int) -> None:
     """Record an LLM call's token usage and deduct from quota ledger."""
     try:
         from .budget import estimate_cost
+
         # Record to centralized metrics collector instead of legacy ledger
         from .metrics import MetricsCollector
+
         metrics = MetricsCollector()
         cost_usd = estimate_cost(model, input_tokens, output_tokens)
         metrics.record_cost(model, cost_usd)
-        
+
         # 1. Standard Cost Log
         record = {
             "ts": datetime.now(UTC).isoformat(),
@@ -50,6 +52,7 @@ def record_llm_cost(model: str, input_tokens: int, output_tokens: int) -> None:
         _COST_LOG.parent.mkdir(parents=True, exist_ok=True)
         line = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
         import fcntl
+
         fd = os.open(str(_COST_LOG), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
@@ -60,7 +63,6 @@ def record_llm_cost(model: str, input_tokens: int, output_tokens: int) -> None:
 
     except Exception as e:
         _log.debug("failed_to_record_cost: %s", e)
-
 
 
 # ---------------------------------------------------------------------------

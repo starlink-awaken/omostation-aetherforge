@@ -59,28 +59,133 @@ class ModelPrice:
 
 _DEFAULT_PRICING: list[dict[str, Any]] = [
     # OpenAI
-    {"model_id": "gpt-4o", "provider": "openai", "cost_in": 0.0025, "cost_out": 0.01, "ctx": 128000, "caps": ["chat", "vision", "tools"]},
-    {"model_id": "gpt-4o-mini", "provider": "openai", "cost_in": 0.00015, "cost_out": 0.0006, "ctx": 128000, "caps": ["chat", "vision", "tools"]},
-    {"model_id": "gpt-4-turbo", "provider": "openai", "cost_in": 0.01, "cost_out": 0.03, "ctx": 128000, "caps": ["chat", "vision"]},
-    {"model_id": "gpt-3.5-turbo", "provider": "openai", "cost_in": 0.0005, "cost_out": 0.0015, "ctx": 16384, "caps": ["chat"]},
+    {
+        "model_id": "gpt-4o",
+        "provider": "openai",
+        "cost_in": 0.0025,
+        "cost_out": 0.01,
+        "ctx": 128000,
+        "caps": ["chat", "vision", "tools"],
+    },
+    {
+        "model_id": "gpt-4o-mini",
+        "provider": "openai",
+        "cost_in": 0.00015,
+        "cost_out": 0.0006,
+        "ctx": 128000,
+        "caps": ["chat", "vision", "tools"],
+    },
+    {
+        "model_id": "gpt-4-turbo",
+        "provider": "openai",
+        "cost_in": 0.01,
+        "cost_out": 0.03,
+        "ctx": 128000,
+        "caps": ["chat", "vision"],
+    },
+    {
+        "model_id": "gpt-3.5-turbo",
+        "provider": "openai",
+        "cost_in": 0.0005,
+        "cost_out": 0.0015,
+        "ctx": 16384,
+        "caps": ["chat"],
+    },
     # Anthropic
-    {"model_id": "claude-3-5-sonnet-20241022", "provider": "anthropic", "cost_in": 0.003, "cost_out": 0.015, "ctx": 200000, "caps": ["chat", "vision"]},
-    {"model_id": "claude-3-opus-20240229", "provider": "anthropic", "cost_in": 0.015, "cost_out": 0.075, "ctx": 200000, "caps": ["chat", "vision"]},
-    {"model_id": "claude-3-haiku-20240307", "provider": "anthropic", "cost_in": 0.00025, "cost_out": 0.00125, "ctx": 200000, "caps": ["chat"]},
+    {
+        "model_id": "claude-3-5-sonnet-20241022",
+        "provider": "anthropic",
+        "cost_in": 0.003,
+        "cost_out": 0.015,
+        "ctx": 200000,
+        "caps": ["chat", "vision"],
+    },
+    {
+        "model_id": "claude-3-opus-20240229",
+        "provider": "anthropic",
+        "cost_in": 0.015,
+        "cost_out": 0.075,
+        "ctx": 200000,
+        "caps": ["chat", "vision"],
+    },
+    {
+        "model_id": "claude-3-haiku-20240307",
+        "provider": "anthropic",
+        "cost_in": 0.00025,
+        "cost_out": 0.00125,
+        "ctx": 200000,
+        "caps": ["chat"],
+    },
     # Google
-    {"model_id": "gemini-1.5-pro", "provider": "gemini", "cost_in": 0.00125, "cost_out": 0.005, "ctx": 1000000, "caps": ["chat", "vision", "embedding"]},
-    {"model_id": "gemini-1.5-flash", "provider": "gemini", "cost_in": 0.000075, "cost_out": 0.0003, "ctx": 1000000, "caps": ["chat", "vision"]},
-    {"model_id": "gemini-2.0-flash", "provider": "gemini", "cost_in": 0.0001, "cost_out": 0.0004, "ctx": 1000000, "caps": ["chat", "vision", "tools"]},
+    {
+        "model_id": "gemini-1.5-pro",
+        "provider": "gemini",
+        "cost_in": 0.00125,
+        "cost_out": 0.005,
+        "ctx": 1000000,
+        "caps": ["chat", "vision", "embedding"],
+    },
+    {
+        "model_id": "gemini-1.5-flash",
+        "provider": "gemini",
+        "cost_in": 0.000075,
+        "cost_out": 0.0003,
+        "ctx": 1000000,
+        "caps": ["chat", "vision"],
+    },
+    {
+        "model_id": "gemini-2.0-flash",
+        "provider": "gemini",
+        "cost_in": 0.0001,
+        "cost_out": 0.0004,
+        "ctx": 1000000,
+        "caps": ["chat", "vision", "tools"],
+    },
     # DeepSeek
-    {"model_id": "deepseek-chat", "provider": "deepseek", "cost_in": 0.0005, "cost_out": 0.0015, "ctx": 65536, "caps": ["chat"]},
-    {"model_id": "deepseek-reasoner", "provider": "deepseek", "cost_in": 0.001, "cost_out": 0.002, "ctx": 65536, "caps": ["chat", "reasoning"]},
+    {
+        "model_id": "deepseek-chat",
+        "provider": "deepseek",
+        "cost_in": 0.0005,
+        "cost_out": 0.0015,
+        "ctx": 65536,
+        "caps": ["chat"],
+    },
+    {
+        "model_id": "deepseek-reasoner",
+        "provider": "deepseek",
+        "cost_in": 0.001,
+        "cost_out": 0.002,
+        "ctx": 65536,
+        "caps": ["chat", "reasoning"],
+    },
     # Ollama (local = free)
     {"model_id": "llama3", "provider": "ollama", "cost_in": 0.0, "cost_out": 0.0, "ctx": 8192, "caps": ["chat"]},
     {"model_id": "llama3.1", "provider": "ollama", "cost_in": 0.0, "cost_out": 0.0, "ctx": 131072, "caps": ["chat"]},
-    {"model_id": "qwen3.5:9b", "provider": "ollama", "cost_in": 0.0, "cost_out": 0.0, "ctx": 262144, "caps": ["chat", "tools", "thinking"]},
-    {"model_id": "qwen3.5:4b", "provider": "ollama", "cost_in": 0.0, "cost_out": 0.0, "ctx": 262144, "caps": ["chat", "vision", "tools", "thinking"]},
+    {
+        "model_id": "qwen3.5:9b",
+        "provider": "ollama",
+        "cost_in": 0.0,
+        "cost_out": 0.0,
+        "ctx": 262144,
+        "caps": ["chat", "tools", "thinking"],
+    },
+    {
+        "model_id": "qwen3.5:4b",
+        "provider": "ollama",
+        "cost_in": 0.0,
+        "cost_out": 0.0,
+        "ctx": 262144,
+        "caps": ["chat", "vision", "tools", "thinking"],
+    },
     # HITL
-    {"model_id": "human-expert", "provider": "hitl", "cost_in": 999.0, "cost_out": 999.0, "ctx": 999999, "caps": ["chat", "human"]},
+    {
+        "model_id": "human-expert",
+        "provider": "hitl",
+        "cost_in": 999.0,
+        "cost_out": 999.0,
+        "ctx": 999999,
+        "caps": ["chat", "human"],
+    },
 ]
 
 
@@ -121,6 +226,7 @@ class PricingRegistry:
         if not M1_MODEL_DIR.is_dir():
             return
         import yaml
+
         for yaml_file in M1_MODEL_DIR.glob("MODEL-PRICING-*.yaml"):
             try:
                 with open(yaml_file) as f:

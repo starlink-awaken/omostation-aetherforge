@@ -3,7 +3,7 @@
 # 保留本文件仅为避免 import 路径回归，实质内容统一由 dispatch_compat.py 维护。
 from __future__ import annotations
 
-from swarm_engine.dispatch_compat import *  # noqa: F401, F403
-from swarm_engine.dispatch_compat import ExecutionCompatHelper  # noqa: F401
+from swarm_engine.dispatch_compat import *  # noqa: F403
+from swarm_engine.dispatch_compat import ExecutionCompatHelper
 
 __all__ = ["ExecutionCompatHelper"]

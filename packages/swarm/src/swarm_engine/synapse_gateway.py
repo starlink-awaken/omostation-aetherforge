@@ -67,11 +67,13 @@ class GatewaySynapse:
         for provider in detect_backends():
             provider_name = provider.provider_name
             for model_name in provider.available_models():
-                models.append({
-                    "name": model_name,
-                    "provider": provider_name,
-                    "status": "available",
-                })
+                models.append(
+                    {
+                        "name": model_name,
+                        "provider": provider_name,
+                        "status": "available",
+                    }
+                )
         return models
 
     def generate(
@@ -140,9 +142,6 @@ class GatewaySynapse:
         providers = detect_backends()
         return {
             "status": "active",
-            "providers": [
-                {"name": p.provider_name, "available": p.is_available()}
-                for p in providers
-            ],
+            "providers": [{"name": p.provider_name, "available": p.is_available()} for p in providers],
             "total_available": sum(1 for p in providers if p.is_available()),
         }

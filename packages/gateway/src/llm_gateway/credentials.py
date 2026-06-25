@@ -51,7 +51,7 @@ class CredentialEntry:
     provider: str = ""
     api_key: str = ""
     base_url: str = ""
-    weight: int = 100       # 流量权重 (用于多 Key 轮转)
+    weight: int = 100  # 流量权重 (用于多 Key 轮转)
     is_active: bool = True
     note: str = ""
     created_at: float = 0.0
@@ -62,10 +62,10 @@ class BudgetConstraint:
     """Monthly budget constraint for a provider."""
 
     provider: str = ""
-    monthly_limit: float = 0.0       # 月预算上限 ($)
-    action: str = "warn"             # block | warn | log
+    monthly_limit: float = 0.0  # 月预算上限 ($)
+    action: str = "warn"  # block | warn | log
     current_month_spend: float = 0.0
-    month: str = ""                  # "YYYY-MM"
+    month: str = ""  # "YYYY-MM"
 
 
 # ── CodexBar integration ──────────────────────────────────────────────────
@@ -93,9 +93,14 @@ def codexbar_available() -> bool:
 
 
 _PROVIDER_MAP = {
-    "openai": "openai", "anthropic": "claude", "gemini": "gemini",
-    "deepseek": "deepseek", "azure": "azure-openai", "bedrock": "bedrock",
-    "ollama": "ollama", "vertex": "vertexai",
+    "openai": "openai",
+    "anthropic": "claude",
+    "gemini": "gemini",
+    "deepseek": "deepseek",
+    "azure": "azure-openai",
+    "bedrock": "bedrock",
+    "ollama": "ollama",
+    "vertex": "vertexai",
 }
 
 
@@ -115,10 +120,13 @@ def fetch_codexbar_quota(provider: str) -> dict[str, Any]:
     mapped = _PROVIDER_MAP.get(provider, provider)
     import json
     import subprocess
+
     try:
         result = subprocess.run(
             [codexbar, "usage", "--format", "json", "--provider", mapped],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             return {"status": "unavailable", "reason": f"codexbar exit {result.returncode}"}
@@ -208,9 +216,7 @@ def _import_cc_switch_impl(db_path: str | None = None) -> int:
         c = conn.cursor()
 
         # Import API keys from providers table (settings_config contains env vars)
-        rows = c.execute(
-            "SELECT name, settings_config, website_url FROM providers"
-        ).fetchall()
+        rows = c.execute("SELECT name, settings_config, website_url FROM providers").fetchall()
         conn.close()
 
         cm = CredentialsManager()
@@ -225,8 +231,7 @@ def _import_cc_switch_impl(db_path: str | None = None) -> int:
                 base_url = env.get("ANTHROPIC_BASE_URL", "") or env.get("OPENAI_BASE_URL", "")
                 if auth_token:
                     provider_key = name.lower().replace(" ", "_").split("/")[0]
-                    cm.add_key(provider_key, auth_token, base_url=base_url,
-                               note=f"from cc-switch: {name}")
+                    cm.add_key(provider_key, auth_token, base_url=base_url, note=f"from cc-switch: {name}")
                     count += 1
             except (json.JSONDecodeError, Exception) as exc:
                 _log.debug(f"cc-switch import error: {exc}")
@@ -359,8 +364,7 @@ class CredentialsManager:
         with self._lock:
             conn = sqlite3.connect(str(self._db_path))
             c = conn.cursor()
-            c.execute("DELETE FROM credentials WHERE provider = ? AND api_key = ?",
-                      (provider, api_key))
+            c.execute("DELETE FROM credentials WHERE provider = ? AND api_key = ?", (provider, api_key))
             removed = c.rowcount > 0
             conn.commit()
             conn.close()
@@ -391,6 +395,7 @@ class CredentialsManager:
 
         # Weighted random selection (non-cryptographic use OK)
         import random
+
         total_weight = sum(r["weight"] for r in rows)
         r = random.randint(0, total_weight - 1)  # noqa: S311 (weighted load balance)
         for row in rows:
@@ -406,19 +411,20 @@ class CredentialsManager:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             if provider:
-                rows = c.execute(
-                    "SELECT * FROM credentials WHERE provider = ?", (provider,)
-                ).fetchall()
+                rows = c.execute("SELECT * FROM credentials WHERE provider = ?", (provider,)).fetchall()
             else:
                 rows = c.execute("SELECT * FROM credentials").fetchall()
             conn.close()
-        return [{
-            "provider": r["provider"],
-            "key_preview": r["api_key"][:8] + "..." if len(r["api_key"]) > 8 else "***",
-            "weight": r["weight"],
-            "active": bool(r["is_active"]),
-            "note": r["note"] if r["note"] else "",
-        } for r in rows]
+        return [
+            {
+                "provider": r["provider"],
+                "key_preview": r["api_key"][:8] + "..." if len(r["api_key"]) > 8 else "***",
+                "weight": r["weight"],
+                "active": bool(r["is_active"]),
+                "note": r["note"] if r["note"] else "",
+            }
+            for r in rows
+        ]
 
     # ── Budget / Quota ───────────────────────────────────────────────────────
 
@@ -444,8 +450,9 @@ class CredentialsManager:
             conn.commit()
             conn.close()
 
-    def record_usage(self, provider: str, cost: float, model: str = "",
-                     tokens_input: int = 0, tokens_output: int = 0) -> None:
+    def record_usage(
+        self, provider: str, cost: float, model: str = "", tokens_input: int = 0, tokens_output: int = 0
+    ) -> None:
         """Record a usage event and update budget tracking."""
         with self._lock:
             conn = sqlite3.connect(str(self._db_path))
@@ -461,11 +468,14 @@ class CredentialsManager:
 
             # Update monthly spend
             current_month = datetime.now().strftime("%Y-%m")
-            c.execute("""
+            c.execute(
+                """
                 UPDATE budgets SET month_spend = month_spend + ?,
                     month = ?
                 WHERE provider = ? AND month = ?
-            """, (cost, current_month, provider, current_month))
+            """,
+                (cost, current_month, provider, current_month),
+            )
 
             conn.commit()
             conn.close()
@@ -547,11 +557,13 @@ class CredentialsManager:
 
         action = quota.get("action", "warn")
         if action == "block":
-            return {"allowed": False, "reason": f"Monthly budget ${quota['monthly_limit']:.2f} exceeded",
-                    "quota": quota}
+            return {
+                "allowed": False,
+                "reason": f"Monthly budget ${quota['monthly_limit']:.2f} exceeded",
+                "quota": quota,
+            }
         elif action == "warn":
-            return {"allowed": True, "reason": f"Warning: {quota['usage_pct']:.0f}% budget used",
-                    "quota": quota}
+            return {"allowed": True, "reason": f"Warning: {quota['usage_pct']:.0f}% budget used", "quota": quota}
         else:
             return {"allowed": True, "reason": "budget_exceeded_logged", "quota": quota}
 

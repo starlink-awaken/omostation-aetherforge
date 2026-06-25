@@ -25,7 +25,7 @@ import logging
 
 _log = logging.getLogger(__name__)
 
-from ._compat import VisionParser, IntentParticle, MetabolicStage
+from ._compat import IntentParticle, MetabolicStage, VisionParser
 
 
 class VisionMetabolizer:

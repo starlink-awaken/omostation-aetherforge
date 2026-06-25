@@ -57,7 +57,9 @@ class TopologyConfig:
     enabled: bool = True
     scan_on_start: bool = True
     health_check_interval: int = 60  # seconds
-    m1_dir: str = str(Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine")
+    m1_dir: str = str(
+        Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
+    )
     probe_local: bool = True
     detect_cloud: bool = True
     static_nodes: list[dict[str, Any]] = field(default_factory=list)
@@ -332,6 +334,7 @@ def load_config(path: str | Path | None = None) -> AetherForgeConfig:
                 file_data = yaml.safe_load(f) or {}
         except Exception as exc:
             import logging
+
             logging.getLogger(__name__).warning("Failed to load config %s: %s", config_file, exc)
 
     # Merge: defaults ← file

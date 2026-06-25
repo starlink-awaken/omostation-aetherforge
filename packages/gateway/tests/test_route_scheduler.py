@@ -5,6 +5,7 @@ from __future__ import annotations
 
 def test_route_scheduler_basic():
     from llm_gateway.route_scheduler import RouteScheduler
+
     sched = RouteScheduler()
     route = sched.select(task="hello")
     if route:
@@ -17,6 +18,7 @@ def test_route_scheduler_basic():
 
 def test_route_strategies():
     from llm_gateway.route_scheduler import RouteStrategies
+
     b = RouteStrategies.get("balanced")
     c = RouteStrategies.get("cost_first")
     s = RouteStrategies.get("speed_first")
@@ -32,6 +34,7 @@ def test_route_strategies():
 
 def test_route_dataclass():
     from llm_gateway.route_scheduler import Route
+
     r = Route(provider="test", model="m1", score=0.9, cost_per_1k_input=0.01)
     assert r.provider == "test"
     assert r.model == "m1"
@@ -42,6 +45,7 @@ def test_route_dataclass():
 
 def test_select_all_ranking():
     from llm_gateway.route_scheduler import RouteScheduler
+
     sched = RouteScheduler()
     routes = sched.select_all(task="hello")
     if routes:
@@ -69,6 +73,7 @@ def run_all():
         except Exception as e:
             failed += 1
             import traceback
+
             print(f"  ❌ {t.__name__}: {e}")
             traceback.print_exc()
     print(f"\n  RouteScheduler tests: {passed}/{passed + failed} passed")

@@ -204,7 +204,8 @@ class RateLimiter:
                         "current": round(lim.tpm_window.current, 0),
                         "usage_pct": round(
                             (lim.tpm_window.current / lim.tpm_window.max_amount * 100)
-                            if lim.tpm_window.max_amount > 0 else 0,
+                            if lim.tpm_window.max_amount > 0
+                            else 0,
                             1,
                         ),
                     },
@@ -213,7 +214,8 @@ class RateLimiter:
                         "current": lim.rpm_window.current,
                         "usage_pct": round(
                             (lim.rpm_window.current / lim.rpm_window.max_amount * 100)
-                            if lim.rpm_window.max_amount > 0 else 0,
+                            if lim.rpm_window.max_amount > 0
+                            else 0,
                             1,
                         ),
                     },

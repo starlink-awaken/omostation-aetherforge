@@ -29,11 +29,13 @@ from typing import Any, NamedTuple
 # in environments where bus-foundation is not yet installed (tests that only
 # exercise data-type stubs will still work; the fallback is the old no-op).
 
+
 def _try_get_bus_publish():
     """Return (publish_fn, BusEnvelope, EventType) or (None, None, None) if unavailable."""
     try:
         from bus_foundation import publish  # type: ignore[import]
         from bus_foundation.envelope import BusEnvelope, EventType  # type: ignore[import]
+
         return publish, BusEnvelope, EventType
     except Exception:
         return None, None, None
@@ -41,19 +43,19 @@ def _try_get_bus_publish():
 
 def _bus_publish(topic: str, payload: dict, source: str = "swarm_engine._compat") -> None:
     """Publish a swarm event onto the bus-foundation bus. No-op if unavailable."""
-    publish_fn, BusEnvelope, EventType = _try_get_bus_publish()
+    publish_fn, bus_env_cls, event_type_cls = _try_get_bus_publish()
     if publish_fn is None:
         _log.debug("bus-foundation unavailable, skipping publish: %s", topic)
         return
     try:
-        env = BusEnvelope(
-            event_type=EventType.INFO,
+        env = bus_env_cls(
+            event_type=event_type_cls.INFO,
             topic=topic,
             source=source,
             payload=payload,
         )
         publish_fn(env)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.warning("bus_publish failed topic=%s: %s", topic, exc)
 
 
@@ -657,9 +659,11 @@ WORKER_REGISTRY: dict[str, Any] = {}
 
 def get_worker_profile(worker_id: str, overrides: dict[str, Any] | None = None) -> Any:
     """Stub for get_worker_profile."""
+
     class _StubProfile:
         def to_dict(self) -> dict[str, Any]:
             return {}
+
     return _StubProfile()
 
 
@@ -768,11 +772,3 @@ class TaskStore:
 
 def _thread_worker(*args: Any, **kwargs: Any) -> Any:
     return None
-
-
-
-
-
-
-
-

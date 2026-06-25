@@ -11,6 +11,7 @@ _PROCESS_POLL_INTERVAL_S: float = 0.5
 def _emit_hatcher_event(event_type: str, source: str, payload: dict | None = None) -> None:
     """Publish a hatcher event to the EventBus."""
     from .event_bus import EventBus, make_event
+
     try:
         bus = EventBus.get_instance()
         event = make_event(event_type, source, payload)

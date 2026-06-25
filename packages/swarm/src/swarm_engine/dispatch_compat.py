@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import importlib
 import json
+import logging
 import sqlite3
 from collections.abc import Callable
 from typing import Any
 
 from swarm_engine._compat import CapabilityRegistry
+
+_log = logging.getLogger(__name__)
 
 
 class ExecutionCompatHelper:

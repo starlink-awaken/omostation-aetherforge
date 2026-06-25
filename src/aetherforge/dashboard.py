@@ -15,6 +15,7 @@ def cmd_dashboard() -> int:
 
     # ── 1. 启动 QuotaEngine 后台刷新 ──
     from aetherforge.gateway import QuotaEngine
+
     qe = QuotaEngine()
     qe.start()
     ready = qe.wait_ready(timeout=25)
@@ -31,9 +32,9 @@ def cmd_dashboard() -> int:
     summary = qe.get_summary()
     for p in summary["providers"]:
         icon = "🟢" if p["available"] else ("⚪" if p["status"] == "no_credentials" else "🔴")
-        q = f'{p["quota_pct"]:.0f}%' if p["quota_pct"] != 100 else "充足"
+        q = f"{p['quota_pct']:.0f}%" if p["quota_pct"] != 100 else "充足"
         src = p["quota_source"] if p["quota_source"] else "—"
-        bal = f'¥{p["balance"]:.0f}' if p["balance"] > 0 else ""
+        bal = f"¥{p['balance']:.0f}" if p["balance"] > 0 else ""
         print(f"  {icon} {p['provider']:18s} quota={q:6s} src={src:8s} {bal}")
 
     print(f"  codexbar: {'✅' if summary['codexbar_available'] else '❌'}")
@@ -74,11 +75,12 @@ def cmd_dashboard() -> int:
     print("  " + "-" * 50)
     try:
         from aetherforge.mesh import CostTracker, NodeRegistry
+
         ct = CostTracker(NodeRegistry())
         r = ct.get_report()
         at = r.get("all_time", {})
-        print(f"  累计: ${at.get('total_cost',0):.4f} ({at.get('total_requests',0)} req)")
-        print(f"  Token: {at.get('total_prompt_tokens',0)} in / {at.get('total_completion_tokens',0)} out")
+        print(f"  累计: ${at.get('total_cost', 0):.4f} ({at.get('total_requests', 0)} req)")
+        print(f"  Token: {at.get('total_prompt_tokens', 0)} in / {at.get('total_completion_tokens', 0)} out")
 
         # DeepSeek balance from cache
         ds = qe.get_quota("deepseek")
@@ -90,7 +92,7 @@ def cmd_dashboard() -> int:
 
     # ── 5. Summary ──
     print()
-    print(f"  ⏱  {t3-t0:.1f}s total (cache: {t1-t0:.1f}s · mesh: {t2-t1:.1f}s · cost: {t3-t2:.1f}s)")
+    print(f"  ⏱  {t3 - t0:.1f}s total (cache: {t1 - t0:.1f}s · mesh: {t2 - t1:.1f}s · cost: {t3 - t2:.1f}s)")
     print("=" * 58)
     print()
 

@@ -9,6 +9,7 @@ import time
 
 def test_rate_limiter_basic():
     from llm_gateway.rate_limiter import RateLimiter
+
     rl = RateLimiter()
     rl.set_limit("m1", tpm=100, rpm=5)
     assert rl.acquire("m1", 50) is True
@@ -22,6 +23,7 @@ def test_rate_limiter_basic():
 
 def test_rate_limiter_unlimited():
     from llm_gateway.rate_limiter import RateLimiter
+
     rl = RateLimiter()
     assert rl.acquire("any", 1_000_000) is True  # no limits set
     assert rl.total_limited_models == 0
@@ -30,6 +32,7 @@ def test_rate_limiter_unlimited():
 
 def test_rate_limiter_window_expiry():
     from llm_gateway.rate_limiter import RateLimiter
+
     rl = RateLimiter()
     rl.set_limit("m2", rpm=1, window_seconds=0.1)
     assert rl.acquire("m2", 10) is True
@@ -41,13 +44,14 @@ def test_rate_limiter_window_expiry():
 
 def test_rate_limiter_model_isolation():
     from llm_gateway.rate_limiter import RateLimiter
+
     rl = RateLimiter()
     rl.set_limit("m-a", tpm=10, rpm=5)
     rl.set_limit("m-b", tpm=200, rpm=10)
-    assert rl.acquire("m-a", 10) is True   # m-a: 10/10 tpm, 1/5 rpm
+    assert rl.acquire("m-a", 10) is True  # m-a: 10/10 tpm, 1/5 rpm
     assert rl.acquire("m-b", 100) is True  # m-b: 100/200 tpm, 1/10 rpm
-    assert rl.acquire("m-a", 1) is False   # m-a: 11/10 tpm exhausted
-    assert rl.acquire("m-b", 50) is True   # m-b: 150/200 tpm still has room
+    assert rl.acquire("m-a", 1) is False  # m-a: 11/10 tpm exhausted
+    assert rl.acquire("m-b", 50) is True  # m-b: 150/200 tpm still has room
     print("  ✅ RateLimiter: model isolation")
 
 
@@ -56,6 +60,7 @@ def test_rate_limiter_model_isolation():
 
 def test_metrics_basic():
     from llm_gateway.metrics import MetricsCollector
+
     mc = MetricsCollector()
     mc.record_latency("gpt4", 100.0, provider="openai")
     mc.record_cost("gpt4", 0.01, tokens=100)
@@ -71,6 +76,7 @@ def test_metrics_basic():
 
 def test_metrics_generation():
     from llm_gateway.metrics import MetricsCollector
+
     mc = MetricsCollector()
     mc.record_generation("claude", latency_ms=500, cost=0.005, tokens=200, provider="anthropic")
     r = mc.report()
@@ -82,6 +88,7 @@ def test_metrics_generation():
 
 def test_metrics_error_rate():
     from llm_gateway.metrics import MetricsCollector
+
     mc = MetricsCollector()
     mc.record_latency("m", 100)
     mc.record_latency("m", 200)
@@ -95,9 +102,12 @@ def test_metrics_error_rate():
 
 def _make_models(count: int = 3):
     from llm_gateway.types import ModelDescriptor
+
     return [
         ModelDescriptor(
-            id=f"m{i}", provider="test", capabilities=["chat"],
+            id=f"m{i}",
+            provider="test",
+            capabilities=["chat"],
             is_available=i % 2 == 0,
             cost_per_1k_tokens={"input": 0.01 * i, "output": 0.02 * i},
             context_window=4096,
@@ -109,6 +119,7 @@ def _make_models(count: int = 3):
 def test_pipeline_filter():
     from llm_gateway.policies import CostScore, OnlineFilter, RouterPipeline
     from llm_gateway.types import ModelRequest
+
     models = _make_models(4)
     req = ModelRequest(task="test")
     pipeline = RouterPipeline()
@@ -124,6 +135,7 @@ def test_pipeline_filter():
 def test_pipeline_capability_filter():
     from llm_gateway.policies import CapabilityFilter, CostScore, RouterPipeline
     from llm_gateway.types import ModelDescriptor, ModelRequest
+
     models = [
         ModelDescriptor(id="a", provider="t", capabilities=["chat"], is_available=True),
         ModelDescriptor(id="b", provider="t", capabilities=["chat", "vision"], is_available=True),
@@ -141,6 +153,7 @@ def test_pipeline_capability_filter():
 def test_pipeline_legacy_api():
     from llm_gateway.policies import score_models
     from llm_gateway.types import ModelRequest, ModelRoutePolicy
+
     models = _make_models(3)
     req = ModelRequest(task="test")
     policy = ModelRoutePolicy(strategy="cost-first")
@@ -196,8 +209,10 @@ def test_all_9_providers_importable():
         BedrockProvider,
         VertexAIProvider,
     )
+
     assert AnthropicProvider and AzureOpenAIProvider and BedrockProvider and VertexAIProvider
     from llm_gateway.detection import _PROVIDER_REGISTRY
+
     assert len(_PROVIDER_REGISTRY) == 9
     assert "azure" in _PROVIDER_REGISTRY
     assert "bedrock" in _PROVIDER_REGISTRY

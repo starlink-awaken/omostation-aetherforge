@@ -26,7 +26,7 @@ class LLMGatewayHandler(BaseHTTPRequestHandler):
         if not _LLM_GATEWAY_API_KEY:
             return True  # permissive mode
         auth = self.headers.get("Authorization", "")
-        if auth.startswith("Bearer ") and auth[len("Bearer "):] == _LLM_GATEWAY_API_KEY:
+        if auth.startswith("Bearer ") and auth[len("Bearer ") :] == _LLM_GATEWAY_API_KEY:
             return True
         self.send_response(401)
         self.send_header("Content-Type", "application/json")

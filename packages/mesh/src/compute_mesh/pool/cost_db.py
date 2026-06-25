@@ -78,7 +78,6 @@ class CostDB:
                 ON cost_records(node_id)
             """)
 
-
     # ── Record ─────────────────────────────────────────────────────────────---
 
     def record(
@@ -103,12 +102,20 @@ class CostDB:
                        (ts, ts_iso, node_id, model, prompt_tokens,
                         completion_tokens, cost_input, cost_output, total_cost)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (now, ts_iso, node_id, model, prompt_tokens,
-                     completion_tokens, cost_input, cost_output, total_cost),
+                    (
+                        now,
+                        ts_iso,
+                        node_id,
+                        model,
+                        prompt_tokens,
+                        completion_tokens,
+                        cost_input,
+                        cost_output,
+                        total_cost,
+                    ),
                 )
         except Exception:
             _log.exception("Failed to write cost to SQLite")
-
 
         # JSONL shadow write
         try:
@@ -194,7 +201,6 @@ class CostDB:
             "jsonl_path": str(self._jsonl_path),
         }
 
-
     def get_recent(self, limit: int = 20) -> list[dict[str, Any]]:
         """Return the most recent *limit* cost records."""
         with get_connection(self._db_path) as conn:
@@ -207,21 +213,16 @@ class CostDB:
     def get_total_cost(self) -> float:
         """Return the total cost across all records."""
         with get_connection(self._db_path) as conn:
-            val = conn.execute(
-                "SELECT COALESCE(SUM(total_cost), 0.0) FROM cost_records"
-            ).fetchone()[0]
+            val = conn.execute("SELECT COALESCE(SUM(total_cost), 0.0) FROM cost_records").fetchone()[0]
         return val
 
     def get_node_count(self) -> int:
         """Return the number of distinct nodes with cost records."""
         with get_connection(self._db_path) as conn:
-            val = conn.execute(
-                "SELECT COUNT(DISTINCT node_id) FROM cost_records"
-            ).fetchone()[0]
+            val = conn.execute("SELECT COUNT(DISTINCT node_id) FROM cost_records").fetchone()[0]
         return val
 
     def clear(self) -> None:
         """Delete all cost records."""
         with get_connection(self._db_path) as conn:
             conn.execute("DELETE FROM cost_records")
-

@@ -15,6 +15,7 @@ import argparse
 
 def cmd_list() -> int:
     from llm_gateway.credentials import CredentialsManager
+
     cm = CredentialsManager()
     summary = cm.get_summary()
     if not summary["keys"]:
@@ -31,12 +32,15 @@ def cmd_list() -> int:
         print(f"\n{'Provider':15s} {'Budget':12s} {'Spent':10s} {'Left':10s} {'Used':8s}")
         print("-" * 55)
         for p, q in summary["quotas"].items():
-            print(f"{p:15s} ${q['monthly_limit']:<8.2f} ${q['spend']:<6.4f} ${q['remaining']:<6.4f} {q['usage_pct']:>6.1f}%")
+            print(
+                f"{p:15s} ${q['monthly_limit']:<8.2f} ${q['spend']:<6.4f} ${q['remaining']:<6.4f} {q['usage_pct']:>6.1f}%"
+            )
     return 0
 
 
 def cmd_add(provider: str, api_key: str, base_url: str = "", note: str = "") -> int:
     from llm_gateway.credentials import CredentialsManager
+
     cm = CredentialsManager()
     cm.add_key(provider, api_key, base_url=base_url, note=note)
     print(f"✅ Added key for {provider}")
@@ -45,6 +49,7 @@ def cmd_add(provider: str, api_key: str, base_url: str = "", note: str = "") -> 
 
 def cmd_remove(provider: str) -> int:
     from llm_gateway.credentials import CredentialsManager
+
     cm = CredentialsManager()
     keys = cm.list_keys(provider)
     if not keys:
@@ -58,6 +63,7 @@ def cmd_remove(provider: str) -> int:
 
 def cmd_quota(provider: str = "") -> int:
     from llm_gateway.credentials import CredentialsManager
+
     cm = CredentialsManager()
     if provider:
         q = cm.get_quota(provider)
@@ -85,7 +91,7 @@ def cmd_quota(provider: str = "") -> int:
             print("💡 Set one: credentials budget openai --limit 50 --action block")
             return 0
         for p, q in summary["quotas"].items():
-            up = q.get('usage_pct', q.get('used', 0))
+            up = q.get("usage_pct", q.get("used", 0))
             bar = "█" * int(up / 5) + "░" * (20 - int(up / 5))
             src = q.get("source", "local")
             if src == "codexbar":
@@ -97,6 +103,7 @@ def cmd_quota(provider: str = "") -> int:
 
 def cmd_budget(provider: str, limit: float, action: str = "warn") -> int:
     from llm_gateway.credentials import CredentialsManager
+
     cm = CredentialsManager()
     cm.set_budget(provider, limit, action)
     print(f"✅ Budget set: {provider} ${limit:.2f}/month (action: {action})")
@@ -124,8 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     budget = sub.add_parser("budget", help="Set monthly budget")
     budget.add_argument("provider", help="Provider name")
     budget.add_argument("--limit", "-l", type=float, required=True, help="Monthly limit ($)")
-    budget.add_argument("--action", "-a", choices=["block", "warn", "log"], default="warn",
-                        help="Action when exceeded")
+    budget.add_argument("--action", "-a", choices=["block", "warn", "log"], default="warn", help="Action when exceeded")
 
     args = parser.parse_args(argv)
     if args.cmd == "list":

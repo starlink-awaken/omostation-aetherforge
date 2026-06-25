@@ -82,7 +82,9 @@ class TaskDispatcher:
             if worker:
                 worker.tasks_completed += 1
                 worker.current_load = 0.0
-                worker.avg_latency_ms = (worker.avg_latency_ms * 0.8 + latency * 0.2) if worker.avg_latency_ms else latency
+                worker.avg_latency_ms = (
+                    (worker.avg_latency_ms * 0.8 + latency * 0.2) if worker.avg_latency_ms else latency
+                )
                 worker.last_task_end = time.time()
                 self._registry.set_idle(worker.worker_id)
 

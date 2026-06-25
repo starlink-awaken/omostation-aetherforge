@@ -140,7 +140,8 @@ class CapacityFilter(RouterFilter):
         if self._load_map is None:
             return models
         return [
-            m for m in models
+            m
+            for m in models
             if self._load_map.get(m.id, LoadInfo()).active_requests / max(1, m.context_window) < self.max_load
         ]
 
@@ -160,9 +161,14 @@ class BudgetFilter(RouterFilter):
         models: list[ModelDescriptor],
         request: ModelRequest,
     ) -> list[ModelDescriptor]:
-        request_budget = request.metadata.get("max_cost", self.max_cost) if hasattr(request, "metadata") and request.metadata else self.max_cost
+        request_budget = (
+            request.metadata.get("max_cost", self.max_cost)
+            if hasattr(request, "metadata") and request.metadata
+            else self.max_cost
+        )
         return [
-            m for m in models
+            m
+            for m in models
             if not m.cost_per_1k_tokens
             or (m.cost_per_1k_tokens.get("input", 0) + m.cost_per_1k_tokens.get("output", 0)) <= request_budget
         ]
@@ -178,10 +184,7 @@ class CapabilityFilter(RouterFilter):
     ) -> list[ModelDescriptor]:
         if not request.required_capabilities:
             return models
-        return [
-            m for m in models
-            if all(c in m.capabilities for c in request.required_capabilities)
-        ]
+        return [m for m in models if all(c in m.capabilities for c in request.required_capabilities)]
 
 
 # ── Built-in Score plugins ─────────────────────────────────────────────────
@@ -298,9 +301,11 @@ def _get_plugins_for(
     # Fallback: try legacy registry
     legacy_fn = _legacy_registry.get(strategy)
     if legacy_fn:
+
         class _LegacyAdapter(RouterScore):
             def score(self, model, request):
                 return legacy_fn(model, request)
+
         return ([OnlineFilter(), CapabilityFilter()], [_LegacyAdapter()])
 
     raise KeyError(f"Unknown scheduling strategy: {strategy!r}")

@@ -8,6 +8,7 @@
   AETHERFORGE_M1_COMPUTE_DIR  — 仅覆盖 compute_engine 目录
   LLM_GATEWAY_M1_DIR          — 向后兼容别名（同 AETHERFORGE_M1_COMPUTE_DIR）
 """
+
 from __future__ import annotations
 
 import os
@@ -19,10 +20,7 @@ _M1_ROOT_OVERRIDE = os.environ.get("AETHERFORGE_M1_DIR", "")
 if _M1_ROOT_OVERRIDE:
     M1_ROOT_DIR: Path = Path(_M1_ROOT_OVERRIDE)
 else:
-    M1_ROOT_DIR = (
-        Path.home() / "Workspace" / "projects" / "ecos"
-        / "src" / "ecos" / "ssot" / "mof" / "m1"
-    )
+    M1_ROOT_DIR = Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1"
 
 # ── M1 子目录（按需添加） ──────────────────────────────────────────────────────
 _COMPUTE_OVERRIDE = (

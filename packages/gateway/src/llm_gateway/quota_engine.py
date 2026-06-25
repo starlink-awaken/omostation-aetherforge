@@ -59,6 +59,7 @@ class Availability(Enum):
 @dataclass
 class ProviderData:
     """Provider 完整状态 (缓存单元)。"""
+
     provider: str = ""
     has_credentials: bool = False
     has_key: bool = False
@@ -108,8 +109,12 @@ CODEXBAR_PROVIDERS = {
 }
 
 QUOTA_MODEL_MAP: dict[str, str] = {
-    "deepseek": "prepaid", "openai": "monthly", "anthropic": "weekly",
-    "gemini": "free", "ollama": "unlimited", "hitl": "unlimited",
+    "deepseek": "prepaid",
+    "openai": "monthly",
+    "anthropic": "weekly",
+    "gemini": "free",
+    "ollama": "unlimited",
+    "hitl": "unlimited",
 }
 
 
@@ -167,9 +172,7 @@ class QuotaEngine:
                 # Mark ready once at least one codexbar provider is cached
                 if not self._ready:
                     with self._lock:
-                        has_codexbar = any(
-                            p.quota_source == "codexbar" for p in self._cache.values()
-                        )
+                        has_codexbar = any(p.quota_source == "codexbar" for p in self._cache.values())
                     if has_codexbar or not self._first_batch:
                         self._ready = True
                 if self._first_batch:
@@ -218,8 +221,12 @@ class QuotaEngine:
 
         # Has key?
         creds = self._creds.list_keys(provider)
-        env_map = {"deepseek": "DEEPSEEK_API_KEY", "openai": "OPENAI_API_KEY",
-                   "anthropic": "ANTHROPIC_API_KEY", "gemini": "GOOGLE_API_KEY"}
+        env_map = {
+            "deepseek": "DEEPSEEK_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "anthropic": "ANTHROPIC_API_KEY",
+            "gemini": "GOOGLE_API_KEY",
+        }
         pd.has_key = len(creds) > 0 or bool(os.environ.get(env_map.get(provider, ""), ""))
 
         if not pd.has_key:
@@ -232,7 +239,9 @@ class QuotaEngine:
         try:
             result = subprocess.run(
                 ["codexbar", "usage", "--format", "json", "--provider", mapped],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             if result.returncode == 0:
                 data = json.loads(result.stdout)
@@ -256,6 +265,7 @@ class QuotaEngine:
                     # Parse balance
                     if "¥" in reset_desc:
                         import re
+
                         nums = re.findall(r"[\d.]+", reset_desc)
                         if nums:
                             pd.balance = float(nums[0])
@@ -282,8 +292,12 @@ class QuotaEngine:
     def _quick_check(self, provider: str, now: float) -> None:
         """快速检查（无 codexbar，仅凭据）。"""
         creds = self._creds.list_keys(provider)
-        env_map = {"deepseek": "DEEPSEEK_API_KEY", "openai": "OPENAI_API_KEY",
-                   "anthropic": "ANTHROPIC_API_KEY", "gemini": "GOOGLE_API_KEY"}
+        env_map = {
+            "deepseek": "DEEPSEEK_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "anthropic": "ANTHROPIC_API_KEY",
+            "gemini": "GOOGLE_API_KEY",
+        }
         has_key = len(creds) > 0 or bool(os.environ.get(env_map.get(provider, ""), ""))
         pd = ProviderData(
             provider=provider,

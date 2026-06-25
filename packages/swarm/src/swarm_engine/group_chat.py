@@ -105,9 +105,13 @@ class GroupChat:
         self._history = []
 
         # Initial user message
-        self._history.append(GroupChatMessage(
-            sender="user", content=task, turn=0,
-        ))
+        self._history.append(
+            GroupChatMessage(
+                sender="user",
+                content=task,
+                turn=0,
+            )
+        )
 
         current_input = task
 
@@ -157,12 +161,8 @@ class GroupChat:
 
     def _moderator_select(self, turn: int, last_message: str) -> GroupChatAgent | None:
         """Use the moderator LLM to pick the next speaker."""
-        agent_list = "\n".join(
-            f"{i}. {a.name} ({a.role})" for i, a in enumerate(self._agents)
-        )
-        history_preview = "\n".join(
-            f"[{m.sender}]: {m.content[:100]}" for m in self._history[-4:]
-        )
+        agent_list = "\n".join(f"{i}. {a.name} ({a.role})" for i, a in enumerate(self._agents))
+        history_preview = "\n".join(f"[{m.sender}]: {m.content[:100]}" for m in self._history[-4:])
 
         prompt = (
             f"Given the conversation so far:\n{history_preview}\n\n"
@@ -192,19 +192,10 @@ class GroupChat:
 
     def _generate(self, agent: GroupChatAgent, input_text: str) -> str:
         """Generate a response for *agent* given *input_text*."""
-        history_context = "\n".join(
-            f"[{m.sender}]: {m.content[:200]}"
-            for m in self._history[-6:]
-        )
+        history_context = "\n".join(f"[{m.sender}]: {m.content[:200]}" for m in self._history[-6:])
 
-        system = (
-            f"{agent.system_prompt}\n\n"
-            f"Your name is {agent.name}, a {agent.role}."
-        )
-        prompt = (
-            f"Conversation history:\n{history_context}\n\n"
-            f"Your turn to respond (as {agent.name}):\n{input_text}"
-        )
+        system = f"{agent.system_prompt}\n\nYour name is {agent.name}, a {agent.role}."
+        prompt = f"Conversation history:\n{history_context}\n\nYour turn to respond (as {agent.name}):\n{input_text}"
 
         resp = self._synapse.generate(
             model="",

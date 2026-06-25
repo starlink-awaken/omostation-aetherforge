@@ -59,7 +59,7 @@ from typing import Any
 
 import yaml
 
-from ._compat import AgentDaemonBase, WORKER_REGISTRY, get_worker_profile
+from ._compat import WORKER_REGISTRY, AgentDaemonBase, get_worker_profile
 
 _log = logging.getLogger(__name__)
 HAS_WORKER_PROFILE = True

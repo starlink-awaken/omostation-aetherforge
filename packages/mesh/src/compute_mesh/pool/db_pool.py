@@ -15,14 +15,15 @@
 - 上下文管理器自动 commit / rollback
 - 线程安全（RLock 保护连接字典）
 """
+
 from __future__ import annotations
 
 import logging
 import sqlite3
 import threading
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator
 
 _log = logging.getLogger(__name__)
 
@@ -38,11 +39,11 @@ def _open_connection(db_path: str) -> sqlite3.Connection:
 
     conn = sqlite3.connect(
         db_path,
-        check_same_thread=False,   # allow multi-thread access with external locking
-        timeout=10.0,              # wait up to 10s for write lock
+        check_same_thread=False,  # allow multi-thread access with external locking
+        timeout=10.0,  # wait up to 10s for write lock
     )
-    conn.execute("PRAGMA journal_mode=WAL")   # write-ahead log for concurrency
-    conn.execute("PRAGMA synchronous=NORMAL") # safe + faster than FULL
+    conn.execute("PRAGMA journal_mode=WAL")  # write-ahead log for concurrency
+    conn.execute("PRAGMA synchronous=NORMAL")  # safe + faster than FULL
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
     return conn
@@ -74,7 +75,7 @@ def _get_or_create(db_path: str) -> sqlite3.Connection:
 
 
 @contextmanager
-def get_connection(db_path: str | Path) -> Generator[sqlite3.Connection, None, None]:
+def get_connection(db_path: str | Path) -> Generator[sqlite3.Connection]:
     """Context manager that yields a pooled SQLite connection.
 
     Commits on success, rolls back on exception.

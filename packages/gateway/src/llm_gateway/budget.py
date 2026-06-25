@@ -152,7 +152,7 @@ def check_budget_limit(
             f"Projected cost ${projected_cost:.6f} exceeds budget ${active_limit:.6f} (model={model_id})",
             spent=projected_cost,
             cap=active_limit,
-            task_id=task_id
+            task_id=task_id,
         )
 
     _log.debug("budget_check_passed: projected_cost=%s", projected_cost)

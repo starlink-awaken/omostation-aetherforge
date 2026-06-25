@@ -1,4 +1,16 @@
+"""SSOT M1 model loader — reads compute_engine + model definitions + credentials.
+
+Architecture:
+    M1 SSOT has three layers:
+    1. compute_engine/ — "where" (endpoint, protocol)
+    2. model/ — "what" (model_id, pricing, capabilities)
+    3. CredentialsManager — "how" (API keys, base_url)
+
+    SSOTProviderAdapter merges all three into a unified provider.
+"""
+
 import glob
+import logging
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -12,21 +24,116 @@ from .providers.openai_provider import OpenAIProvider
 from .registry import ModelRegistry
 from .types import ChatOptions, ChatResult, ModelDescriptor, StreamChunk
 
+_log = logging.getLogger(__name__)
+
+
+def _load_model_defs(m1_model_dir: str) -> dict[str, list[dict]]:
+    """Load M1 model/ YAMLs, group by engine_ref.
+
+    Returns {engine_ref: [model_dict, ...]}
+    """
+    engine_models: dict[str, list[dict]] = {}
+    pattern = os.path.join(m1_model_dir, "MODEL-BREW-*.yaml")
+    for filepath in glob.glob(pattern):
+        try:
+            with open(filepath) as f:
+                data = yaml.safe_load(f)
+            if not data or not isinstance(data, dict):
+                continue
+            models = data.get("models", [])
+            engine_ref = data.get("engine_ref", "")
+            if not engine_ref or not models:
+                continue
+            engine_models.setdefault(engine_ref, []).extend(models)
+        except Exception as e:
+            _log.warning("Failed to load model defs from %s: %s", filepath, e)
+    return engine_models
+
+
+def _get_credentials_for(provider_name: str) -> dict | None:
+    """Look up credentials from CredentialsManager by provider name."""
+    try:
+        from .credentials import CredentialsManager
+        cm = CredentialsManager()
+        keys = cm.list_keys(provider_name)
+        if not keys:
+            # Fall back to provider name matching (e.g. "anthropic" in credentials)
+            for entry_key in ["claude", "anthropic"]:
+                k = cm.list_keys(entry_key)
+                if k:
+                    keys = k
+                    break
+        if keys:
+            # Return first active key's details (need direct DB access for base_url)
+            # Use direct SQLite query for full data
+            import sqlite3
+            from pathlib import Path
+            db = Path.home() / ".aetherforge" / "credentials.db"
+            if db.exists():
+                conn = sqlite3.connect(str(db))
+                conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+                # Try direct match first, then aliases
+                row = c.execute(
+                    """SELECT api_key, base_url, provider FROM credentials
+                       WHERE provider = ? AND is_active = 1
+                       LIMIT 1""",
+                    (provider_name,),
+                ).fetchone()
+                if not row:
+                    # Try alias lookup
+                    alias_map = {"anthropic": "claude", "openai": "openai",
+                                 "deepseek": "deepseek", "gemini": "gemini"}
+                    alias = alias_map.get(provider_name, provider_name)
+                    row = c.execute(
+                        """SELECT api_key, base_url, provider FROM credentials
+                           WHERE provider = ? AND is_active = 1
+                           LIMIT 1""",
+                        (alias,),
+                    ).fetchone()
+                conn.close()
+                if row:
+                    return {"api_key": row["api_key"],
+                            "base_url": row["base_url"],
+                            "provider": row["provider"]}
+    except Exception as e:
+        _log.debug("Credentials lookup failed for %s: %s", provider_name, e)
+    return None
+
 
 class SSOTProviderAdapter(BaseLLMProvider):
-    """Adapter to map an L0 M1 compute_engine config to BaseLLMProvider."""
+    """Adapter to map an L0 M1 compute_engine config + model defs to a BaseLLMProvider."""
 
-    def __init__(self, m1_config: dict):
+    def __init__(
+        self,
+        m1_config: dict,
+        model_defs: list[dict] | None = None,
+    ):
         self._config = m1_config
         self._name = m1_config.get("id", "unknown")
         self._type = m1_config.get("engine_type", "unknown")
         self.base_url = m1_config.get("base_url")
         self.cost_multiplier = float(m1_config.get("cost_multiplier", 1.0))
         self.protocols = m1_config.get("supported_protocols", [])
-
+        self._model_defs = model_defs or []
+        self._credentials: dict | None = None
         self._underlying = None
+
+        # Try to inject credentials from CredentialsManager
+        cred = _get_credentials_for(self._name.replace("ENG-", "").split("-")[0].lower())
+        if cred:
+            self._credentials = cred
+            # Override base_url from credentials if not set in config
+            if not self.base_url and cred.get("base_url"):
+                self.base_url = cred["base_url"]
+
+        # Create underlying provider
+        kwargs: dict[str, Any] = {"base_url": self.base_url}
+        if self._credentials and self._credentials.get("api_key"):
+            kwargs["api_key"] = self._credentials["api_key"]
+
         if "openai" in self.protocols:
-            self._underlying = OpenAIProvider(base_url=self.base_url)
+            self._underlying = OpenAIProvider(**kwargs)
             self._provider_type = "openai"
         elif self._type == "local_daemon" or "ollama" in self.protocols:
             self._underlying = OllamaProvider(base_url=self.base_url)
@@ -43,26 +150,43 @@ class SSOTProviderAdapter(BaseLLMProvider):
         return self._provider_type
 
     async def discover(self) -> list[ModelDescriptor]:
+        """Discover models: use M1 model defs first, fall back to underlying API."""
+        if self._model_defs:
+            descriptors = []
+            for m in self._model_defs:
+                cost = {
+                    "input": m.get("cost_per_1k_input", self.cost_multiplier),
+                    "output": m.get("cost_per_1k_output", self.cost_multiplier),
+                }
+                descriptors.append(
+                    ModelDescriptor(
+                        id=f"{self._name}/{m['model_id']}",
+                        name=m["model_id"],
+                        provider=self._name,
+                        capabilities=m.get("capabilities", ["chat"]),
+                        cost_per_1k_tokens=cost,
+                    )
+                )
+            return descriptors
+
+        # Fall back to underlying provider API
         if not self._underlying:
             return []
-
         model_names = self._underlying.available_models()
         cost = {"input": self.cost_multiplier, "output": self.cost_multiplier}
-
-        descriptors = []
-        for m in model_names:
-            descriptors.append(
-                ModelDescriptor(
-                    id=f"{self.name}/{m}",
-                    name=m,
-                    provider=self.name,
-                    capabilities=["chat"],
-                    cost_per_1k_tokens=cost,
-                )
+        return [
+            ModelDescriptor(
+                id=f"{self._name}/{m}",
+                name=m,
+                provider=self._name,
+                capabilities=["chat"],
+                cost_per_1k_tokens=cost,
             )
-        return descriptors
+            for m in model_names
+        ]
 
-    def _build_request(self, model: str, messages: list[dict[str, Any]], options: ChatOptions | None) -> LLMRequest:
+    def _build_request(self, model: str, messages: list[dict[str, Any]],
+                       options: ChatOptions | None) -> LLMRequest:
         real_model = model.split("/")[-1] if "/" in model else model
 
         context = list(messages)
@@ -94,7 +218,9 @@ class SSOTProviderAdapter(BaseLLMProvider):
         options: ChatOptions | None = None,
     ) -> ChatResult:
         if not self._underlying:
-            raise RuntimeError(f"Provider {self.name} has no underlying implementation.")
+            raise RuntimeError(
+                f"Provider {self.name} has no underlying implementation."
+            )
 
         req = self._build_request(model, messages, options)
         resp = await self._underlying.generate(req)
@@ -104,7 +230,10 @@ class SSOTProviderAdapter(BaseLLMProvider):
             model=model,
             content=resp.content,
             finish_reason=resp.finish_reason,
-            usage={"prompt_tokens": resp.input_tokens, "completion_tokens": resp.output_tokens},
+            usage={
+                "prompt_tokens": resp.input_tokens,
+                "completion_tokens": resp.output_tokens,
+            },
         )
 
     async def stream_chat(
@@ -114,7 +243,9 @@ class SSOTProviderAdapter(BaseLLMProvider):
         options: ChatOptions | None = None,
     ) -> AsyncIterator[StreamChunk]:
         if not self._underlying:
-            raise RuntimeError(f"Provider {self.name} has no underlying implementation.")
+            raise RuntimeError(
+                f"Provider {self.name} has no underlying implementation."
+            )
 
         req = self._build_request(model, messages, options)
 
@@ -125,19 +256,52 @@ class SSOTProviderAdapter(BaseLLMProvider):
             )
 
 
-def load_ssot_models(registry: ModelRegistry, m1_dir: str) -> None:
-    """Load L0 M1 models from YAML and register them into the given ModelRegistry."""
-    pattern = os.path.join(m1_dir, "*.yaml")
-    for filepath in glob.glob(pattern):
-        with open(filepath) as f:
-            try:
-                config = yaml.safe_load(f)
-            except Exception as e:
-                import logging
-                logging.warning(f"Failed to load yaml {filepath}: {e}")
-                continue
+def load_ssot_models(
+    registry: ModelRegistry,
+    m1_compute_dir: str,
+    m1_model_dir: str | None = None,
+) -> None:
+    """Load L0 M1 models from YAML and register them into the given ModelRegistry.
 
-            if config and isinstance(config, dict):
-                if config.get("type") in ("compute_engine", "ComputeEngine") and config.get("status") == "active":
-                    provider = SSOTProviderAdapter(config)
-                    registry.register(provider)
+    Reads:
+    - compute_engine/ YAMLs for provider endpoints
+    - model/ YAMLs (MODEL-BREW-*.yaml) for model definitions
+    - CredentialsManager for API keys
+
+    Args:
+        registry: ModelRegistry to register providers into.
+        m1_compute_dir: Path to M1 compute_engine/ directory.
+        m1_model_dir: Path to M1 model/ directory. If None, skips model defs.
+    """
+    # Pre-load model definitions
+    engine_models: dict[str, list[dict]] = {}
+    if m1_model_dir and os.path.isdir(m1_model_dir):
+        engine_models = _load_model_defs(m1_model_dir)
+        _log.info(
+            "Loaded model definitions for %d compute engines from %s",
+            len(engine_models),
+            m1_model_dir,
+        )
+
+    # Load compute_engine configs
+    pattern = os.path.join(m1_compute_dir, "*.yaml")
+    count = 0
+    for filepath in glob.glob(pattern):
+        try:
+            with open(filepath) as f:
+                config = yaml.safe_load(f)
+        except Exception as e:
+            _log.warning("Failed to load yaml %s: %s", filepath, e)
+            continue
+
+        if not config or not isinstance(config, dict):
+            continue
+
+        if config.get("type") in ("compute_engine", "ComputeEngine") and config.get("status") == "active":
+            engine_id = config.get("id", "unknown")
+            model_defs = engine_models.get(engine_id, [])
+            provider = SSOTProviderAdapter(config, model_defs=model_defs)
+            registry.register(provider)
+            count += 1
+
+    _log.info("Registered %d compute engines from %s", count, m1_compute_dir)

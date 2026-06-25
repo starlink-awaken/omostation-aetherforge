@@ -33,13 +33,13 @@ class OpenAIProvider(LLMProvider):
         return "openai"
 
     def available_models(self) -> list[str]:
-        # 本地端点：查询 /v1/models 获取真实模型列表
-        if self.base_url and any(
-            host in self.base_url for host in ["localhost", "127.0.0.1"]
+        # 本地端点（localhost/127.0.0.1）和 Tailscale（100.x.x.x）：查询真实模型列表
+        if self.base_url and (
+            any(host in self.base_url for host in ["localhost", "127.0.0.1"]) or self.base_url.startswith("http://100.")
         ):
             try:
                 import httpx
-                import json
+
                 resp = httpx.get(
                     f"{self.base_url.rstrip('/')}/models",
                     headers={"Authorization": "Bearer ignore"},
@@ -73,9 +73,15 @@ class OpenAIProvider(LLMProvider):
     # ------------------------------------------------------------------
 
     def is_available(self) -> bool:
-        # 本地端点（localhost/127.0.0.1）不需要 api_key
-        if self.base_url and any(
-            host in self.base_url for host in ["localhost", "127.0.0.1"]
+        # 本地端点（localhost/127.0.0.1）和 Tailscale（100.x.x.x）不需要 api_key
+        if (
+            self.base_url
+            and any(
+                host in self.base_url
+                for host in ["localhost", "127.0.0.1"]
+                # Tailscale IP range: 100.x.x.x
+            )
+            or (self.base_url and self.base_url.startswith("http://100."))
         ):
             return True
         if not self._api_key or self._api_key == "MOCK_KEY":
@@ -96,14 +102,34 @@ class OpenAIProvider(LLMProvider):
         if self._client is None:
             import openai
 
-            self._client = openai.OpenAI(api_key=self._api_key, base_url=self.base_url)
+            key = (
+                self._api_key or "not-needed"
+                if self.base_url
+                and (
+                    "localhost" in self.base_url
+                    or "127.0.0.1" in self.base_url
+                    or self.base_url.startswith("http://100.")
+                )
+                else self._api_key
+            )
+            self._client = openai.OpenAI(api_key=key, base_url=self.base_url)
         return self._client
 
     def _get_async_client(self) -> Any:
         if self._async_client is None:
             import openai
 
-            self._async_client = openai.AsyncOpenAI(api_key=self._api_key, base_url=self.base_url)
+            key = (
+                self._api_key or "not-needed"
+                if self.base_url
+                and (
+                    "localhost" in self.base_url
+                    or "127.0.0.1" in self.base_url
+                    or self.base_url.startswith("http://100.")
+                )
+                else self._api_key
+            )
+            self._async_client = openai.AsyncOpenAI(api_key=key, base_url=self.base_url)
         return self._async_client
 
     # ------------------------------------------------------------------

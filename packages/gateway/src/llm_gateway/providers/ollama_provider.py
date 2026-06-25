@@ -30,6 +30,21 @@ class OllamaProvider(LLMProvider):
         return "ollama"
 
     def available_models(self) -> list[str]:
+        # 查询 Ollama /api/tags 获取真实模型列表
+        try:
+            import httpx
+
+            resp = httpx.get(
+                f"{self.base_url}/api/tags",
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                models = [m["name"] for m in data.get("models", []) if "name" in m]
+                if models:
+                    return models
+        except Exception:
+            pass
         return [_OLLAMA_DEFAULT_MODEL]
 
     def __init__(

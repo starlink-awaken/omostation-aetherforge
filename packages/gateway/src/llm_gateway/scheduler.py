@@ -51,6 +51,7 @@ class ModelScheduler:
     @classmethod
     def from_m1_dir(cls, m1_dir: str, config: SchedulerConfig | None = None) -> ModelScheduler:
         from .ssot_loader import load_ssot_models
+
         registry = ModelRegistry()
         load_ssot_models(registry, m1_dir)
         return cls(registry, config)
@@ -146,10 +147,7 @@ class ModelScheduler:
             model=best.model,
             provider_name=best.model.provider,
             confidence=max(0.0, min(1.0, best.score - best.load_penalty)),
-            reasoning=(
-                f"Scored {best.score:.2f} (penalty: {best.load_penalty:.2f}): "
-                f"{policy.strategy}"
-            ),
+            reasoning=(f"Scored {best.score:.2f} (penalty: {best.load_penalty:.2f}): {policy.strategy}"),
         )
 
     # ── Load tracking ────────────────────────────────────────────────────────
@@ -185,6 +183,7 @@ class ModelScheduler:
 
         def dispose() -> None:
             self.stop_auto_refresh()
+
         return dispose
 
     def stop_auto_refresh(self) -> None:
@@ -199,6 +198,7 @@ class ModelScheduler:
         if not cache_path.exists():
             return 0
         import json
+
         try:
             with open(cache_path) as f:
                 data = json.load(f)

@@ -78,12 +78,15 @@ class VertexAIProvider(LLMProvider):
 
         if self._use_api_key:
             import google.generativeai as genai
+
             genai.configure(api_key=self._api_key)
             self._client = genai.GenerativeModel(self._model_id)
         else:
             import vertexai
+
             vertexai.init(project=self._project, location=self._location)
             from vertexai.generative_models import GenerativeModel
+
             self._client = GenerativeModel(self._model_id)
         return self._client
 

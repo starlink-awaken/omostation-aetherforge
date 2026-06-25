@@ -53,10 +53,17 @@ class RouteStrategies:
 
 # 已知 Provider 的参考延迟 (ms) — 无真实数据时使用
 _REF_LATENCY: dict[str, float] = {
-    "deepseek": 800, "openai": 500, "anthropic": 600,
-    "gemini": 900, "minimax": 1200, "kimi": 700,
-    "openrouter": 1500, "siliconflow": 1000, "nvidia": 2000,
-    "ollama": 200, "hitl": 5000,
+    "deepseek": 800,
+    "openai": 500,
+    "anthropic": 600,
+    "gemini": 900,
+    "minimax": 1200,
+    "kimi": 700,
+    "openrouter": 1500,
+    "siliconflow": 1000,
+    "nvidia": 2000,
+    "ollama": 200,
+    "hitl": 5000,
 }
 
 
@@ -95,10 +102,7 @@ class RouteScheduler:
         all_status = self._quota.get_all_status()
 
         # 2. Filter: 只保留可用的
-        candidates = {
-            p: s for p, s in all_status.items()
-            if s.available and s.has_key
-        }
+        candidates = {p: s for p, s in all_status.items() if s.available and s.has_key}
 
         if not candidates:
             _log.warning("RouteScheduler: no available providers")
@@ -123,11 +127,7 @@ class RouteScheduler:
             speed_score = max(0, 1.0 - (latency / 10000))
 
             # Weighted total
-            total = (
-                cost_score * weights["cost"]
-                + quota_score * weights["quota"]
-                + speed_score * weights["speed"]
-            )
+            total = cost_score * weights["cost"] + quota_score * weights["quota"] + speed_score * weights["speed"]
 
             if total > best_score:
                 best_score = total
@@ -166,15 +166,17 @@ class RouteScheduler:
             speed_score = max(0, 1.0 - (latency / 10000))
             total = cost_score * weights["cost"] + quota_score * weights["quota"] + speed_score * weights["speed"]
 
-            routes.append(Route(
-                provider=provider,
-                model=model or "",
-                cost_per_1k_input=cost_p.get("input", 0),
-                cost_per_1k_output=cost_p.get("output", 0),
-                score=round(total, 3),
-                strategy=strategy,
-                quota_pct=status.quota_pct,
-                quota_source=status.quota_source,
-            ))
+            routes.append(
+                Route(
+                    provider=provider,
+                    model=model or "",
+                    cost_per_1k_input=cost_p.get("input", 0),
+                    cost_per_1k_output=cost_p.get("output", 0),
+                    score=round(total, 3),
+                    strategy=strategy,
+                    quota_pct=status.quota_pct,
+                    quota_source=status.quota_source,
+                )
+            )
 
         return sorted(routes, key=lambda r: r.score, reverse=True)

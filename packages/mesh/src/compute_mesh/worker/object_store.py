@@ -185,8 +185,9 @@ class ObjectStore:
         """Remove all expired objects. Returns count evicted."""
         now = time.time()
         with self._lock:
-            expired = [oid for oid, entry in self._store.items()
-                       if entry["expires_at"] > 0 and now > entry["expires_at"]]
+            expired = [
+                oid for oid, entry in self._store.items() if entry["expires_at"] > 0 and now > entry["expires_at"]
+            ]
             for oid in expired:
                 self._store.pop(oid, None)
             if self._db_path and expired:
@@ -212,8 +213,14 @@ class ObjectStore:
                 """INSERT OR REPLACE INTO objects
                    (oid, data, content_type, size, created_at, expires_at)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (entry["oid"], entry["data"], entry["content_type"],
-                 entry["size"], entry["created_at"], entry["expires_at"]),
+                (
+                    entry["oid"],
+                    entry["data"],
+                    entry["content_type"],
+                    entry["size"],
+                    entry["created_at"],
+                    entry["expires_at"],
+                ),
             )
             conn.commit()
             conn.close()
@@ -244,8 +251,7 @@ class ObjectStore:
             total_objects = len(self._store)
             total_size = sum(e["size"] for e in self._store.values())
             expired_count = sum(
-                1 for e in self._store.values()
-                if e["expires_at"] > 0 and time.time() > e["expires_at"]
+                1 for e in self._store.values() if e["expires_at"] > 0 and time.time() > e["expires_at"]
             )
         return {
             "total_objects": total_objects,

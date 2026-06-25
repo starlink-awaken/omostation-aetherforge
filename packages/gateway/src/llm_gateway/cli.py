@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from pathlib import Path
 
 from .detection import create_provider, detect_backends
 from .provider import LLMRequest
@@ -29,12 +28,15 @@ def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool =
     if show_cost:
         return _cmd_list_cost()
     if use_ssot:
-        from llm_gateway.paths import M1_COMPUTE_ENGINE_DIR
+        from llm_gateway.paths import M1_COMPUTE_ENGINE_DIR, M1_MODEL_DIR
+
         m1_dir = M1_COMPUTE_ENGINE_DIR
+        m1_model_dir = M1_MODEL_DIR
         if m1_dir.exists():
             import asyncio
+
             reg = ModelRegistry()
-            load_ssot_models(reg, str(m1_dir))
+            load_ssot_models(reg, str(m1_dir), str(m1_model_dir) if m1_model_dir.exists() else None)
             asyncio.run(reg.refresh())
             sched = ModelScheduler(reg)
             loaded = sched.load_quota_rates()
@@ -59,7 +61,58 @@ def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool =
     return 0
 
 
-def cmd_generate(prompt: str, model: str | None, provider_name: str | None, strategy: str = "balanced") -> int:
+def cmd_generate(
+    prompt: str, model: str | None, provider_name: str | None, strategy: str = "balanced", use_ssot: bool = False
+) -> int:
+    if use_ssot:
+        import asyncio
+
+        from llm_gateway.paths import M1_COMPUTE_ENGINE_DIR, M1_MODEL_DIR
+
+        m1_dir = M1_COMPUTE_ENGINE_DIR
+        m1_model_dir = M1_MODEL_DIR
+        if not m1_dir.exists():
+            print("M1 compute_engine dir not found.", file=sys.stderr)
+            return 1
+        from .registry import ModelRegistry
+        from .ssot_loader import load_ssot_models
+
+        reg = ModelRegistry()
+        load_ssot_models(reg, str(m1_dir), str(m1_model_dir) if m1_model_dir.exists() else None)
+        asyncio.run(reg.refresh())
+        if not model:
+            models = reg.list_models()
+            if not models:
+                print("No models available.", file=sys.stderr)
+                return 1
+            model = models[0].id
+        # Find model regardless of provider prefix
+        md = reg.get(model) or reg.get(f"ENG-CC-SWITCH/{model}")
+        if not md:
+            # Fuzzy match: find any model whose id contains the given name
+            all_m = reg.list_models()
+            matches = [m for m in all_m if model.lower() in m.id.lower()]
+            if matches:
+                md = matches[0]
+        if not md:
+            print(f"Model '{model}' not found in SSOT registry.", file=sys.stderr)
+            return 1
+        from .types import ChatOptions
+
+        opts = ChatOptions()
+        result = asyncio.run(reg.chat(md.id, [{"role": "user", "content": prompt}], opts))
+        if result:
+            print(result.content)
+            if result.usage:
+                u = result.usage
+                print(
+                    f"\n[{result.model}] {u.get('prompt_tokens', 0)} in / {u.get('completion_tokens', 0)} out",
+                    file=sys.stderr,
+                )
+            return 0
+        print("No response.", file=sys.stderr)
+        return 1
+
     if provider_name:
         providers = [create_provider(provider_name)]
     else:
@@ -93,6 +146,7 @@ def cmd_mcp() -> int:
 def _cmd_list_quota() -> int:
     """显示所有 Provider 的配额状态。"""
     from .quota_engine import QuotaEngine
+
     qe = QuotaEngine()
     qe.start()
     qe.wait_ready(timeout=10)
@@ -114,6 +168,7 @@ def _cmd_list_quota() -> int:
 def _cmd_list_cost() -> int:
     """显示所有模型的定价。"""
     from .pricing import PricingRegistry
+
     pricing = PricingRegistry()
     all_prices = pricing.list_all()
     print(f"{'Model':30s} {'Provider':12s} {'Cost In':10s} {'Cost Out':10s} {'Context':8s}")
@@ -147,9 +202,14 @@ def main(argv: list[str] | None = None) -> int:
     gen.add_argument("prompt")
     gen.add_argument("--model", "-m", help="Model name")
     gen.add_argument("--provider", "-p", help="Provider name (ollama, openai, ...)")
-    gen.add_argument("--strategy", "-s", default="balanced",
-                    choices=["balanced", "cost_first", "speed_first", "quota_first"],
-                    help="Routing strategy")
+    gen.add_argument("--ssot", action="store_true", help="Use SSOT registry (L0 M1 models)")
+    gen.add_argument(
+        "--strategy",
+        "-s",
+        default="balanced",
+        choices=["balanced", "cost_first", "speed_first", "quota_first"],
+        help="Routing strategy",
+    )
 
     mcp_p = sub.add_parser("mcp", help="Start MCP server (stdio)")
     mcp_p.add_argument("--ssot", action="store_true", help="从 L0 M1 节点加载模型")
@@ -159,12 +219,19 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.cmd == "list":
-        return cmd_list(use_ssot=getattr(args, "ssot", False),
-                       show_quota=getattr(args, "quota", False),
-                       show_cost=getattr(args, "cost", False))
+        return cmd_list(
+            use_ssot=getattr(args, "ssot", False),
+            show_quota=getattr(args, "quota", False),
+            show_cost=getattr(args, "cost", False),
+        )
     elif args.cmd == "generate":
-        return cmd_generate(args.prompt, args.model, args.provider,
-                           strategy=getattr(args, "strategy", "balanced"))
+        return cmd_generate(
+            args.prompt,
+            args.model,
+            args.provider,
+            strategy=getattr(args, "strategy", "balanced"),
+            use_ssot=getattr(args, "ssot", False),
+        )
     elif args.cmd == "mcp":
         return cmd_mcp()
     elif args.cmd == "serve":

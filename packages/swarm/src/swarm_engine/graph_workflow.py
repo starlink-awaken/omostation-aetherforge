@@ -102,9 +102,11 @@ class GraphWorkflow:
             def process(state):
                 return {"result": state["input"] * 2}
         """
+
         def decorator(fn: NodeFn) -> NodeFn:
             self.add_node(name, fn, description)
             return fn
+
         return decorator
 
     def add_llm_node(
@@ -119,6 +121,7 @@ class GraphWorkflow:
         The *prompt_template* can reference state variables with
         ``{variable_name}`` syntax.
         """
+
         def llm_fn(state: dict[str, Any]) -> dict[str, Any]:
             prompt = prompt_template.format(**state)
             resp = self._synapse.generate(
@@ -129,6 +132,7 @@ class GraphWorkflow:
             )
             content = resp.get("response", "") if resp.get("status") == "success" else ""
             return {name: content}
+
         return self.add_node(name, llm_fn, description)
 
     # ── Edge registration ────────────────────────────────────────────────────
@@ -144,9 +148,13 @@ class GraphWorkflow:
         If *condition* is set, the edge is only taken when
         ``condition(state) == to_node``.
         """
-        self._edges.append(GraphEdge(
-            from_node=from_node, to_node=to_node, condition=condition,
-        ))
+        self._edges.append(
+            GraphEdge(
+                from_node=from_node,
+                to_node=to_node,
+                condition=condition,
+            )
+        )
 
     def set_entry(self, node: str) -> None:
         """Set the entry point node."""

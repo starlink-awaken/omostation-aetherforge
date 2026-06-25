@@ -39,12 +39,14 @@ from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
+
 class ShieldMixin:
     pass
 
 
 class WitnessMixin:
     pass
+
 
 _log = logging.getLogger(__name__)
 
