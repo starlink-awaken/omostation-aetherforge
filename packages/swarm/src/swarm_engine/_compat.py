@@ -731,7 +731,101 @@ class TaskState(StrEnum):
 
 
 class TaskStore:
-    """Stub for TaskStore."""
+    """Stub for TaskStore with basic in-memory implementation."""
+
+    def __init__(self, db_path: str = ":memory:") -> None:
+        self.db_path = db_path
+        self._tasks: dict[str, dict[str, Any]] = {}
+
+    def transition(self, task_id: str, state: Any, **kwargs: Any) -> None:
+        self._tasks[task_id] = {"state": state, **kwargs}
+
+    def schedule_retry(self, task_id: str) -> None:
+        pass
+
+
+class TaskRecord:
+    """Stub for TaskRecord."""
+
+    def __init__(self, task_id: str = "", state: Any = None, **kwargs: Any) -> None:
+        self.task_id = task_id
+        self.state = state
+
+
+class TaskRequest:
+    """Stub for TaskRequest."""
+
+    def __init__(self, task_id: str = "", required_capabilities: list[str] | None = None, priority: int = 5, **kwargs: Any) -> None:
+        self.task_id = task_id
+        self.required_capabilities = required_capabilities or []
+        self.priority = priority
+
+
+class TaskEnvelope:
+    """Stub for TaskEnvelope."""
+
+    def __init__(self, task_id: str = "", payload: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        self.task_id = task_id
+        self.payload = payload or {}
+
+
+class SwarmDispatchError(Exception):
+    """Stub for SwarmDispatchError."""
+
+
+class SwarmLifecycleManagerClass:
+    """Stub for SwarmLifecycleManager."""
+
+
+class CapabilityMatcher:
+    """Stub for CapabilityMatcher."""
+
+    def match(self, task_description: str, capabilities: list[str]) -> list[str]:
+        return capabilities
+
+
+class IntentDigestor:
+    """Stub for IntentDigestor."""
+
+    def digest(self, intent: str) -> list[Any]:
+        return []
+
+
+class LLMRequest:
+    """Stub for LLMRequest."""
+
+    def __init__(self, prompt: str = "", system: str = "", **kwargs: Any) -> None:
+        self.prompt = prompt
+        self.system = system
+
+
+class LLMProvider:
+    """Stub for LLMProvider."""
+
+    def __init__(self, name: str = "", **kwargs: Any) -> None:
+        self.name = name
+
+
+class LLMResponse:
+    """Stub for LLMResponse."""
+
+    def __init__(self, text: str = "", **kwargs: Any) -> None:
+        self.text = text
+
+
+def get_default_factory() -> Any:
+    """Stub for get_default_factory."""
+    return None
+
+
+def get_default_voice_session_particle_queue() -> Any:
+    """Stub for get_default_voice_session_particle_queue."""
+    return None
+
+
+def get_quota_aware_priority() -> list[str]:
+    """Stub for get_quota_aware_priority."""
+    return []
 
 
 def _thread_worker(*args: Any, **kwargs: Any) -> Any:

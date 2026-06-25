@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from ._compat import bos_agent_router_bridge, get_synapse_registry
+from ._compat import (
+    SwarmDispatchError,
+    SwarmLifecycleManagerClass,
+    TaskRecord,
+    TaskRequest,
+    TaskState,
+    bos_agent_router_bridge,
+    get_default_voice_session_particle_queue,
+    get_synapse_registry,
+)
 
 """
 ---
@@ -41,13 +50,8 @@ _log = logging.getLogger(__name__)
 logger = logging.getLogger("bos.arterial_orchestrator")
 
 if TYPE_CHECKING:
-    # BROKEN IMPORT (nucleus migration incomplete): from .organs.engine.possession_multi_session import (  # type: ignore[import-not-found]
-    # PossessionMultiSession,
-    # )
     PossessionMultiSession = None  # type: ignore[assignment]
-    # BROKEN IMPORT: from .organs.engine.result_bus import ResultBus
     ResultBus = None  # type: ignore[assignment]
-    # BROKEN IMPORT: from .organs.voice_session_particle_queue import QueuedSessionParticle  # type: ignore[import-not-found]
     QueuedSessionParticle = None  # type: ignore[assignment]
 
 try:
@@ -92,7 +96,6 @@ class WorkerDispatcher:
         return "W-SYSTEM-PROXY"
 
     def resolve_target(self, task_id: str, capability: str) -> str | None:
-        # BROKEN IMPORT: from .organs.engine.capability_registry import TaskRequest  # type: ignore[import-not-found]
 
         if self._registry is not None:
             try:
@@ -154,8 +157,6 @@ class WorkerDispatcher:
             return
         if store_get(tid) is not None:
             return
-
-        # BROKEN IMPORT: from .organs.engine.task_store import TaskRecord, TaskState  # type: ignore[import-not-found]
 
         source_surface = str(handoff_context.get("source_surface", "")).strip() if handoff_context else ""
         task_type = f"{source_surface}_handoff" if source_surface else "session_handoff"
