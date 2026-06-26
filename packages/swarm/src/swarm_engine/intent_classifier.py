@@ -47,8 +47,6 @@ except (ImportError, ModuleNotFoundError):
             raise ImportError("nucleus.Z_Microkernel.infrastructure.oracle.inference_oracle is unavailable")
 
 
-_log = logging.getLogger(__name__)
-
 from ._classifier_keywords import (  # ARCH-003 extracted keywords
     COMPLEX_KEYWORDS as _COMPLEX_KEYWORDS,
 )
@@ -65,6 +63,8 @@ from ._classifier_keywords import (
     STEP_KEYWORDS as _STEP_KEYWORDS,
 )
 from ._classifier_types import ClassificationResult, ComplexityLevel  # ARCH-003 extracted types
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # IntentClassifier

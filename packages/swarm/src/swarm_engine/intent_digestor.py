@@ -71,9 +71,9 @@ Summary: '意图消化器 (IntentDigestor)：负责将原始意图拆解为 Inte
 ---
 """
 
-_log = logging.getLogger(__name__)
-
 from ._pii_mask import mask_pii as _mask_pii  # ARCH-003 extracted PII masking
+
+_log = logging.getLogger(__name__)
 
 
 class IntentDigestor:
