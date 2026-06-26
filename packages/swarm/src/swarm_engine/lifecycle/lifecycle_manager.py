@@ -55,14 +55,13 @@ if _TC:
         WorkerState,
     )
 # Runtime fallback — nucleus may not be available; stubs extracted to _compat_stubs.py (ARCH-003)
-from ._compat_stubs import (  # type: ignore[no-redef]  # noqa: F401
+from ._compat_stubs import (  # type: ignore[no-redef]
     ISwarmLifecycle,
     TaskResult,
     WorkerBundle,
     WorkerHandle,
     WorkerState,
 )
-
 
 # ─── engine subcomponents (extracted, graceful degradation) ────────────────
 # These imports reference a legacy .organs.* structure from a failed nucleus

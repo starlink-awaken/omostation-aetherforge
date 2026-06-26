@@ -16,7 +16,7 @@ from ._compat import WorkerHandle
 
 def build_command(template: str, task_prompt: str) -> list[str]:
     """Parse cli_command_template and inject task_prompt safely."""
-    _SENTINEL = "___TASK_PROMPT_SENTINEL___"
+    _SENTINEL = "___TASK_PROMPT_SENTINEL___"  # noqa: N806
     normalised = (
         template.replace("'{TASK_PROMPT}'", _SENTINEL)
         .replace('"{TASK_PROMPT}"', _SENTINEL)

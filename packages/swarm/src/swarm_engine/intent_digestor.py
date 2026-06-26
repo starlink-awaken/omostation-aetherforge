@@ -75,6 +75,7 @@ _log = logging.getLogger(__name__)
 
 from ._pii_mask import mask_pii as _mask_pii  # ARCH-003 extracted PII masking
 
+
 class IntentDigestor:
     """意图消化器 - 系统之胃"""
 

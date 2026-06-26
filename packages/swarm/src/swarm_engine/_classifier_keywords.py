@@ -5,8 +5,6 @@ Extracted from intent_classifier.py to reduce file size.
 
 from __future__ import annotations
 
-from enum import Enum
-
 from ._classifier_types import ComplexityLevel
 
 # Keywords that strongly indicate COMPLEX work

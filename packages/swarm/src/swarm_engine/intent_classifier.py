@@ -49,16 +49,22 @@ except (ImportError, ModuleNotFoundError):
 
 _log = logging.getLogger(__name__)
 
-from ._classifier_types import ClassificationResult, ComplexityLevel  # ARCH-003 extracted types
-
-
 from ._classifier_keywords import (  # ARCH-003 extracted keywords
     COMPLEX_KEYWORDS as _COMPLEX_KEYWORDS,
+)
+from ._classifier_keywords import (
     CONJUNCTIONS as _CONJUNCTIONS,
+)
+from ._classifier_keywords import (
     DEFAULT_ROLES as _DEFAULT_ROLES,
+)
+from ._classifier_keywords import (
     SIMPLE_KEYWORDS as _SIMPLE_KEYWORDS,
+)
+from ._classifier_keywords import (
     STEP_KEYWORDS as _STEP_KEYWORDS,
 )
+from ._classifier_types import ClassificationResult, ComplexityLevel  # ARCH-003 extracted types
 
 # ---------------------------------------------------------------------------
 # IntentClassifier

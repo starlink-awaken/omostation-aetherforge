@@ -26,7 +26,6 @@ Layer: L3
 
 import logging
 import os
-import shlex
 import signal
 import subprocess
 

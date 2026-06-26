@@ -26,9 +26,7 @@ Authority: organs/D-Execution/AGENTS.md
 import logging
 import re
 import uuid
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Protocol, TypedDict
+from typing import Any
 
 from ._compat import AgentProfile
 
@@ -445,7 +443,7 @@ class NKSTaskPlanner:
             affected_files=list(task_files),
             risk_assessment={
                 "score": round(risk_score, 4),
-                "level": _get_risk_level(risk_score),
+                "level": get_risk_level(risk_score),
                 "agent_id": agent_id,
             },
             suggested_tools=["code_editor", "test_runner"],
@@ -468,7 +466,7 @@ class NKSTaskPlanner:
 
     def _handle_analyze_task(self, params: AnalyzeTaskParams) -> dict[str, Any]:
         try:
-            modified_files = _require_str_list(params.get("modified_files", []), "modified_files")
+            modified_files = require_str_list(params.get("modified_files", []), "modified_files")
             analysis = self.analyze_task(
                 task_description=params.get("task_description", ""),
                 modified_files=modified_files,
