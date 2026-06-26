@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
-
 # ── Enums ──────────────────────────────────────────────────────────────────
 
 
@@ -122,7 +119,7 @@ class TestSynapseAgentCard:
 
 class TestPlannedStep:
     def test_default_step(self):
-        from swarm_engine._compat import PlannedStep, TaskType, Priority
+        from swarm_engine._compat import PlannedStep, Priority, TaskType
 
         step = PlannedStep()
         assert step.task_type == TaskType.UNKNOWN
@@ -254,7 +251,7 @@ class TestWorkerHandle:
 
 class TestWorkerBundle:
     def test_default_bundle(self):
-        from swarm_engine._compat import WorkerBundle, TaskType
+        from swarm_engine._compat import TaskType, WorkerBundle
 
         bundle = WorkerBundle()
         assert bundle.task_type == TaskType.UNKNOWN
@@ -263,7 +260,7 @@ class TestWorkerBundle:
         assert bundle.successful_tasks == 0
 
     def test_bundle_with_args(self):
-        from swarm_engine._compat import WorkerBundle, TaskType
+        from swarm_engine._compat import TaskType, WorkerBundle
 
         bundle = WorkerBundle(None, TaskType.CODE_GENERATION, (), 100.0, 10, 8, 50.0)
         assert bundle.task_type == TaskType.CODE_GENERATION
@@ -312,7 +309,7 @@ class TestTaskStore:
         assert store._tasks == {}
 
     def test_transition(self):
-        from swarm_engine._compat import TaskStore, TaskState
+        from swarm_engine._compat import TaskState, TaskStore
 
         store = TaskStore()
         store.transition("task-1", TaskState.RUNNING, extra="data")

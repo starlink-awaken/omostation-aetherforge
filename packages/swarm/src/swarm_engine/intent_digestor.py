@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-from ._compat import Gateway, ProjectPaths
-
 """
 ---
 Type: Module
 Status: ACTIVE
 Layer: L3
-Authority: nucleus/Z-Core/L0-Genome/R0-ACT-SYS-AX01-10_holographic_metadata_axiom.md
+Authority: *************************************************************************
 ---
 """
-
 
 import json
 import logging
@@ -19,6 +16,7 @@ import re
 import sqlite3
 from typing import Any
 
+from ._compat import Gateway, ProjectPaths
 from .organs.intent_particle import (  # type: ignore[import-not-found]
     IntentParticle,
     MetabolicStage,
