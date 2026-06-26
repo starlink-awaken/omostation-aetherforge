@@ -34,8 +34,6 @@ Tags:
 import asyncio
 import logging
 import re
-from dataclasses import dataclass, field
-from enum import Enum
 
 try:
     from nucleus.Z_Microkernel.infrastructure.oracle.inference_oracle import (  # type: ignore[import-not-found]
@@ -51,179 +49,16 @@ except (ImportError, ModuleNotFoundError):
 
 _log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Enums & Data Classes
-# ---------------------------------------------------------------------------
+from ._classifier_types import ClassificationResult, ComplexityLevel  # ARCH-003 extracted types
 
 
-class ComplexityLevel(Enum):
-    """Intent complexity tier used to drive execution routing."""
-
-    SIMPLE = "SIMPLE"
-    MODERATE = "MODERATE"
-    COMPLEX = "COMPLEX"
-
-
-@dataclass
-class ClassificationResult:
-    """Full classification output returned by IntentClassifier.classify()."""
-
-    level: ComplexityLevel
-    confidence: float  # 0.0 – 1.0
-    rationale: str  # Human-readable explanation
-    suggested_swarm_size: int  # 1 – 8 parallel workers
-    suggested_roles: list[str] = field(default_factory=list)
-
-    def __str__(self) -> str:
-        return f"{self.level.value} (confidence: {self.confidence:.2f}) — {self.rationale}"
-
-
-# ---------------------------------------------------------------------------
-# Heuristic Rule Sets (Enhanced v1.1)
-# ---------------------------------------------------------------------------
-
-# Keywords that strongly indicate COMPLEX work
-_COMPLEX_KEYWORDS: frozenset[str] = frozenset(
-    {
-        "analyze",
-        "analyse",
-        "research",
-        "comprehensive",
-        "all",
-        "entire",
-        "multiple",
-        "parallel",
-        "coordinate",
-        "across",
-        "compare",
-        "investigate",
-        "evaluate",
-        "audit",
-        "refactor",
-        "redesign",
-        "architect",
-        "plan",
-        "strategy",
-        "deploy",
-        "migrate",
-        "integrate",
-        "orchestrate",
-        "benchmark",
-        "review all",
-        "full",
-        "complete",
-        "end-to-end",
-        "end to end",
-        # === ENHANCED: More domain-specific complex indicators ===
-        "thorough",
-        "systematic",
-        "cross-functional",
-        "multi-stage",
-        "production",
-        "scalable",
-        "enterprise",
-        "microservice",
-        "distributed",
-        "concurrent",
-        "optimization",
-        "performance",
-        "security",
-        "vulnerability",
-        "threat",
-        "authentication",
-        "authorization",
-        "encryption",
-        "CI/CD",
-        "pipeline",
-        "automation",
-    }
+from ._classifier_keywords import (  # ARCH-003 extracted keywords
+    COMPLEX_KEYWORDS as _COMPLEX_KEYWORDS,
+    CONJUNCTIONS as _CONJUNCTIONS,
+    DEFAULT_ROLES as _DEFAULT_ROLES,
+    SIMPLE_KEYWORDS as _SIMPLE_KEYWORDS,
+    STEP_KEYWORDS as _STEP_KEYWORDS,
 )
-
-# Keywords that push toward MODERATE (step-sequencing language)
-_STEP_KEYWORDS: frozenset[str] = frozenset(
-    {
-        "then",
-        "after",
-        "and then",
-        "followed by",
-        "step",
-        "next",
-        "first",
-        "second",
-        "third",
-        "finally",
-        "lastly",
-        "subsequently",
-        "once",
-        "before",
-        "when done",
-        # === ENHANCED: Additional sequential indicators ===
-        "sequence",
-        "consequently",
-        "afterwards",
-        "prior to",
-        "subsequent",
-        "step by step",
-        "in order",
-        "gradually",
-        "proceed",
-        "continue",
-    }
-)
-
-# Keywords that pull toward SIMPLE (single-action verbs)
-_SIMPLE_KEYWORDS: frozenset[str] = frozenset(
-    {
-        "list",
-        "show",
-        "check",
-        "get",
-        "find",
-        "print",
-        "display",
-        "read",
-        "cat",
-        "view",
-        "ping",
-        "status",
-        "version",
-        "help",
-        "count",
-        "echo",
-        "whoami",
-        "pwd",
-        "ls",
-        "ps",
-        # === ENHANCED: More single-action indicators ===
-        "inspect",
-        "query",
-        "fetch",
-        "retrieve",
-        "lookup",
-        "search",
-        "validate",
-        "verify",
-        "test",
-        "run",
-        "execute",
-        "start",
-        "stop",
-        "restart",
-        "reload",
-        "refresh",
-        "update",
-    }
-)
-
-# Conjunctions that break the "single-step" assumption
-_CONJUNCTIONS: frozenset[str] = frozenset({"and", "or", "then", "while", "but", "also"})
-
-# Role suggestions keyed by complexity tier
-_DEFAULT_ROLES: dict[ComplexityLevel, list[str]] = {
-    ComplexityLevel.SIMPLE: ["executor"],
-    ComplexityLevel.MODERATE: ["planner", "executor"],
-    ComplexityLevel.COMPLEX: ["coordinator", "researcher", "analyst", "executor", "reviewer"],
-}
 
 # ---------------------------------------------------------------------------
 # IntentClassifier
