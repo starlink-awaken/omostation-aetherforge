@@ -54,58 +54,14 @@ if _TC:
         WorkerHandle,
         WorkerState,
     )
-# Runtime fallback — nucleus may not be available
-from enum import StrEnum
-from typing import Protocol, runtime_checkable
-
-
-@runtime_checkable
-class ISwarmLifecycle(Protocol):  # type: ignore[no-redef]
-    def hatch(self, *a: Any, **kw: Any) -> Any: ...
-    def reap(self, *a: Any, **kw: Any) -> Any: ...
-    def list_active(self, *a: Any, **kw: Any) -> Any: ...
-
-
-class TaskResult:  # type: ignore[no-redef]
-    def __init__(self, **kw: Any) -> None:
-        for k, v in kw.items():
-            setattr(self, k, v)
-
-    worker_id: str = ""
-    task_id: str = ""
-    success: bool = True
-    output: str = ""
-    eu_consumed: float = 0.0
-    duration_s: float = 0.0
-    quality_score: float = 0.0
-    error: str = ""
-
-
-class WorkerBundle:  # type: ignore[no-redef]
-    def __init__(self, **kw: Any) -> None:
-        for k, v in kw.items():
-            setattr(self, k, v)
-
-    total_tasks: int = 0
-    successful_tasks: int = 0
-    total_eu_consumed: float = 0.0
-
-
-class WorkerHandle:  # type: ignore[no-redef]
-    def __init__(self, **kw: Any) -> None:
-        for k, v in kw.items():
-            setattr(self, k, v)
-
-    worker_id: str = ""
-    pid: int = 0
-    state: Any = None
-
-
-class WorkerState(StrEnum):  # type: ignore[no-redef]
-    HATCHING = "HATCHING"
-    ACTIVE = "ACTIVE"
-    STARVING = "STARVING"
-    REAPED = "REAPED"
+# Runtime fallback — nucleus may not be available; stubs extracted to _compat_stubs.py (ARCH-003)
+from ._compat_stubs import (  # type: ignore[no-redef]  # noqa: F401
+    ISwarmLifecycle,
+    TaskResult,
+    WorkerBundle,
+    WorkerHandle,
+    WorkerState,
+)
 
 
 # ─── engine subcomponents (extracted, graceful degradation) ────────────────
