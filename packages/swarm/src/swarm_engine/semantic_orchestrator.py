@@ -231,7 +231,6 @@ class SemanticOrchestrator:
             list[IntentParticle]: 完成任务拆解与角色分配后的子意图粒子列表
         """
         try:
-
             digestor = IntentDigestor(db_path=self.db_path)
 
             # 1. 使用 D-Logos 的元演化能力（已集成在 IntentDigestor 中）进行分形拆解

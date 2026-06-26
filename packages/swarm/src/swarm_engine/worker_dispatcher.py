@@ -699,6 +699,7 @@ class WorkerDispatcher:
             from engine.result_bus import (
                 ResultBus as ResultBusClass,  # type: ignore[import-not-found]  # BROKEN IMPORT: .organs
             )
+
             result_bus_class = ResultBusClass
         except ImportError:
             result_bus_class = None

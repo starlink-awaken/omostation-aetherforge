@@ -419,7 +419,6 @@ class LocalWorker:
 
             # ── If no explicit model match, use quota-aware priority ──
             if provider is None or not provider.is_available():
-
                 for pname in get_quota_aware_priority():
                     candidate = _match_provider(pname)
                     if candidate is not None and candidate.is_available():

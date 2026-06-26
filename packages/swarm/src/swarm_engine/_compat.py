@@ -755,7 +755,9 @@ class TaskRecord:
 class TaskRequest:
     """Stub for TaskRequest."""
 
-    def __init__(self, task_id: str = "", required_capabilities: list[str] | None = None, priority: int = 5, **kwargs: Any) -> None:
+    def __init__(
+        self, task_id: str = "", required_capabilities: list[str] | None = None, priority: int = 5, **kwargs: Any
+    ) -> None:
         self.task_id = task_id
         self.required_capabilities = required_capabilities or []
         self.priority = priority

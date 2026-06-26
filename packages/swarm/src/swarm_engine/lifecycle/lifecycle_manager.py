@@ -93,6 +93,7 @@ try:
     from .organs.swarm_worker_governance_controller import (  # type: ignore[import-not-found]
         WorkerGovernanceController,
     )
+
     _HAS_ORGANS = True
 except ImportError:
     CallDispatcher = None  # type: ignore[assignment,misc]

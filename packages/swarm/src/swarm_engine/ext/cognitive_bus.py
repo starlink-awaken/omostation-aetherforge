@@ -182,7 +182,6 @@ class CognitiveBus:
         """Self 模式的内部 LLM 调用 — 通过 InferenceOracle 执行。"""
         _log.info(f"⚙️ [S-CPU] 发起 LLM 调用 [persona={self.active_persona}]...")
         try:
-
             oracle = InferenceOracle.get_instance()
             # 兼容旧版参数
             kwargs = {}

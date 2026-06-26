@@ -314,8 +314,13 @@ class Hatcher:
         cancel_event: threading.Event,
     ) -> WorkerHandle:
         return register_internal_thread_runtime(
-            self._handles, self._threads, self._cancel_events, self._lock,
-            handle, thread, cancel_event,
+            self._handles,
+            self._threads,
+            self._cancel_events,
+            self._lock,
+            handle,
+            thread,
+            cancel_event,
         )
 
     def _hatch_cli_subprocess(

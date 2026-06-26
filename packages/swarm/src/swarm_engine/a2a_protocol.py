@@ -405,7 +405,6 @@ class A2AProtocol:
         if envelope is None:
             return False, None
         try:
-
             router = get_synapse_router()
             return router.route(envelope)
         except (ImportError, AttributeError, RuntimeError) as exc:

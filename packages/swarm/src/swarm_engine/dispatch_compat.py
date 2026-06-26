@@ -184,9 +184,7 @@ class ExecutionCompatHelper:
         swarm = getattr(self._agent_orchestrator, "_swarm_manager", None)
         if swarm is None:
             try:
-                daemon_swarm = importlib.import_module(
-                    "nucleus.Z_Microkernel.infrastructure.bos_daemon.swarm"
-                )
+                daemon_swarm = importlib.import_module("nucleus.Z_Microkernel.infrastructure.bos_daemon.swarm")
                 swarm = daemon_swarm.get_lifecycle_manager()
             except (ImportError, AttributeError, RuntimeError, OSError, TypeError, ValueError):
                 swarm = None
