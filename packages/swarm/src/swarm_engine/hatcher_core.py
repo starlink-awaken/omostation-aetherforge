@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ._compat import ProjectPaths, WorkerHandle, WorkerState
+from ._hatcher_utils import build_command, build_env, register_handle, register_internal_thread_runtime
 
 """
 ---
@@ -299,32 +300,13 @@ class Hatcher:
     # ─── Internal helpers ─────────────────────────────────────────────────────
 
     def _build_command(self, template: str, task_prompt: str) -> list[str]:
-        """Parse cli_command_template and inject task_prompt safely."""
-        _SENTINEL = "___TASK_PROMPT_SENTINEL___"  # noqa: N806
-        normalised = (
-            template.replace("'{TASK_PROMPT}'", _SENTINEL)
-            .replace('"{TASK_PROMPT}"', _SENTINEL)
-            .replace("{TASK_PROMPT}", _SENTINEL)
-        )
-        base_parts = shlex.split(normalised)
-        return [task_prompt if part == _SENTINEL else part for part in base_parts]
+        return build_command(template, task_prompt)
 
     def _build_env(self, env_whitelist: list[str]) -> dict[str, str]:
-        """Build a minimal environment dict containing only whitelisted keys."""
-        filtered: dict[str, str] = {}
-        for key in env_whitelist:
-            value = os.environ.get(key)
-            if value is not None:
-                filtered[key] = value
-        if "PATH" not in filtered and "PATH" in os.environ:
-            filtered["PATH"] = os.environ.get("PATH", "/usr/bin:/bin")
-        return filtered
+        return build_env(env_whitelist)
 
     def _register_handle(self, handle: WorkerHandle) -> WorkerHandle:
-        """Track a live worker handle under the shared handle registry."""
-        with self._lock:
-            self._handles[handle.worker_id] = handle
-        return handle
+        return register_handle(self._handles, self._lock, handle)
 
     def _register_internal_thread_runtime(
         self,
@@ -332,12 +314,10 @@ class Hatcher:
         thread: threading.Thread,
         cancel_event: threading.Event,
     ) -> WorkerHandle:
-        """Track the handle plus thread-specific runtime state."""
-        with self._lock:
-            self._handles[handle.worker_id] = handle
-            self._threads[handle.worker_id] = thread
-            self._cancel_events[handle.worker_id] = cancel_event
-        return handle
+        return register_internal_thread_runtime(
+            self._handles, self._threads, self._cancel_events, self._lock,
+            handle, thread, cancel_event,
+        )
 
     def _hatch_cli_subprocess(
         self,
