@@ -56,3 +56,5 @@ coverage.xml
 
 # ── Runtime logs ──
 packages/gateway/gateway.log
+.omc/
+*.tmp
