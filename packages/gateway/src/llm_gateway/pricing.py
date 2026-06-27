@@ -18,12 +18,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
-_log = logging.getLogger(__name__)
+from aetherforge._paths import M1_MODEL_DIR
 
-M1_MODEL_DIR = Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "model"
+_log = logging.getLogger(__name__)
 
 
 @dataclass
