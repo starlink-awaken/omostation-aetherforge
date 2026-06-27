@@ -22,15 +22,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aetherforge._paths import M1_ROOT_DIR as M1_DIR
+
 _log = logging.getLogger(__name__)
-
-# Default M1 root
-try:
-    from aetherforge.config import get_m1_dir
-
-    M1_DIR = get_m1_dir("").parent  # get_m1_dir("") → m1/, .parent → mof/
-except ImportError:
-    M1_DIR = Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1"
 
 
 # ── Data models ──────────────────────────────────────────────────────────────

@@ -329,8 +329,8 @@ def test_providers_priority():
 
 @test("Providers: L0 M1 includes new engines")
 def test_providers_l0():
-    from pathlib import Path
-    m1_dir = Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
+    from aetherforge._paths import M1_COMPUTE_ENGINE_DIR
+    m1_dir = M1_COMPUTE_ENGINE_DIR
     if m1_dir.exists():
         files = list(m1_dir.glob("*.yaml"))
         names = [f.stem for f in files]

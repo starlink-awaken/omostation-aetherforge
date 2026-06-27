@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ._paths import M1_COMPUTE_ENGINE_DIR
+
 # ── Config dataclasses ─────────────────────────────────────────────────────
 
 
@@ -57,9 +59,7 @@ class TopologyConfig:
     enabled: bool = True
     scan_on_start: bool = True
     health_check_interval: int = 60  # seconds
-    m1_dir: str = str(
-        Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
-    )
+    m1_dir: str = str(M1_COMPUTE_ENGINE_DIR)
     probe_local: bool = True
     detect_cloud: bool = True
     static_nodes: list[dict[str, Any]] = field(default_factory=list)

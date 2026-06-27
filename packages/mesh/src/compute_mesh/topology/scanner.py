@@ -17,24 +17,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from aetherforge._paths import M1_COMPUTE_ENGINE_DIR as M1_ENGINE_DIR
+
 from .node import ComputeNode, NodeEngineType, NodeStatus
 from .registry import NodeRegistry
 
 _log = logging.getLogger(__name__)
-
-# Default paths for L0 M1 compute_engine config
-try:
-    from aetherforge._paths import M1_COMPUTE_ENGINE_DIR as M1_ENGINE_DIR
-except ImportError:
-    # Fallback if aetherforge top-level is not installed (standalone mesh usage)
-    import os
-
-    _override = os.environ.get("AETHERFORGE_M1_COMPUTE_DIR") or os.environ.get("LLM_GATEWAY_M1_DIR") or ""
-    M1_ENGINE_DIR = (
-        Path(_override)
-        if _override
-        else Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
-    )
 
 # Well-known local daemons to probe
 LOCAL_DAEMONS: list[dict[str, Any]] = [

@@ -1,25 +1,13 @@
 """AetherForge Gateway — path configuration.
 
-Centralizes all filesystem paths to avoid hardcoding.
+Re-export from canonical aetherforge._paths SSOT so any env-var override
+(AETHERFORGE_M1_DIR / AETHERFORGE_M1_COMPUTE_DIR) is honored uniformly
+across the gateway package without per-file duplication.
+
+Backward-compat note: legacy callers may still set LLM_GATEWAY_M1_DIR,
+which aetherforge._paths honors as a fallback alias for AETHERFORGE_M1_COMPUTE_DIR.
 """
 
-from __future__ import annotations
+from aetherforge._paths import M1_COMPUTE_ENGINE_DIR, M1_MODEL_DIR
 
-from pathlib import Path
-
-# Path to eCOS L0 MOF M1 compute_engine definitions
-# Override via LLM_GATEWAY_M1_DIR env var if ecos repo is elsewhere
-_M1_DIR_OVERRIDE = __import__("os").environ.get("LLM_GATEWAY_M1_DIR", "")
-
-if _M1_DIR_OVERRIDE:
-    M1_COMPUTE_ENGINE_DIR = Path(_M1_DIR_OVERRIDE)
-else:
-    M1_COMPUTE_ENGINE_DIR = (
-        Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "compute_engine"
-    )
-
-# Path to M1 model definitions (model_id, pricing, capabilities)
-M1_MODEL_DIR = (
-    Path.home() / "Workspace" / "projects" / "ecos"
-    / "src" / "ecos" / "ssot" / "mof" / "m1" / "model"
-)
+__all__ = ["M1_COMPUTE_ENGINE_DIR", "M1_MODEL_DIR"]

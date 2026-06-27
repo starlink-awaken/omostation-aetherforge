@@ -16,15 +16,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from pathlib import Path
+
+from aetherforge._paths import M1_MODEL_DIR as _M1_MODEL_DIR
 
 from .pricing import PricingRegistry
 from .quota_engine import QuotaEngine
 
 _log = logging.getLogger(__name__)
-
-# ── M1 model/ directory path ──────────────────────────────────────────────
-_M1_MODEL_DIR = Path.home() / "Workspace" / "projects" / "ecos" / "src" / "ecos" / "ssot" / "mof" / "m1" / "model"
 
 
 @dataclass
