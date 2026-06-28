@@ -65,7 +65,7 @@ def cmd_dashboard() -> int:
             print(f"  {icon} {n.node_id:30s} {n.engine_type.value:12s} {n.network_zone:6s} {m}")
         online = sum(1 for n in nodes if n.is_online)
         print(f"  {online}/{len(nodes)} online · {len(set(n.network_zone for n in nodes))} zones")
-    except Exception as e:
+    except Exception as e:  # defensive fallback  # noqa: BLE001
         print(f"  (节点: {e})")
     t2 = time.time()
 
@@ -86,7 +86,7 @@ def cmd_dashboard() -> int:
         ds = qe.get_quota("deepseek")
         if ds.balance > 0:
             print(f"  DeepSeek 余额: ¥{ds.balance:.0f} ({ds.quota_pct:.0f}%)")
-    except Exception as e:
+    except Exception as e:  # defensive fallback  # noqa: BLE001
         print(f"  (成本: {e})")
     t3 = time.time()
 

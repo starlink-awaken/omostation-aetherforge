@@ -60,7 +60,7 @@ def cmd_swarm(argv: list[str]) -> int:
                     kwargs = payload.get("kwargs", {})
                     goal = kwargs.get("goal", "")
                     is_json_output = True  # Force JSON output for adapter
-                except Exception:
+                except Exception:  # defensive fallback  # noqa: BLE001
                     pass
 
         if not goal:
@@ -88,7 +88,7 @@ def cmd_swarm(argv: list[str]) -> int:
                     prov = create_provider(cfg.gateway.default_provider)
                     resp = prov.generate(f"将以下任务目标拆解为3步，仅输出简短文本: {goal}")
                     analysis = resp.text
-            except Exception:
+            except Exception:  # defensive fallback  # noqa: BLE001
                 pass
             return {"plan": analysis}
 

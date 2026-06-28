@@ -58,7 +58,7 @@ def emit_event(
     )
     try:
         return publish(envelope)
-    except Exception as e:  # agora bus already DLQs internally, but be defensive
+    except Exception as e:  # agora bus already DLQs internally, but be defensive  # noqa: BLE001
         logger.warning("aetherforge_bus_emit_failed type=%s err=%s", event_type, e)
         return None
 
