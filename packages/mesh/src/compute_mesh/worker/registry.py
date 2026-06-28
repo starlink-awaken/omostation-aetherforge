@@ -164,7 +164,7 @@ class WorkerRegistry:
         for listener in self._listeners:
             try:
                 listener(event, worker)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception("WorkerRegistry listener failed for event %s", event)
 
     # ── Stats ─────────────────────────────────────────────────────────────────

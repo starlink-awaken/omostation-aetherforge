@@ -136,14 +136,14 @@ class WorkerMessageBus:
             for listener in self._subscribers.get(recipient, []):
                 try:
                     listener(msg)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     _log.exception("Subscriber failed for message %s", msg.id)
 
             # Broadcast subscribers
             for listener in self._subscribers.get("*", []):
                 try:
                     listener(msg)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     _log.exception("Broadcast subscriber failed for message %s", msg.id)
 
         _log.debug("Message %s sent to %s (type=%s)", msg.id[:8], recipient, msg_type)
@@ -164,7 +164,7 @@ class WorkerMessageBus:
             )
             conn.commit()
             conn.close()
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.exception("Failed to persist message %s", msg.id)
 
     # ── Receive ──────────────────────────────────────────────────────────────
@@ -234,7 +234,7 @@ class WorkerMessageBus:
             rows = [dict(row) for row in c.fetchall()]
             conn.close()
             return rows
-        except Exception:
+        except Exception:  # noqa: BLE001
             return []
 
     # ── Stats ────────────────────────────────────────────────────────────────

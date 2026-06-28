@@ -36,7 +36,7 @@ def _get_quota_status() -> dict[str, dict]:
             _QUOTA_ENGINE = QuotaEngine()
             _QUOTA_ENGINE.start()
             _QUOTA_ENGINE.wait_ready(timeout=8)  # Wait for first data batch
-        except Exception:
+        except Exception:  # noqa: BLE001
             return {}
     try:
         all_status = _QUOTA_ENGINE.get_all_status()
@@ -44,7 +44,7 @@ def _get_quota_status() -> dict[str, dict]:
             p: {"pct": s.quota_pct, "source": s.quota_source or "local", "available": s.available}
             for p, s in all_status.items()
         }
-    except Exception:
+    except Exception:  # noqa: BLE001
         return {}
 
 
@@ -217,7 +217,7 @@ def cmd_generate(
     req = LLMRequest(prompt=prompt, model=model or provider.default_model)
     try:
         resp = provider.complete(req)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error: {e}", file=sys.stderr)
         return 1
     print(resp.content)

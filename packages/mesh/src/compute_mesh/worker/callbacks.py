@@ -113,40 +113,40 @@ class StepCallbacks:
         for fn in self._on_task_start:
             try:
                 fn(worker_id, task)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception("on_task_start handler failed")
 
     def fire_task_complete(self, worker_id: str, result: dict[str, Any]) -> None:
         for fn in self._on_task_complete:
             try:
                 fn(worker_id, result)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception("on_task_complete handler failed")
 
     def fire_task_fail(self, worker_id: str, error: str) -> None:
         for fn in self._on_task_fail:
             try:
                 fn(worker_id, error)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception("on_task_fail handler failed")
 
     def fire_worker_claim(self, worker_id: str) -> None:
         for fn in self._on_worker_claim:
             try:
                 fn(worker_id)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception("on_worker_claim handler failed")
 
     def fire_worker_release(self, worker_id: str) -> None:
         for fn in self._on_worker_release:
             try:
                 fn(worker_id)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception("on_worker_release handler failed")
 
     def fire_retry(self, worker_id: str, attempt: int, error: str) -> None:
         for fn in self._on_retry:
             try:
                 fn(worker_id, attempt, error)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception("on_retry handler failed")

@@ -66,7 +66,7 @@ class ClaudeWorker(KnowledgeEnhancementMixin, AgentDaemonBase):
                     "output": response.content if hasattr(response, "content") else str(response),
                     "message": f"Real analysis completed via {response.provider}",
                 }
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 _log.error(f"Real LLM execution failed: {e}")
                 return {"status": "ERROR", "message": str(e)}
 
@@ -83,7 +83,7 @@ class ClaudeWorker(KnowledgeEnhancementMixin, AgentDaemonBase):
                     with open(filename, "w") as f:
                         f.write(text)
                     return {"status": "SUCCESS", "message": f"Successfully wrote to {filename}"}
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 return {"status": "ERROR", "message": str(e)}
 
         # Legacy fallback

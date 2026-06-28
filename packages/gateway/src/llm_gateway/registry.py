@@ -116,7 +116,7 @@ class ModelRegistry:
                 result = await provider.chat(model_id, messages, options)
             self.circuit_breaker.record_success(provider_name)
             return result
-        except Exception:
+        except Exception:  # noqa: BLE001
             self.circuit_breaker.record_failure(provider_name)
             raise
         finally:
@@ -147,7 +147,7 @@ class ModelRegistry:
                     finish_reason=result.finish_reason,
                 )
             self.circuit_breaker.record_success(provider_name)
-        except Exception:
+        except Exception:  # noqa: BLE001
             self.circuit_breaker.record_failure(provider_name)
             raise
         finally:

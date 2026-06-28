@@ -120,7 +120,7 @@ class AnthropicCompatProvider(LLMProvider):
                 )
                 resp.raise_for_status()
                 return self._parse_response(resp.json(), request.model or self._default_model)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _log.error("%s generate failed: %s", self._name, e)
             raise
 
@@ -137,6 +137,6 @@ class AnthropicCompatProvider(LLMProvider):
                 )
                 resp.raise_for_status()
                 return self._parse_response(resp.json(), request.model or self._default_model)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _log.error("%s complete failed: %s", self._name, e)
             raise

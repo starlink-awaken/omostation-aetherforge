@@ -110,7 +110,7 @@ class DeliveryResult(dict):
                 spore = get_spore_gateway()
                 a2a_transport = spore.get_component("a2a_transport")
                 deliver_frame = a2a_transport.deliver_frame
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.warning("Suppressed exception in %s", __name__)
 
             # Fallback if deliver_frame is unavailable
@@ -126,7 +126,7 @@ class DeliveryResult(dict):
                     "target": self._target_id,
                     "reason": "invalid-delivery-result",
                 }
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.debug("A2A awaited delivery failed for '%s': %s", self._target_id, exc)
             result = {
                 "status": "undelivered",

@@ -91,7 +91,7 @@ class RoutingEngine:
             result = await self._router.route(domain, resource, action, params)
             log_entry["result"] = result
             log_entry["status"] = result.get("status", "unknown")
-        except (TimeoutError, asyncio.CancelledError, Exception) as e:
+        except (TimeoutError, asyncio.CancelledError, Exception) as e:  # noqa: BLE001
             _log.error("Routing error: %s", e)
             result = {"status": "error", "message": str(e)}
             log_entry["result"] = result

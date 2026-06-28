@@ -129,7 +129,7 @@ class GatewaySynapse:
                 "tokens_out": resp.output_tokens,
                 "finish_reason": resp.finish_reason,
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _log.exception("GatewaySynapse generate failed")
             return {"status": "error", "message": str(e)}
 

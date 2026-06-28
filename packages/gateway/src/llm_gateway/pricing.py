@@ -136,7 +136,7 @@ class PricingRegistry:
                 entries = data if isinstance(data, list) else [data]
                 for entry in entries:
                     self._load_pricing_entry(entry)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 _log.debug("Failed to load pricing YAML %s: %s", yaml_file, exc)
 
         # Load MODEL-BREW-*.yaml (new format with engine_ref + models[])
@@ -168,7 +168,7 @@ class PricingRegistry:
                         "display_name": model.get("display_name", ""),
                     }
                     self._load_pricing_entry(entry)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 _log.debug("Failed to load model YAML %s: %s", yaml_file, exc)
 
     def _load_pricing_entry(self, entry: dict) -> None:

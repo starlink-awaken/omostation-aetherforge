@@ -51,7 +51,7 @@ class RedisMessageBroker(MessageBroker):
         for listener in self._global_listeners:
             try:
                 listener(message)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.debug("Global listener raised an exception", exc_info=True)
 
         payload = message.to_json()
@@ -99,7 +99,7 @@ class RedisMessageBroker(MessageBroker):
                             for role_id in self._registered_roles:
                                 if role_id != role_msg.sender_role_id:
                                     self._redis.lpush(self._get_queue_key(role_id), message["data"])
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001
                         _log.error(f"Failed to process broadcast message: {e}")
                 time.sleep(0.01)
 

@@ -50,7 +50,7 @@ def _bus_publish_node_state(node: ComputeNode) -> None:
         _log.debug("bus:mesh:node:status_changed published: node=%s status=%s", node.node_id, node.status)
     except ImportError:
         _log.debug("bus-foundation not available, skipping mesh event publish")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         _log.warning("Failed to publish mesh node state event: %s", exc)
 
 
@@ -145,7 +145,7 @@ class ComputePool:
                 node_id = future_to_node[future]
                 try:
                     results[node_id] = future.result()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     _log.exception("Health check failed for node %s", node_id)
                     results[node_id] = False
 
@@ -169,7 +169,7 @@ class ComputePool:
             result = sock.connect_ex((host, port))
             sock.close()
             return result == 0
-        except Exception:
+        except Exception:  # noqa: BLE001
             return False
 
     def _record_health(self, node_id: str, is_alive: bool) -> None:
@@ -259,7 +259,7 @@ class ComputePool:
         for listener in self._listeners:
             try:
                 listener(event, node)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception("Pool listener failed for event %s", event)
 
         # ── 2. 向 bus-foundation 发布 mesh 状态变更事件（R3 闭环） ──

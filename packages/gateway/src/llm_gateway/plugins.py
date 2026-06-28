@@ -75,9 +75,9 @@ def discover_plugins() -> int:
                     count += 1
                 else:
                     _log.warning("Plugin %s does not inherit from LLMProvider, skipping", ep.name)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 _log.warning("Failed to load plugin %s: %s", ep.name, exc)
-    except Exception:
+    except Exception:  # noqa: BLE001
         _log.debug("Entry point discovery not available")
 
     _discovered = True
@@ -115,7 +115,7 @@ def create_plugin_provider(name: str, **kwargs: Any) -> LLMProvider:
         return NoneProvider()
     try:
         return cls(**kwargs)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         _log.warning("Failed to instantiate plugin %s: %s", name, exc)
         return NoneProvider()
 

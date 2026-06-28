@@ -434,7 +434,7 @@ class WorkerDispatcher:
 
                     self._swarm_manager = SwarmLifecycleManagerClass()
                     logger.info("[Orchestrator] SwarmLifecycleManager initialised.")
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     raise SwarmDispatchError(f"[Orchestrator] SwarmLifecycleManager unavailable: {exc}") from exc
         return self._swarm_manager
 
@@ -614,7 +614,7 @@ class WorkerDispatcher:
                 capability,
             )
             return handle
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             raise SwarmDispatchError(
                 f"[Orchestrator] Swarm dispatch failed (capability='{capability}'): {exc}"
             ) from exc

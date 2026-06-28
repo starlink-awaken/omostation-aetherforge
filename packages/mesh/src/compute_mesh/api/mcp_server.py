@@ -114,7 +114,7 @@ async def mesh_generate(prompt: str) -> str:
         if resp.input_tokens:
             result += f"\n\n[{resp.model}] {resp.input_tokens} in / {resp.output_tokens} out"
         return result
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return f"❌ Generation failed: {e}"
 
 

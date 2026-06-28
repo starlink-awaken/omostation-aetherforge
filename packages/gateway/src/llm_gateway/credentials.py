@@ -233,7 +233,7 @@ def _import_cc_switch_impl(db_path: str | None = None) -> int:
                     provider_key = name.lower().replace(" ", "_").split("/")[0]
                     cm.add_key(provider_key, auth_token, base_url=base_url, note=f"from cc-switch: {name}")
                     count += 1
-            except (json.JSONDecodeError, Exception) as exc:
+            except (json.JSONDecodeError, Exception) as exc:  # noqa: BLE001
                 _log.debug(f"cc-switch import error: {exc}")
                 continue
 

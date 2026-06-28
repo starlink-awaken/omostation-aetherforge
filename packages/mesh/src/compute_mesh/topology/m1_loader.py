@@ -148,7 +148,7 @@ class M1Loader:
                     if data:
                         data["_source"] = str(yaml_file)
                         entries.append(data)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     _log.debug("Failed to load %s: %s", yaml_file, exc)
             if entries:
                 self._raw[namespace] = entries

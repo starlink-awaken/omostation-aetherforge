@@ -50,7 +50,7 @@ class OpenAIProvider(LLMProvider):
                     models = [m["id"] for m in data.get("data", []) if "id" in m]
                     if models:
                         return models
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
             return [self.default_model]
         return ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
@@ -162,7 +162,7 @@ class OpenAIProvider(LLMProvider):
                 output_tokens=resp.usage.completion_tokens if resp.usage else 0,
                 finish_reason=choice.finish_reason or "stop",
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.error("OpenAIProvider.generate failed: %s", exc)
             raise
 
@@ -196,7 +196,7 @@ class OpenAIProvider(LLMProvider):
                 output_tokens=resp.usage.completion_tokens if resp.usage else 0,
                 finish_reason=choice.finish_reason or "stop",
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.error("OpenAIProvider.complete failed: %s", exc)
             raise
 
@@ -220,6 +220,6 @@ class OpenAIProvider(LLMProvider):
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.error("OpenAIProvider.stream_generate failed: %s", exc)
             raise

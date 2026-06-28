@@ -63,7 +63,7 @@ async def llm_generate(req: GenerateRequest) -> str:
             result["finish_reason"] = "tool_calls"
 
         return json.dumps(result)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return json.dumps({"error": str(e)})
 
 
@@ -80,7 +80,7 @@ def main():
             _models = asyncio.run(_registry.refresh())
             _loaded_rates = _scheduler.load_quota_rates()
             print(f"[llm-gateway] Loaded {len(_models)} models, {_loaded_rates} with real prices from quota_rates.json")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"[llm-gateway] M1 nodes loaded but refresh failed: {e}")
     else:
         print(f"[llm-gateway] M1 engine dir not found: {M1_ENGINE_DIR}")

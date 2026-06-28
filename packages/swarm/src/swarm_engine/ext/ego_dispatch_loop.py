@@ -156,7 +156,7 @@ class EgoDispatchLoop:
                 context=context,
                 priority=sched_priority,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.error("Scheduler rejected ego task %s: %s", ego_task_id, exc)
             return {
                 "ego_task_id": ego_task_id,

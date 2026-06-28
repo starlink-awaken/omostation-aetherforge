@@ -121,7 +121,7 @@ class CostTracker:
                 os.write(fd, line)
             finally:
                 os.close(fd)
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.exception("Failed to write cost log entry")
 
     # ── Reporting ────────────────────────────────────────────────────────────
@@ -184,7 +184,7 @@ class CostTracker:
         try:
             with open(QUOTA_RATES_CACHE) as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, Exception):
+        except (json.JSONDecodeError, Exception):  # noqa: BLE001
             return 0
 
         rates = data.get("rates", {})
@@ -214,5 +214,5 @@ class CostTracker:
                 if line:
                     entries.append(json.loads(line))
             return entries
-        except Exception:
+        except Exception:  # noqa: BLE001
             return []

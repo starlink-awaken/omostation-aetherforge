@@ -258,7 +258,7 @@ class HybridIntentClassifier:
                 _log.error(f"Failed to parse LLM response as JSON: {response}")
                 return "MODERATE", 0.5, "LLM parsing failed"
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.warning(f"LLM classification failed: {exc}, falling back to MODERATE")
             return "MODERATE", 0.5, f"LLM error: {str(exc)[:50]}"
 

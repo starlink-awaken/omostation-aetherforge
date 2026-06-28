@@ -103,7 +103,7 @@ def _load_model_provider_map() -> dict[str, list[str]]:
                         short = "-".join(parts[:i])
                         if len(short) > 5:
                             mapping.setdefault(short, []).append(engine_ref)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _log.debug("Failed to load model map from %s: %s", yaml_file, e)
 
     return mapping

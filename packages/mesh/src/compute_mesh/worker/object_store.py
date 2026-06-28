@@ -161,7 +161,7 @@ class ObjectStore:
                     c.execute("DELETE FROM objects WHERE oid = ?", (oid,))
                     conn.commit()
                     conn.close()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     _log.warning("Suppressed exception in %s", __name__)
         return existed
 
@@ -197,7 +197,7 @@ class ObjectStore:
                     c.execute("DELETE FROM objects WHERE expires_at > 0 AND expires_at < ?", (now,))
                     conn.commit()
                     conn.close()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     _log.warning("Suppressed exception in %s", __name__)
         return len(expired)
 
@@ -224,7 +224,7 @@ class ObjectStore:
             )
             conn.commit()
             conn.close()
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.exception("Failed to persist object %s", entry["oid"])
 
     def _load_from_db(self, oid: str) -> dict[str, Any] | None:
@@ -239,7 +239,7 @@ class ObjectStore:
             conn.close()
             if row:
                 return dict(row)
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.warning("Suppressed exception in %s", __name__)
         return None
 
@@ -272,7 +272,7 @@ class ObjectStore:
                     c.execute("DELETE FROM objects")
                     conn.commit()
                     conn.close()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     _log.warning("Suppressed exception in %s", __name__)
 
 

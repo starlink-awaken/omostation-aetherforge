@@ -16,5 +16,5 @@ def _emit_hatcher_event(event_type: str, source: str, payload: dict | None = Non
         bus = EventBus.get_instance()
         event = make_event(event_type, source, payload)
         bus.publish(event)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         _log.debug("[HatcherEvents] Failed to emit hatcher event: %s", e)

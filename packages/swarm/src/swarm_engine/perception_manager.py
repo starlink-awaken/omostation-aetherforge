@@ -34,7 +34,7 @@ def _managed_connection(conn: sqlite3.Connection) -> Generator[sqlite3.Connectio
     try:
         yield conn
         conn.commit()
-    except Exception:
+    except Exception:  # noqa: BLE001
         conn.rollback()
         raise
     finally:

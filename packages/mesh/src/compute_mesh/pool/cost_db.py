@@ -114,7 +114,7 @@ class CostDB:
                         total_cost,
                     ),
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.exception("Failed to write cost to SQLite")
 
         # JSONL shadow write
@@ -135,7 +135,7 @@ class CostDB:
                 os.write(fd, line)
             finally:
                 os.close(fd)
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.exception("Failed to write cost JSONL")
 
     # ── Queries ──────────────────────────────────────────────────────────────

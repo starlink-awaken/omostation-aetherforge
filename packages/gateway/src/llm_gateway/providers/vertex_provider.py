@@ -121,7 +121,7 @@ class VertexAIProvider(LLMProvider):
         try:
             response = self._generate_content(request)
             return self._parse_response(response, request)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _log.error("Vertex AI generate failed: %s", e)
             raise
 
@@ -129,7 +129,7 @@ class VertexAIProvider(LLMProvider):
         try:
             response = self._generate_content(request)
             return self._parse_response(response, request)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _log.error("Vertex AI complete failed: %s", e)
             raise
 

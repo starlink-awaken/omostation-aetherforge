@@ -43,7 +43,7 @@ class OllamaProvider(LLMProvider):
                 models = [m["name"] for m in data.get("models", []) if "name" in m]
                 if models:
                     return models
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return [_OLLAMA_DEFAULT_MODEL]
 
@@ -103,7 +103,7 @@ class OllamaProvider(LLMProvider):
             import asyncio
 
             return await asyncio.to_thread(self._sync_generate_raw, request)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.error("OllamaProvider.generate failed: %s", exc)
             raise
 
@@ -136,7 +136,7 @@ class OllamaProvider(LLMProvider):
                 input_tokens=data.get("prompt_eval_count", 0) or 0,
                 output_tokens=data.get("eval_count", 0) or 0,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.error("OllamaProvider.complete failed: %s", exc)
             return LLMResponse(
                 content=f"[Ollama error: {exc}]",
@@ -173,7 +173,7 @@ class OllamaProvider(LLMProvider):
                         content = msg.get("content", "")
                         if content:
                             yield content
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.error("OllamaProvider.stream_generate failed: %s", exc)
             raise
 

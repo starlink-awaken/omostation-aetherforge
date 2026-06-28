@@ -58,7 +58,7 @@ class MessageJanitor:
         while self.running:
             try:
                 self.cleanup()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 _log.info(f"❌ [MessageJanitor] Error during cleanup: {exc}")
             time.sleep(self.interval)
 

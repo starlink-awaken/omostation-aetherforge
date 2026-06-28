@@ -176,7 +176,7 @@ class NetworkScanner:
             s.connect((hostname, 80))
             s.close()
             return hostname
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
 
     def _check_port(self, host: str, port: int, timeout: float = 0.5) -> bool:
@@ -202,7 +202,7 @@ class NetworkScanner:
             result = sock.connect_ex((host, port))
             sock.close()
             return result == 0
-        except Exception:
+        except Exception:  # noqa: BLE001
             return False
 
     # ── Phase 2: Tailscale ───────────────────────────────────────────────────
@@ -345,7 +345,7 @@ class NetworkScanner:
                 with open(path) as f:
                     content = f.read()
                 return {"raw": content[:500]}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _log.debug("  Failed to load %s: %s", path, e)
         return None
 

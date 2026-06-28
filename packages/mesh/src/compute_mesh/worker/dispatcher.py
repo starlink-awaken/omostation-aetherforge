@@ -104,7 +104,7 @@ class TaskDispatcher:
             self._notify("completed", result)
             return result
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             latency = time.time() * 1000 - start
             if worker:
                 worker.tasks_failed += 1
@@ -206,7 +206,7 @@ class TaskDispatcher:
         for listener in self._listeners:
             try:
                 listener(event, data)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception("Dispatch listener failed for event %s", event)
 
     # ── Status ────────────────────────────────────────────────────────────────

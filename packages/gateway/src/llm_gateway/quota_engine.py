@@ -178,7 +178,7 @@ class QuotaEngine:
                 if self._first_batch:
                     _log.info("QuotaEngine: first batch complete (%d providers)", len(self._cache))
                     self._first_batch = False
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 _log.warning("QuotaEngine refresh failed: %s", e)
 
             for _ in range(self._interval):
@@ -195,7 +195,7 @@ class QuotaEngine:
         try:
             for k in self._creds.list_keys():
                 all_providers.add(k["provider"])
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.warning("Suppressed exception in %s", __name__)
         for p in ["deepseek", "openai", "anthropic", "gemini", "ollama"]:
             all_providers.add(p)

@@ -120,7 +120,7 @@ class NodeRegistry:
         for listener in self._listeners:
             try:
                 listener(event, node)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception("NodeRegistry listener failed for event %s", event)
 
     # ── Bulk operations ───────────────────────────────────────────────────────

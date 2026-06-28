@@ -61,7 +61,7 @@ def record_llm_cost(model: str, input_tokens: int, output_tokens: int) -> None:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         _log.debug("failed_to_record_cost: %s", e)
 
 

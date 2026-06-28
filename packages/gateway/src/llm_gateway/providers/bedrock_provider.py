@@ -158,7 +158,7 @@ class BedrockProvider(LLMProvider):
                 body=body,
             )
             return self._parse_response(response, model)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _log.error("Bedrock generate failed: %s", e)
             raise
 
@@ -178,6 +178,6 @@ class BedrockProvider(LLMProvider):
                 body=body,
             )
             return self._parse_response(response, model)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _log.error("Bedrock complete failed: %s", e)
             raise

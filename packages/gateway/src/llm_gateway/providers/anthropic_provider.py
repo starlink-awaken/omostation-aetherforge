@@ -107,7 +107,7 @@ class AnthropicProvider(LLMProvider):
                 output_tokens=response.usage.output_tokens,
                 finish_reason=response.stop_reason or "stop",
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.error("AnthropicProvider.generate failed: %s", exc)
             raise
 
@@ -135,7 +135,7 @@ class AnthropicProvider(LLMProvider):
                 output_tokens=response.usage.output_tokens,
                 finish_reason=response.stop_reason or "stop",
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.error("AnthropicProvider.complete failed: %s", exc)
             raise
 
@@ -152,6 +152,6 @@ class AnthropicProvider(LLMProvider):
             ) as stream:
                 async for text in stream.text_stream:
                     yield text
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.error("AnthropicProvider.stream_generate failed: %s", exc)
             raise

@@ -202,7 +202,7 @@ class GraphWorkflow:
                     update = node.fn(state)
                     state.update(update)
                     state["_history"].append({"node": current, "status": "ok"})
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 _log.error("Node '%s' failed: %s", current, e)
                 state["_errors"].append({"node": current, "error": str(e)})
                 state["_history"].append({"node": current, "status": "error", "error": str(e)})

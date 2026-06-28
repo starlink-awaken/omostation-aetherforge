@@ -243,7 +243,7 @@ def run_all():
         try:
             t()
             passed += 1
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             failed += 1
             print(f"  ❌ {t.__name__}: {e}")
 

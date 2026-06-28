@@ -176,7 +176,7 @@ class ModelScheduler:
                 await asyncio.sleep(interval_ms / 1000)
                 try:
                     await self._registry.refresh()
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     _log.warning("[ModelScheduler] auto-refresh failed: %s", exc)
 
         self._refresh_task = asyncio.create_task(_loop())
@@ -202,7 +202,7 @@ class ModelScheduler:
         try:
             with open(cache_path) as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, Exception):
+        except (json.JSONDecodeError, Exception):  # noqa: BLE001
             return 0
         rates = data.get("rates", {})
         updated = 0

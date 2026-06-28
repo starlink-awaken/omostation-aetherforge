@@ -46,7 +46,7 @@ def _load_model_defs(m1_model_dir: str) -> dict[str, list[dict]]:
             if not engine_ref or not models:
                 continue
             engine_models.setdefault(engine_ref, []).extend(models)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _log.warning("Failed to load model defs from %s: %s", filepath, e)
     return engine_models
 
@@ -75,7 +75,7 @@ def _get_credentials_for(provider_name: str) -> dict | None:
         base_url = keys[0].get("note", "") if keys else ""
 
         return {"api_key": api_key, "base_url": base_url}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         _log.debug("Credentials lookup failed for %s: %s", provider_name, e)
     return None
 
@@ -283,7 +283,7 @@ def load_ssot_models(
         try:
             with open(filepath) as f:
                 config = yaml.safe_load(f)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _log.warning("Failed to load yaml %s: %s", filepath, e)
             continue
 
