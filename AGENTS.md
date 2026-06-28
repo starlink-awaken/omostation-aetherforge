@@ -1,56 +1,52 @@
 # AGENTS.md — AetherForge
 
-> eCOS v5 蜂群基础设施核心引擎 · LLM 网关路由 + Agent 编排
+    > Scope: project-local developer guide for `aetherforge`.
+    > Workspace rules live in [`../../AGENTS.md`](../../AGENTS.md); project metadata lives in [`../../docs/project-registry.yaml`](../../docs/project-registry.yaml).
 
-## Quick Commands
+    ## Role
 
-```bash
-cd projects/aetherforge
-uv run pytest tests/ -q
-uv run ruff check src/
-uv run ruff format src/ --check
-```
+    - Layer: X
+    - Stack: Python / uv / pytest
+    - Responsibility: 能力与算力框架，承载 gateway/mesh/swarm 能力
 
-## Architecture
+    Do not copy volatile facts such as test counts, tool counts, service counts, ports, or current health into this file.
 
-AetherForge 是 L0 横切面蜂群引擎：
+    ## Before Editing
 
-```
-L3 cockpit         ── 统一入口
-L2 kairon          ── 知识引擎
-I0 agora           ── MCP Hub
-L0 aetherforge     ── 蜂群引擎（本仓）
-L0 ecos            ── 协议层
-```
+    1. Read this file and [`CLAUDE.md`](CLAUDE.md) when it exists.
+    2. Check `git status --short` inside this project and at the workspace root.
+    3. Read the specific source or tests you are about to change.
+    4. Prefer project-local commands and targeted tests.
 
-### 核心模块
+    ## Commands
 
-| 模块 | 职责 |
-|:-----|:------|
-| `gateway/` | LLM 路由、负载均衡、重试 |
-| `swarm/` | Agent 蜂群调度、任务分发 |
-| `mcp/` | FastMCP 工具注册 (stdio) |
+    ```bash
+    uv sync
+uv run pytest
+uv run ruff check "packages/" "src/"
+    ```
 
-## Key Dependencies
+    ## Key Files
 
-- **aetherforge-gateway** — LLM 网关（原 llm-gateway，已并入本仓）
-- **aetherforge-mesh** — 算力网格（原 compute-mesh，已并入本仓）
-- **aetherforge-swarm** — 蜂群引擎（原 swarm-engine + aetherforge-swarm-ext，已并入本仓）
-- **httpx** — LLM 网关 HTTP 客户端
-- **fastmcp** — MCP Server
+    - `packages/gateway/`
+- `packages/mesh/`
+- `packages/swarm/`
+- `src/aetherforge/`
 
-## Testing
+    ## Gotchas
 
-```bash
-make test                               # 全量 (packages/*)
-uv run pytest -k "keyword" -q           # 按关键字
-```
+    - `归档能力合并关系以 docs/project-registry.yaml 的 archived 段为准。`
+- `跨层能力暴露应走 BOS/Agora，不直接绕入口。`
 
-## Workspace-Wide Governance (2026-06-24)
+    ## Verification
 
-This project follows the workspace-level governance conventions documented in the root `AGENTS.md`:
+    - Documentation-only changes: run `uv run --with "pyyaml" python "../../bin/doc-ssot-lint.py" --json` from this project or from the workspace root.
+    - Code changes: run the narrowest relevant project test first, then broaden if shared contracts changed.
+    - Cross-layer behavior: verify the caller and the callee, not just the touched module.
 
-- **Agent Mutation Protocol**: Any autonomous agent/cron/daemon that modifies workspace state must emit `agent_mutation_intent`, avoid direct file I/O to `.omo/`/`spaces/`, and commit immediately. See `.omo/standards/agent-mutation-protocol.md` for the full protocol.
-- **SSOT Guardian**: Run `python3 bin/ssot-guardian.py` from the workspace root before committing to detect task-count, current-wave, submodule-pointer, or direct-omo-io drift.
-- **direct-omo-io**: Scripts must route writes to `.omo/` through `omo CLI`, `projects/omo` core, or `projects/c2g` ingress — never via raw `open()/mkdir()/write_text()`.
-- **Submodule Governance**: Commit changes inside the submodule first, then bump the root-repo pointer; `git submodule status` with a `+` prefix indicates pending drift.
+    ## SSOT Pointers
+
+    - Workspace architecture: [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md)
+    - Layer index: [`../../LAYER-INDEX.md`](../../LAYER-INDEX.md)
+    - Project metadata: [`../../docs/project-registry.yaml`](../../docs/project-registry.yaml)
+    - Runtime state: [`../../.omo/state/system.yaml`](../../.omo/state/system.yaml)
