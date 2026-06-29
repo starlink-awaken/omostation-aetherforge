@@ -1,6 +1,6 @@
 """
 A2A Swarm Automated Pipeline (Model-Driven Software Engineering)
-This orchestrator simulates a software engineering pipeline driven by eCOS v5 A2A Swarm.
+This orchestrator simulates a software engineering pipeline driven by eCOS v6 A2A Swarm.
 """
 import uuid
 
@@ -25,7 +25,7 @@ def run_software_engineering_pipeline(task_intent: str):
             name="Dev Agent",
             system_prompt=(
                 "You are the Developer. You take the PO's PRD and write the technical design, "
-                "API contracts, and data models. Always consider the model-driven architecture of eCOS v5."
+                "API contracts, and data models. Always consider the model-driven architecture of eCOS v6."
             ),
             role="dev",
         ),
