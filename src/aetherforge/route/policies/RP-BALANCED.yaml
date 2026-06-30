@@ -1,0 +1,11 @@
+id: RP-BALANCED
+type: routing_policy
+strategy: balanced
+description: "均衡策略 — cost/speed/quota/affinity 综合评分 (ARCHITECTURE-v2 line 185)"
+weights:
+  cost: 0.35
+  speed: 0.25
+  quota: 0.25
+  affinity: 0.15
+constraints:
+  min_quota_pct: 10

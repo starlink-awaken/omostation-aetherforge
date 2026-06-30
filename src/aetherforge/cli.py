@@ -60,7 +60,7 @@ def cmd_swarm(argv: list[str]) -> int:
                     kwargs = payload.get("kwargs", {})
                     goal = kwargs.get("goal", "")
                     is_json_output = True  # Force JSON output for adapter
-                except Exception:  # defensive fallback  # noqa: BLE001
+                except Exception:  # defensive fallback
                     pass
 
         if not goal:
@@ -88,7 +88,7 @@ def cmd_swarm(argv: list[str]) -> int:
                     prov = create_provider(cfg.gateway.default_provider)
                     resp = prov.generate(f"将以下任务目标拆解为3步，仅输出简短文本: {goal}")
                     analysis = resp.text
-            except Exception:  # defensive fallback  # noqa: BLE001
+            except Exception:  # defensive fallback
                 pass
             return {"plan": analysis}
 
@@ -134,6 +134,64 @@ def cmd_swarm(argv: list[str]) -> int:
         return 1
 
 
+def cmd_route(argv: list[str]) -> int:
+    """RouteScheduler 演示 — 三级路由 (模型→Provider→节点). TASK-02788FE2.
+
+    真实 registry 接 gateway/mesh 留后续; 此处用 demo 数据演示 select 4 步.
+    设计: ARCHITECTURE-v2 line 88-134.
+    """
+    if not argv or argv[0] in ("-h", "--help"):
+        print("Usage: aetherforge route <select|policies> [args]")
+        print("  select [model]   演示三级路由 (demo registry)")
+        print("  policies         列 routing_policy yaml")
+        return 0
+
+    from pathlib import Path
+
+    from aetherforge.route import (
+        Model,
+        Node,
+        Provider,
+        RouteRequest,
+        RouteScheduler,
+        RoutingPolicy,
+    )
+
+    class _DemoModels:
+        def get_models(self, _mid: str) -> list[Model]:
+            return [Model(id="gpt-4o", providers=("deepseek", "openai"), cost_per_1k_input=0.001, speed_tps=50.0)]
+
+    class _DemoProviders:
+        def get_providers(self) -> list[Provider]:
+            return [Provider(id="deepseek", quota_pct=100.0), Provider(id="openai", quota_pct=84.0)]
+
+    class _DemoNodes:
+        def get_nodes(self, provider: str) -> list[Node]:
+            return [Node(id=f"{provider}-cloud", provider=provider)]
+
+    cmd = argv[0]
+    if cmd == "policies":
+        pdir = Path(__file__).resolve().parent / "route" / "policies"
+        for p in sorted(pdir.glob("*.yaml")):
+            print(f"  {p.stem}")
+        return 0
+
+    if cmd == "select":
+        model_id = argv[1] if len(argv) > 1 else "gpt-4o"
+        sched = RouteScheduler(
+            models=_DemoModels(), providers=_DemoProviders(), nodes=_DemoNodes(),
+            policy=RoutingPolicy.balanced(),
+        )
+        route = sched.select(RouteRequest(model_id=model_id))
+        print(f"🎯 Route: provider={route.provider} model={route.model} "
+              f"node={route.node} cost=${route.cost_per_1k}/1k score={route.score}")
+        print(f"   policy=balanced ({route.reason})")
+        return 0
+
+    print(f"Unknown route subcommand: {cmd}")
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     import sys as _sys
 
@@ -142,11 +200,12 @@ def main(argv: list[str] | None = None) -> int:
         argv = _sys.argv[1:]
 
     if not argv or argv[0] in ("-h", "--help"):
-        print("Usage: aetherforge {gateway,mesh,swarm} [subcommand_args]")
+        print("Usage: aetherforge {gateway,mesh,swarm,route} [subcommand_args]")
         print("\nCommands:")
         print("  gateway   LLM Gateway (List models, generate, MCP, serve)")
         print("  mesh      Compute Mesh (List nodes, status, topology-scan, health)")
         print("  swarm     Swarm Engine (Run multi-agent workflows)")
+        print("  route     RouteScheduler (三级路由 select / policies)")
         return 0 if argv and argv[0] in ("-h", "--help") else 1
 
     domain = argv[0]
@@ -158,9 +217,11 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_mesh(sub_args)
     elif domain == "swarm":
         return cmd_swarm(sub_args)
+    elif domain == "route":
+        return cmd_route(sub_args)
     else:
         print(f"Unknown domain: {domain}")
-        print("Usage: aetherforge {gateway,mesh,swarm} [subcommand_args]")
+        print("Usage: aetherforge {gateway,mesh,swarm,route} [subcommand_args]")
         return 1
 
 
