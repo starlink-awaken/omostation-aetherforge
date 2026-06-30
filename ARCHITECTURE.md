@@ -7,7 +7,7 @@
 > **SSOT**: 运行时健康、包级成熟度、能力并入状态以本项目 CI、本地验证和 workspace governance SSOT 为准
 > **Note**: LLM Gateway 能力已于 2026-06-16 从 `projects/llm-gateway/` 并入 `packages/gateway/`
 >
-> 系统全景参见：[`docs/ARCHITECTURE-DIAGRAM.md`](../docs/ARCHITECTURE-DIAGRAM.md)
+> 系统全景参见：[`../../docs/PANORAMA.md`](../../docs/PANORAMA.md)
 
 ---
 
