@@ -40,3 +40,7 @@
   其 mesh-specific 代码（拓扑、调度、Worker、API）已并入 `projects/aetherforge/packages/mesh/src/compute_mesh/`，`provider/` 层与 `aetherforge-gateway` 合并，不再独立维护。
 - `projects/swarm-engine` 已于 2026-06-16 归档至 `_archived/swarm-engine/`；缺失的 `swarm_engine` 模块已并入 `projects/aetherforge/packages/swarm/src/swarm_engine/`，不再独立维护。
 - `projects/aetherforge-swarm-ext` 已于 2026-06-16 归档至 `_archived/aetherforge-swarm-ext/`；14 个唯一扩展模块已并入 `projects/aetherforge/packages/swarm/src/swarm_engine/ext/`，其余模块已由 `swarm-engine` 合并覆盖，不再独立维护。
+
+## 架构演进与项目边界索引
+
+参见工作区架构演进与项目边界：[`../../docs/ARCHITECTURE-EVOLUTION.md`](../../docs/ARCHITECTURE-EVOLUTION.md)
