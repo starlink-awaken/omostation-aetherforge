@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=9.0"]
 legacy = [
     "click>=8.1.0",
     "rich>=13.0",

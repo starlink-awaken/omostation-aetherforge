@@ -39,18 +39,18 @@ dependencies = [
 # 保留历史: 旧 build backend (hatchling) 仍读此 section 用于 sdist/wheel 安装
 # 新 uv workspace 走 [dependency-groups] (PEP 735)
 dev = [
-    "pytest>=7.0",
+    "pytest>=9.0",
     "pytest-asyncio>=1.0",
 ]
 
 [dependency-groups]
 # P52 治本: dev deps 走 PEP 735 标准,与其他项目 (cockpit/runtime) 对齐
-#  - pytest>=8.4.2: 升级匹配 l4-kernel/runtime
+#  - pytest>=9.0: 升级匹配 l4-kernel/runtime
 #  - pytest-asyncio>=1.4.0: 修复 packages/gateway/test_retry.py 的 @pytest.mark.asyncio
 #  - pytest-cov>=7.1.0: 与其他项目统一覆盖支持
 # CI 跑 `uv run pytest` 时 uv 装此 group,与本地 dev install 一致
 dev = [
-    "pytest>=8.4.2",
+    "pytest>=9.0",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
 ]
