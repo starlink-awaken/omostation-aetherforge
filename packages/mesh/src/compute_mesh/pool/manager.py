@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from pathlib import Path
 from collections.abc import Callable
 from typing import Any
 
@@ -32,12 +33,11 @@ def _bus_publish_node_state(node: ComputeNode) -> None:
     """
     try:
         from bus_foundation import publish as _publish  # type: ignore[import]
-        from bus_foundation.envelope import BusEnvelope, EventType  # type: ignore[import]
+        from bus_foundation.envelope import BusEnvelope  # type: ignore[import]
 
         env = BusEnvelope(
-            event_type=EventType.INFO,
             topic="mesh:node:status_changed",
-            source="compute_mesh.pool.manager",
+            source_uri="compute_mesh.pool.manager",
             payload={
                 "node_id": node.node_id,
                 "status": str(node.status),
@@ -150,6 +150,62 @@ class ComputePool:
                     results[node_id] = False
 
         return results
+
+    def wakeup_node(self, node_id: str) -> bool:
+        """尝试唤醒离线的物理节点 (Wake-on-LAN)。"""
+        node_upper = node_id.upper()
+        target_node = None
+        if "MACMINI" in node_upper or "MAC-MINI" in node_upper:
+            target_node = "mac-mini-M4"
+        elif "Y7000P" in node_upper:
+            target_node = "Y7000P-4070"
+
+        if not target_node:
+            _log.warning("No physical hardware mapping defined for node %s", node_id)
+            return False
+
+        import yaml
+        try:
+            # 动态查找 workspace root
+            cur = Path(__file__).resolve()
+            workspace_root = None
+            for parent in cur.parents:
+                if (parent / "docs" / "project-registry.yaml").is_file():
+                    workspace_root = parent
+                    break
+            
+            if not workspace_root:
+                _log.error("Could not locate workspace root for project-registry.yaml")
+                return False
+
+            reg_path = workspace_root / "docs" / "project-registry.yaml"
+            data = yaml.safe_load(reg_path.read_text(encoding="utf-8")) or {}
+            nodes = data.get("compute_nodes", {})
+            cfg = nodes.get(target_node)
+            if not cfg or "mac" not in cfg:
+                _log.warning("MAC address not registered for node %s in project-registry.yaml", target_node)
+                return False
+
+            mac = cfg["mac"]
+            lan_ip = cfg.get("lan_ip", "255.255.255.255")
+
+            _log.info("Sending Magic Packet to wake up %s (MAC=%s, LAN_IP=%s)", node_id, mac, lan_ip)
+            
+            import socket
+            clean_mac = mac.replace(":", "").replace("-", "").replace(".", "")
+            mac_bytes = bytes.fromhex(clean_mac)
+            packet = b'\xff' * 6 + mac_bytes * 16
+            
+            for port in [9, 7]:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                    s.sendto(packet, ("255.255.255.255", port))
+                    if lan_ip != "255.255.255.255":
+                        s.sendto(packet, (lan_ip, port))
+            return True
+        except Exception as e:
+            _log.exception("Wakeup failed for node %s: %s", node_id, e)
+            return False
 
     def _probe_node(self, node: ComputeNode) -> bool:
         """Low-level node probe. Returns True if reachable."""
