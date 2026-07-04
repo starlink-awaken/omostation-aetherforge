@@ -158,37 +158,43 @@ def cmd_cost() -> int:
 def cmd_generate(prompt: str) -> int:
     """Generate via the best available compute node."""
     pool = _get_pool()
-    best = pool.get_best_node()
+    pool.health_check_all()  # 先探活, 否则节点在线状态未知 → 选不出最优节点
+    best = pool.get_best_node(preferred_zone="local")  # 优先本地(omlx/tailnet)而非云端
     if best is None:
         print("❌ No online compute nodes available.")
         return 1
 
     print(f"⚡ Routing to best node: {best.node_id} (zone={best.network_zone})")
 
-    # Try the mapped provider first, fallback to gateway auto-detection
-    from llm_gateway.detection import create_provider, detect_backends
-    from llm_gateway.provider import LLMRequest
+    # 经统一网关 SSOT registry 生成: 用节点(=引擎)id 让网关挑该引擎下的模型, 避开 HITL 回退
+    import asyncio
+    import json as _json
 
-    provider_name = best.protocols[0] if best.protocols else ""
-    provider = create_provider(provider_name) if provider_name else None
+    from llm_gateway.mcp_server import GenerateRequest, llm_generate
 
-    if not provider or not provider.is_available():
-        # Fallback: use whatever gateway can detect
-        backends = detect_backends()
-        if backends:
-            provider = backends[0]
-            if best.base_url and hasattr(provider, "base_url"):
-                provider.base_url = best.base_url
-        else:
-            print(f"❌ No available provider for node {best.node_id}.")
-            return 1
-
-    req = LLMRequest(prompt=prompt)
-    resp = provider.complete(req)
-    print(resp.content)
-    if resp.input_tokens:
-        print(f"\n[{resp.model}] {resp.input_tokens} in / {resp.output_tokens} out", file=sys.stderr)
+    raw = asyncio.run(
+        llm_generate(GenerateRequest(model=best.node_id, messages=[{"role": "user", "content": prompt}]))
+    )
+    data = _json.loads(raw)
+    if data.get("error"):
+        print(f"❌ {data['error']}")
+        return 1
+    print(data.get("content", ""))
+    if data.get("model"):
+        print(f"\n[{data['model']}]", file=sys.stderr)
     return 0
+
+
+def cmd_wakeup(node_id: str) -> int:
+    """Wake up a compute node using Magic Packet (WoL)."""
+    pool = _get_pool()
+    success = pool.wakeup_node(node_id)
+    if success:
+        print(f"✅ Wakeup Magic Packet sent successfully for node: {node_id}")
+        return 0
+    else:
+        print(f"❌ Failed to send wakeup packet for node: {node_id}")
+        return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -204,6 +210,9 @@ def main(argv: list[str] | None = None) -> int:
     wp.add_argument("worker_id", help="Worker ID")
     wp.add_argument("prompt", help="Prompt text")
     sub.add_parser("cost", help="Cost report")
+
+    wake = sub.add_parser("wakeup", help="Wake up an offline node via Wake-on-LAN")
+    wake.add_argument("node_id", help="Node ID to wake up (e.g. ENG-OLLAMA-MACMINI)")
 
     gen = sub.add_parser("generate", help="Generate via best node")
     gen.add_argument("prompt", help="Prompt text")
@@ -224,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_worker_dispatch(args.worker_id, args.prompt)
     elif args.cmd == "cost":
         return cmd_cost()
+    elif args.cmd == "wakeup":
+        return cmd_wakeup(args.node_id)
     elif args.cmd == "generate":
         return cmd_generate(args.prompt)
     else:

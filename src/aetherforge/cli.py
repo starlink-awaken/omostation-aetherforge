@@ -75,19 +75,30 @@ def cmd_swarm(argv: list[str]) -> int:
         @wf.node("任务规划", description="分析并分解任务目标")
         def plan_task(state):
             goal = state.get("goal", "")
-            # 尝试通过 Gateway 对接 LLM 来丰富分析，如果有可用 Provider 且没有报错
+            # 经统一网关 (SSOT registry → omlx/本地/云) 真实拆解, 失败则回退占位串
             analysis = f"分析目标: {goal}"
             try:
-                # 尝试调用本地的 llm_gateway
-                # 如果有默认 provider 配置，可以用它生成一些真实的拆解
-                from aetherforge.config import load_config
-                from aetherforge.gateway import create_provider
+                import asyncio
+                import json as _json
 
-                cfg = load_config()
-                if cfg.gateway.default_model:
-                    prov = create_provider(cfg.gateway.default_provider)
-                    resp = prov.generate(f"将以下任务目标拆解为3步，仅输出简短文本: {goal}")
-                    analysis = resp.text
+                from llm_gateway.mcp_server import GenerateRequest, llm_generate
+
+                raw = asyncio.run(
+                    llm_generate(
+                        GenerateRequest(
+                            model=state.get("model", "coder"),
+                            messages=[
+                                {
+                                    "role": "user",
+                                    "content": f"将以下任务目标拆解为3步，仅输出简短文本：{goal}",
+                                }
+                            ],
+                        )
+                    )
+                )
+                data = _json.loads(raw)
+                if data.get("content"):
+                    analysis = data["content"]
             except Exception:  # defensive fallback
                 pass
             return {"plan": analysis}

@@ -47,11 +47,20 @@ class ModelRegistry:
     # Model discovery
     # ------------------------------------------------------------------
 
-    async def refresh(self) -> list[ModelDescriptor]:
-        """Discover models from all registered providers."""
+    async def refresh(self, discover_timeout: float = 10.0) -> list[ModelDescriptor]:
+        """Discover models from all registered providers.
+
+        Each provider's discovery is bounded by ``discover_timeout`` seconds so a
+        single slow/hanging endpoint (e.g. an unreachable cloud provider) cannot
+        block discovery of the rest.
+        """
         self._models.clear()
         all_models: list[ModelDescriptor] = []
-        tasks = [(name, provider.discover()) for name, provider in self._providers.items()]
+
+        async def _discover(p: BaseLLMProvider) -> list[ModelDescriptor]:
+            return await asyncio.wait_for(p.discover(), timeout=discover_timeout)
+
+        tasks = [(name, _discover(provider)) for name, provider in self._providers.items()]
         results = await asyncio.gather(*[t for _, t in tasks], return_exceptions=True)
         for (name, _), result in zip(tasks, results):
             if isinstance(result, BaseException):
@@ -116,7 +125,7 @@ class ModelRegistry:
                 result = await provider.chat(model_id, messages, options)
             self.circuit_breaker.record_success(provider_name)
             return result
-        except Exception:  # noqa: BLE001
+        except Exception:
             self.circuit_breaker.record_failure(provider_name)
             raise
         finally:
@@ -147,7 +156,7 @@ class ModelRegistry:
                     finish_reason=result.finish_reason,
                 )
             self.circuit_breaker.record_success(provider_name)
-        except Exception:  # noqa: BLE001
+        except Exception:
             self.circuit_breaker.record_failure(provider_name)
             raise
         finally:
