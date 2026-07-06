@@ -35,7 +35,7 @@ def get_langfuse_client() -> Langfuse | None:
     # Load credentials (supports both public/secret pair and unified single API key format)
     public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
     secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
-    host = os.environ.get("LANGFUSE_HOST", "http://localhost:3000")
+    host = os.environ.get("LANGFUSE_HOST", "http://localhost:3050")
     api_key = os.environ.get("LANGFUSE_API_KEY")
 
     if not (public_key and secret_key) and not api_key:
