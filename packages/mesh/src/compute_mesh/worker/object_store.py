@@ -161,8 +161,8 @@ class ObjectStore:
                     c.execute("DELETE FROM objects WHERE oid = ?", (oid,))
                     conn.commit()
                     conn.close()
-                except Exception:  # noqa: BLE001
-                    _log.warning("Suppressed exception in %s", __name__)
+                except Exception as e:  # noqa: BLE001
+                    _log.exception("Failed to delete object %s from db", oid)
         return existed
 
     def exists(self, oid: str) -> bool:
@@ -197,8 +197,8 @@ class ObjectStore:
                     c.execute("DELETE FROM objects WHERE expires_at > 0 AND expires_at < ?", (now,))
                     conn.commit()
                     conn.close()
-                except Exception:  # noqa: BLE001
-                    _log.warning("Suppressed exception in %s", __name__)
+                except Exception as e:  # noqa: BLE001
+                    _log.exception("Failed to evict expired objects from db")
         return len(expired)
 
     # ── Persistence ──────────────────────────────────────────────────────────
@@ -239,8 +239,8 @@ class ObjectStore:
             conn.close()
             if row:
                 return dict(row)
-        except Exception:  # noqa: BLE001
-            _log.warning("Suppressed exception in %s", __name__)
+        except Exception as e:  # noqa: BLE001
+            _log.exception("Failed to load object %s from db", oid)
         return None
 
     # ── Stats ────────────────────────────────────────────────────────────────
@@ -272,8 +272,8 @@ class ObjectStore:
                     c.execute("DELETE FROM objects")
                     conn.commit()
                     conn.close()
-                except Exception:  # noqa: BLE001
-                    _log.warning("Suppressed exception in %s", __name__)
+                except Exception as e:  # noqa: BLE001
+                    _log.exception("Failed to clear objects from db")
 
 
 _SENTINEL = object()  # sentinel for exists() check
