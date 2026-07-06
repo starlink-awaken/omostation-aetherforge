@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from aetherforge._paths import M1_MODEL_DIR as _M1_MODEL_DIR
+from aetherforge._paths import M1_MODEL_DIR as _M1_MODEL_DIR, M1_ROUTING_POLICY_DIR
 
 from .pricing import PricingRegistry
 from .quota_engine import QuotaEngine
@@ -117,6 +117,7 @@ class RouteScheduler:
       - QuotaEngine (真实可用性 + 实时配额)
       - PricingRegistry (模型定价)
       - 策略评分 (成本/速度/配额)
+      - L0 MOF 动态策略加载与硬性约束约束过滤 (RoutingPolicy)
     """
 
     def __init__(self) -> None:
@@ -127,6 +128,28 @@ class RouteScheduler:
         self._model_map: dict[str, list[str]] = _load_model_provider_map()
         if self._model_map:
             _log.info("RouteScheduler loaded %d model→engine mappings", len(self._model_map))
+        self._policies: dict[str, dict] = {}
+        self._load_routing_policies()
+
+    def _load_routing_policies(self) -> None:
+        """从 M1 routing_policy/ 目录动态加载策略配置。"""
+        if not M1_ROUTING_POLICY_DIR.is_dir():
+            return
+        try:
+            import yaml
+            for yaml_file in M1_ROUTING_POLICY_DIR.glob("RP-*.yaml"):
+                try:
+                    with open(yaml_file, encoding="utf-8") as f:
+                        data = yaml.safe_load(f)
+                    if data and "strategy" in data:
+                        strategy_name = data["strategy"].lower()
+                        self._policies[strategy_name] = data
+                except Exception as e:  # noqa: BLE001
+                    _log.debug("Failed to load routing policy from %s: %s", yaml_file, e)
+            if self._policies:
+                _log.info("RouteScheduler loaded %d dynamic routing policies from M1", len(self._policies))
+        except Exception as e:  # noqa: BLE001
+            _log.warning("Failed to initialize routing policies: %s", e)
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -146,12 +169,23 @@ class RouteScheduler:
         Returns:
             ``Route`` 或 ``None`` (无可用 Provider 时)。
         """
-        weights = RouteStrategies.get(strategy)
+        # 1. 动态加载权重与约束
+        policy_data = self._policies.get(strategy.lower()) or {}
+        if "weights" in policy_data:
+            w_conf = policy_data["weights"]
+            weights = {
+                "cost": w_conf.get("cost", 0.0),
+                "quota": w_conf.get("quota", 0.0),
+                "speed": w_conf.get("speed", 0.0),
+            }
+        else:
+            weights = RouteStrategies.get(strategy)
+        constraints = policy_data.get("constraints", {})
 
-        # 1. 获取所有 Provider 状态
+        # 2. 获取所有 Provider 状态
         all_status = self._quota.get_all_status()
 
-        # 2. 模型感知过滤: 只保留能提供该模型的 Engine
+        # 3. 模型感知过滤: 只保留能提供该模型的 Engine
         matching_engines = self._find_engines_for_model(model) if model else set()
         candidates = {}
         for pname, s in all_status.items():
@@ -164,11 +198,33 @@ class RouteScheduler:
                     continue
             candidates[pname] = s
 
+        # 4. 业务约束硬过滤 (例如 min_quota_pct, max_cost_per_1k)
+        filtered_candidates = {}
+        for provider, status in candidates.items():
+            min_quota = constraints.get("min_quota_pct")
+            if min_quota is not None and status.quota_pct < min_quota:
+                continue
+
+            cost_p = self._pricing.get_cost(model) if model else {"input": 0, "output": 0}
+            cost_in = cost_p.get("input", 0.0)
+            cost_out = cost_p.get("output", 0.0)
+
+            max_in = constraints.get("max_cost_per_1k_input")
+            if max_in is not None and cost_in > max_in:
+                continue
+
+            max_out = constraints.get("max_cost_per_1k_output")
+            if max_out is not None and cost_out > max_out:
+                continue
+
+            filtered_candidates[provider] = status
+        candidates = filtered_candidates
+
         if not candidates:
-            _log.warning("RouteScheduler: no available providers for model=%s", model)
+            _log.warning("RouteScheduler: no available providers for model=%s matching policies", model)
             return None
 
-        # 3. Score each candidate
+        # 5. Score each candidate
         best_score = -1.0
         best_route: Route | None = None
 
@@ -208,9 +264,22 @@ class RouteScheduler:
         strategy: str = "balanced",
     ) -> list[Route]:
         """返回所有可用 Provider 的评分排序结果。"""
-        weights = RouteStrategies.get(strategy)
+        # 1. 动态加载权重与约束
+        policy_data = self._policies.get(strategy.lower()) or {}
+        if "weights" in policy_data:
+            w_conf = policy_data["weights"]
+            weights = {
+                "cost": w_conf.get("cost", 0.0),
+                "quota": w_conf.get("quota", 0.0),
+                "speed": w_conf.get("speed", 0.0),
+            }
+        else:
+            weights = RouteStrategies.get(strategy)
+        constraints = policy_data.get("constraints", {})
+
         all_status = self._quota.get_all_status()
 
+        # 2. 模型感知过滤: 只保留能提供该模型的 Engine
         matching_engines = self._find_engines_for_model(model) if model else set()
         candidates = {}
         for pname, s in all_status.items():
@@ -222,6 +291,29 @@ class RouteScheduler:
                     continue
             candidates[pname] = s
 
+        # 3. 业务约束硬过滤
+        filtered_candidates = {}
+        for provider, status in candidates.items():
+            min_quota = constraints.get("min_quota_pct")
+            if min_quota is not None and status.quota_pct < min_quota:
+                continue
+
+            cost_p = self._pricing.get_cost(model) if model else {"input": 0, "output": 0}
+            cost_in = cost_p.get("input", 0.0)
+            cost_out = cost_p.get("output", 0.0)
+
+            max_in = constraints.get("max_cost_per_1k_input")
+            if max_in is not None and cost_in > max_in:
+                continue
+
+            max_out = constraints.get("max_cost_per_1k_output")
+            if max_out is not None and cost_out > max_out:
+                continue
+
+            filtered_candidates[provider] = status
+        candidates = filtered_candidates
+
+        # 4. 排序各个可用 Provider
         routes = []
         for provider, status in candidates.items():
             cost_p = self._pricing.get_cost(model) if model else {"input": 0, "output": 0}

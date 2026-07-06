@@ -33,6 +33,7 @@ dependencies = [
     "fastmcp>=3.4.2",
     "openai>=2.41.1",
     "httpx[socks]>=0.28.1",
+    "langfuse>=2.0.0",
 ]
 
 [project.optional-dependencies]

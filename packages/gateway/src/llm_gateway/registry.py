@@ -115,22 +115,39 @@ class ModelRegistry:
         if not p:
             return None
         provider, provider_name = p
-        try:
-            if self.retry_config:
-                result = await with_retry(
-                    lambda: provider.chat(model_id, messages, options),
-                    config=self.retry_config,
-                )
-            else:
-                result = await provider.chat(model_id, messages, options)
-            self.circuit_breaker.record_success(provider_name)
-            return result
-        except Exception:
-            self.circuit_breaker.record_failure(provider_name)
-            raise
-        finally:
-            if self._scheduler_ref is not None:
-                self._scheduler_ref.release_load(model_id)
+
+        from .tracing import trace_llm_call
+        with trace_llm_call(model_id, messages, options) as gen:
+            try:
+                if self.retry_config:
+                    result = await with_retry(
+                        lambda: provider.chat(model_id, messages, options),
+                        config=self.retry_config,
+                    )
+                else:
+                    result = await provider.chat(model_id, messages, options)
+
+                if gen and result:
+                    input_tok = getattr(result, "input_tokens", 0)
+                    output_tok = getattr(result, "output_tokens", 0)
+                    gen.end(
+                        output=result.content or "",
+                        usage={
+                            "input": input_tok,
+                            "output": output_tok,
+                        }
+                    )
+
+                self.circuit_breaker.record_success(provider_name)
+                return result
+            except Exception as e:
+                if gen:
+                    gen.end(status_message=str(e))
+                self.circuit_breaker.record_failure(provider_name)
+                raise
+            finally:
+                if self._scheduler_ref is not None:
+                    self._scheduler_ref.release_load(model_id)
 
     async def chat_stream(
         self,

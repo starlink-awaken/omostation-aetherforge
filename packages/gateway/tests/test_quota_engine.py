@@ -84,3 +84,33 @@ class TestQuotaEngineCache:
         # but the old cached data should be gone
         result = qe.get_quota("test")
         assert result is not None  # Should still return something via quick check
+
+
+class TestQuotaEngineDynamic:
+    def test_load_quota_definitions(self, tmp_path, monkeypatch):
+        # 1. 创建临时的 quota_definition 目录，写入 QD-TEST.yaml
+        quota_dir = tmp_path / "quota_definition"
+        quota_dir.mkdir()
+
+        qd_data = """
+id: QD-TEST
+name: Test Provider Quota
+type: QuotaDefinition
+provider: test_provider
+quota_model: test_model_type
+unit: USD
+source: codexbar
+check_command: test_command usage --provider test_provider --format json
+refresh_interval: 100
+"""
+        (quota_dir / "QD-TEST.yaml").write_text(qd_data, encoding="utf-8")
+
+        # 2. Mock M1_QUOTA_DIR
+        from llm_gateway import quota_engine
+        monkeypatch.setattr(quota_engine, "M1_QUOTA_DIR", quota_dir)
+
+        # 3. 实例化并验证加载
+        qe = quota_engine.QuotaEngine()
+        assert "test_provider" in qe._codexbar_providers
+        assert qe._quota_model_map["test_provider"] == "test_model_type"
+        assert qe._check_commands["test_provider"] == "test_command usage --provider test_provider --format json"

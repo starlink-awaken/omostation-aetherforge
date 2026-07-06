@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from aetherforge._paths import M1_QUOTA_DIR
 from .credentials import CredentialsManager
 
 _log = logging.getLogger(__name__)
@@ -135,6 +136,36 @@ class QuotaEngine:
         self._first_batch = True
         self._ready = False
 
+        # Dynamic configurations loaded from L0 MOF quota_definition
+        self._codexbar_providers = dict(CODEXBAR_PROVIDERS)
+        self._quota_model_map = dict(QUOTA_MODEL_MAP)
+        self._check_commands: dict[str, str] = {}
+        self._load_quota_definitions()
+
+    def _load_quota_definitions(self) -> None:
+        """从 M1 quota_definition/ 动态加载配额配置。"""
+        if not M1_QUOTA_DIR.is_dir():
+            return
+        try:
+            import yaml
+            for yaml_file in M1_QUOTA_DIR.glob("QD-*.yaml"):
+                try:
+                    with open(yaml_file, encoding="utf-8") as f:
+                        data = yaml.safe_load(f)
+                    if data and "provider" in data:
+                        provider = data["provider"]
+                        if "quota_model" in data:
+                            self._quota_model_map[provider] = data["quota_model"]
+                        if "check_command" in data:
+                            self._check_commands[provider] = data["check_command"]
+                        if data.get("source") == "codexbar":
+                            self._codexbar_providers[provider] = provider
+                except Exception as e:  # noqa: BLE001
+                    _log.debug("Failed to load quota definition from %s: %s", yaml_file, e)
+            _log.info("QuotaEngine: loaded dynamic quota definitions from M1")
+        except Exception as e:  # noqa: BLE001
+            _log.warning("Failed to initialize quota definitions: %s", e)
+
     # ── Lifecycle ───────────────────────────────────────────────────────
 
     def start(self) -> None:
@@ -201,7 +232,7 @@ class QuotaEngine:
             all_providers.add(p)
 
         # 2. Query codexbar-supported providers in parallel
-        codexbar_providers = [p for p in all_providers if p in CODEXBAR_PROVIDERS]
+        codexbar_providers = [p for p in all_providers if p in self._codexbar_providers]
         threads = []
         for p in codexbar_providers:
             t = threading.Thread(target=self._query_one, args=(p, now), daemon=True)
@@ -235,10 +266,17 @@ class QuotaEngine:
             return
 
         # Query codexbar
-        mapped = CODEXBAR_PROVIDERS.get(provider, provider)
+        mapped = self._codexbar_providers.get(provider, provider)
+        custom_cmd = self._check_commands.get(provider)
+        if custom_cmd:
+            import shlex
+            cmd_args = shlex.split(custom_cmd)
+        else:
+            cmd_args = ["codexbar", "usage", "--format", "json", "--provider", mapped]
+
         try:
             result = subprocess.run(
-                ["codexbar", "usage", "--format", "json", "--provider", mapped],
+                cmd_args,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -256,7 +294,7 @@ class QuotaEngine:
                     pd.quota_pct = 100 - used_pct
                     pd.quota_source = "codexbar"
                     pd.quota_ok = pd.quota_pct >= 10
-                    pd.quota_model = QUOTA_MODEL_MAP.get(provider, "unknown")
+                    pd.quota_model = self._quota_model_map.get(provider, "unknown")
                     pd.available = pd.quota_pct > 0
                     pd.status = "available" if pd.available else "quota_exhausted"
                     if pd.quota_pct < 10 and pd.quota_pct > 0:

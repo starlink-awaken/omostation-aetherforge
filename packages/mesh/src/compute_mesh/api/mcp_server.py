@@ -81,6 +81,21 @@ async def mesh_cost_report() -> str:
 
 
 @mcp.tool()
+async def mesh_wakeup(node_id: str) -> str:
+    """Wake up an offline compute node via Wake-on-LAN.
+
+    Args:
+        node_id: The ID of the node to wake up (e.g. ENG-OLLAMA-MACMINI).
+    """
+    pool = _get_pool()
+    success = pool.wakeup_node(node_id)
+    if success:
+        return f"✅ Wakeup Magic Packet sent successfully for node: {node_id}"
+    else:
+        return f"❌ Failed to send wakeup packet for node: {node_id}"
+
+
+@mcp.tool()
 async def mesh_generate(prompt: str) -> str:
     """Generate text via the best available compute node.
 
