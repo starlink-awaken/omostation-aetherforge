@@ -13,7 +13,20 @@
 
     能力与算力框架，承载 gateway/mesh/swarm 能力.
 
-    ## Quick Start
+    ## Installation
+
+```bash
+# Clone the workspace recursively
+git clone --recursive https://github.com/starlink-awaken/omostation.git
+cd omostation/projects/aetherforge
+
+# Install dependencies with uv
+uv sync
+```
+
+Requires Python 3.13+ (see `pyproject.toml`).
+
+## Quick Start
 
     ```bash
     uv sync
@@ -45,6 +58,7 @@ uv run ruff check "packages/" "src/"
 - [Changelog](CHANGELOG.md)
 - [License](LICENSE)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Contributors](CONTRIBUTORS.md)
 ## Getting Help
 
 - [FAQ](docs/FAQ.md)
