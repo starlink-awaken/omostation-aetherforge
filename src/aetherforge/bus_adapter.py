@@ -29,10 +29,13 @@ def _try_import_bus():
     """Lazy import: agora may not be on the path during isolated aetherforge tests."""
     try:
         from bus_foundation import BusEnvelope, publish  # type: ignore
-
-        return BusEnvelope, publish
+        try:
+            from bus_foundation.observability import get_current_trace_id
+            return BusEnvelope, publish, get_current_trace_id
+        except ImportError:
+            return BusEnvelope, publish, None
     except ImportError:
-        return None, None
+        return None, None, None
 
 
 def emit_event(
@@ -41,15 +44,12 @@ def emit_event(
     payload: dict[str, Any] | None = None,
     trace_id: str | None = None,
 ) -> str | None:
-    """Emit a single aetherforge event into the agora bus.
-
-    Returns the event id, or None if agora.bus is not importable (e.g.
-    running aetherforge in isolation before agora is installed).
-    """
-    bus_envelope_cls, publish = _try_import_bus()
+    bus_envelope_cls, publish, get_tid = _try_import_bus()
     if bus_envelope_cls is None or publish is None:
         logger.debug("agora_bus_unavailable_skipping_event type=%s", event_type)
         return None
+    if trace_id is None and get_tid is not None:
+        trace_id = get_tid()
     envelope = bus_envelope_cls(
         type=event_type,
         source=source,
@@ -58,7 +58,7 @@ def emit_event(
     )
     try:
         return publish(envelope)
-    except Exception as e:  # agora bus already DLQs internally, but be defensive  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         logger.warning("aetherforge_bus_emit_failed type=%s err=%s", event_type, e)
         return None
 
