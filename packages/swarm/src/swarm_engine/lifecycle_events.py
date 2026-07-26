@@ -61,19 +61,14 @@ class SwarmEventEmitter:
         payload: dict[str, Any],
     ) -> None:
         """Emit a lifecycle event on the EventBus. Best-effort; never raises."""
-        try:
-            from kairon_events import get_global_event_bus, make_event
-        except (ImportError, OSError, RuntimeError) as _exc:
-            _log.debug(
-                "[SwarmEventEmitter] kairon_events unavailable: %s",
-                _exc,
-            )
-            return
+        # kairon_events L0 shared event bus was removed in P30.5; aetherforge
+        # uses its own local EventBus (see event_bus.py) without a global registry.
+        from .event_bus import make_event
 
         try:
-            bus = get_global_event_bus()
+            from .event_bus import EventBus
+            bus = EventBus.get_instance()
             if bus is None:
-                _log.debug("[SwarmEventEmitter] Global EventBus not yet registered")
                 return
             bus.publish(make_event(event_type, self.SOURCE_NAME, payload))
         except (AttributeError, RuntimeError, TypeError, ValueError) as _exc:

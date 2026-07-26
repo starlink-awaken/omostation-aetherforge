@@ -39,42 +39,31 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 from uuid import uuid4
 
-# Lazily import kairon_events — may not be available in all contexts
-_has_kairon_lib = False
-try:
-    from kairon_events import BOSEvent as _RealBOSEvent
-    from kairon_events import make_event as _real_make_event
-    from kairon_events import register_global_event_bus as _real_register_global_event_bus
+# kairon_events L0 shared event bus was removed in P30.5 (M3); aetherforge
+# retains local stub classes here so the in-process EventBus keeps working
+# without depending on the (orphan) shared primitive.
+@dataclass
+class _BOSEventLocal:
+    """Local BOSEvent stub — replaces kairon_events.BOSEvent after P30.5."""
 
-    _has_kairon_lib = True
-except ImportError:
-    logging.getLogger(__name__).debug("[EventBus] kairon_events unavailable — using local stubs")
-
-    @dataclass
-    class _RealBOSEventStub:
-        """Local BOSEvent stub used when kairon_events is not installed."""
-
-        event_type: str
-        source: str
-        payload: dict | None = None
-        timestamp: float = 0.0
-        event_id: str = ""
-
-    def _real_make_event_stub(event_type: str, source: str, payload: dict | None = None) -> _RealBOSEventStub:
-        return _RealBOSEventStub(event_type=event_type, source=source, payload=payload or {})
-
-    def _real_register_global_event_bus_stub(bus: Any) -> None:
-        pass
+    event_type: str
+    source: str
+    payload: dict | None = None
+    timestamp: float = 0.0
+    event_id: str = ""
 
 
-if _has_kairon_lib:
-    BOSEvent = _RealBOSEvent
-    make_event = _real_make_event
-    register_global_event_bus = _real_register_global_event_bus
-else:
-    BOSEvent = _RealBOSEventStub  # type: ignore[assignment,no-redef]
-    make_event = _real_make_event_stub  # type: ignore[assignment,no-redef]
-    register_global_event_bus = _real_register_global_event_bus_stub  # type: ignore[assignment,no-redef]
+def _make_event_local(event_type: str, source: str, payload: dict | None = None) -> _BOSEventLocal:
+    return _BOSEventLocal(event_type=event_type, source=source, payload=payload or {})
+
+
+def _register_global_event_bus_local(bus: Any) -> None:
+    """No-op: aetherforge owns its own EventBus instance, no global registry needed."""
+
+
+BOSEvent = _BOSEventLocal
+make_event = _make_event_local
+register_global_event_bus = _register_global_event_bus_local
 
 _log = logging.getLogger(__name__)
 
