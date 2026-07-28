@@ -8,7 +8,7 @@ services:
       dockerfile: Dockerfile
     container_name: aetherforge-mcp
     ports:
-      - "7432:8000"
+      - "8000:8000"
     environment:
       - AETHERFORGE_MCP_PORT=8000
       - AETHERFORGE_MCP_TRANSPORT=sse
