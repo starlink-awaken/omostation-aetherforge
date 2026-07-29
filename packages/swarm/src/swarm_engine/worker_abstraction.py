@@ -8,7 +8,7 @@ from typing import Any
 
 
 class _DefaultEnumMeta(EnumType):
-    def __call__(cls, value=None, *args, **kwargs):
+    def __call__(cls, value=None, *args, **kwargs):  # type: ignore[override]
         if value is None:
             return next(iter(cls))
         return super().__call__(value, *args, **kwargs)

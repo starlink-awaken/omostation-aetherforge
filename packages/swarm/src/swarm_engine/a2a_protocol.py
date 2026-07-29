@@ -468,12 +468,15 @@ class A2AProtocol:
         Returns None on timeout or if the agent is not registered.
         """
         spore = get_spore_gateway()
+        receive = None
         try:
             message_transport = spore.get_component("message_transport")
             receive = message_transport.receive
         except (ValueError, AttributeError):
             pass
 
+        if receive is None:
+            return None
         return await receive(agent_id, timeout=timeout)
 
     def get_stats(self) -> dict[str, Any]:
