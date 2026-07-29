@@ -1,14 +1,14 @@
-version: "3.9"
-
 services:
   # ── Unified MCP Server (gateway + mesh tools) ──────────────────────
   aetherforge-mcp:
     build:
       context: .
       dockerfile: Dockerfile
+      additional_contexts:
+        bus-foundation: ../bus-foundation
     container_name: aetherforge-mcp
     ports:
-      - "7432:8000"
+      - "8000:8000"
     environment:
       - AETHERFORGE_MCP_PORT=8000
       - AETHERFORGE_MCP_TRANSPORT=sse
@@ -23,7 +23,7 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/sse', timeout=5).close()"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastmcp import FastMCP
 
 from aetherforge.gateway import llm_generate
@@ -39,7 +41,18 @@ mcp.tool(name="forge_generate_mesh")(mesh_generate)
 
 
 def main() -> None:
-    mcp.run()
+    transport = os.getenv("AETHERFORGE_MCP_TRANSPORT", "stdio").strip().lower()
+    port = int(os.getenv("AETHERFORGE_MCP_PORT", "0"))
+
+    if transport == "stdio" or port <= 0:
+        mcp.run(transport="stdio")
+        return
+
+    mcp.run(
+        transport=transport,
+        host=os.getenv("AETHERFORGE_MCP_HOST", "0.0.0.0"),
+        port=port,
+    )
 
 
 if __name__ == "__main__":
