@@ -64,12 +64,14 @@ TRIAGE_PROMPT = """你是信息分诊助手。给定一条信息，判断该 丢
 # 不指定模型名, 让 gateway 自动选择最优
 TRIAGE_CHAIN: list[str] = []
 
-# 共识模型 (3 个独立模型并行校验, 2/3 投票)
-CONSENSUS_MODELS = [
-    ("mid-local", True),       # Qwen3.6-27B, 100%, 1.13s
-    ("mini-9b", True),         # qwen3.5:9b, 100%, 1.42s
-    ("deepseek-chat", False),  # 云端, 95%, 0.66s
+# 共识模型
+# Stage 1: 2 个轻量模型并行初筛 (本地, 快)
+# Stage 2: 分歧时调第 3 个复核 (云端, 稍慢)
+CONSENSUS_STAGE1 = [
+    ("mid-local", True),   # Qwen3.6-27B, 100%, 1.13s
+    ("mini-9b", True),     # qwen3.5:9b, 100%, 1.42s
 ]
+CONSENSUS_STAGE2 = ("deepseek-chat", False)  # 云端, 95%, 0.66s
 
 
 @dataclass
@@ -143,35 +145,32 @@ class TriageRouter:
 
     def consensus_triage(
         self, text: str, title: str = "", url: str = "",
-        models: Optional[list[tuple[str, bool]]] = None,
-        min_agreement: float = 2 / 3,
+        stage1: Optional[list[tuple[str, bool]]] = None,
+        stage2: Optional[tuple[str, bool]] = None,
     ) -> ConsensusResult:
-        """多模型共识分诊 — 并行调用多个模型, 投票决定.
+        """两级共识分诊 — Stage1 双模型并行, 一致直接出, 分歧调 Stage2 复核.
 
-        Args:
-            text: 信息内容
-            title: 标题
-            url: URL
-            models: [(模型名, 是否需要reasoning_effort=none), ...], 默认 CONSENSUS_MODELS
-            min_agreement: 最低一致率 (默认 2/3)
+        延迟: 一致 ~1.2s (2并行), 分歧 ~2s (2并行+1串行)
         """
-        if models is None:
-            models = CONSENSUS_MODELS
+        if stage1 is None:
+            stage1 = CONSENSUS_STAGE1
+        if stage2 is None:
+            stage2 = CONSENSUS_STAGE2
 
-        # 并行调用
+        # Stage 1: 双模型并行
         details: list[TriageResult] = []
-        with ThreadPoolExecutor(max_workers=len(models)) as pool:
+        with ThreadPoolExecutor(max_workers=2) as pool:
             futures = {
-                pool.submit(self._call_model, text, model, title, url): model
-                for model, _ in models
+                pool.submit(self._call_model, text, m, title, url): m
+                for m, _ in stage1
             }
             for future in as_completed(futures):
                 try:
                     details.append(future.result())
                 except Exception as e:
-                    model = futures[future]
+                    m = futures[future]
                     details.append(TriageResult(
-                        verdict="错误", model=model, latency=0, error=str(e)[:30]
+                        verdict="错误", model=m, latency=0, error=str(e)[:30]
                     ))
 
         # 投票
@@ -180,21 +179,50 @@ class TriageRouter:
             if r.verdict in ("丢弃", "沉淀", "提醒"):
                 votes[r.verdict] = votes.get(r.verdict, 0) + 1
 
-        total = sum(votes.values())
         max_verdict = max(votes, key=votes.get) if votes else "未知"
         max_count = max(votes.values()) if votes else 0
-        agreement = max_count / len(models) if models else 0
+
+        # Stage 1 一致 → 直接返回
+        if max_count == len(stage1):
+            max_latency = max(r.latency for r in details)
+            result = ConsensusResult(
+                verdict=max_verdict,
+                votes=votes,
+                agreement=1.0,
+                status="共识",
+                latency=max_latency,
+                details=details,
+                cost_usd=sum(r.cost_usd for r in details),
+            )
+            if self.tracker:
+                self.tracker.record(TriageResult(
+                    verdict=max_verdict,
+                    model=f"consensus({','.join(m[0] for m in stage1)})",
+                    latency=max_latency,
+                ))
+            return result
+
+        # Stage 1 分歧 → 调 Stage 2 复核
+        model2, _ = stage2
+        tiebreaker = self._call_model(text, model2, title, url)
+        details.append(tiebreaker)
+
+        if tiebreaker.verdict in ("丢弃", "沉淀", "提醒"):
+            votes[tiebreaker.verdict] = votes.get(tiebreaker.verdict, 0) + 1
+
+        max_verdict = max(votes, key=votes.get) if votes else "未知"
+        max_count = max(votes.values()) if votes else 0
+        total_models = len(stage1) + 1
+        agreement = max_count / total_models
 
         if agreement >= 1.0:
             status = "共识"
-        elif agreement >= min_agreement:
+        elif agreement >= 2 / 3:
             status = "多数"
         else:
             status = "分歧"
 
-        max_latency = max((r.latency for r in details), default=0)
-        total_cost = sum(r.cost_usd for r in details)
-
+        max_latency = max(r.latency for r in details)
         result = ConsensusResult(
             verdict=max_verdict,
             votes=votes,
@@ -202,16 +230,15 @@ class TriageRouter:
             status=status,
             latency=max_latency,
             details=details,
-            cost_usd=total_cost,
+            cost_usd=sum(r.cost_usd for r in details),
         )
 
-        # 记账
         if self.tracker:
             self.tracker.record(TriageResult(
                 verdict=max_verdict,
-                model=f"consensus({','.join(m[0] for m in models)})",
+                model=f"consensus({','.join(m[0] for m in stage1)}+{model2})",
                 latency=max_latency,
-                cost_usd=total_cost,
+                cost_usd=result.cost_usd,
             ))
 
         return result
