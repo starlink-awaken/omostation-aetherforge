@@ -27,6 +27,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from compute_mesh.pool.db_pool import get_connection
+
 _log = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path.home() / ".aetherforge" / "object_store.db"
@@ -66,24 +68,22 @@ class ObjectStore:
         if not self._db_path:
             return
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self._db_path))
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS objects (
-                oid TEXT PRIMARY KEY,
-                data TEXT NOT NULL,
-                content_type TEXT NOT NULL DEFAULT 'application/json',
-                size INTEGER NOT NULL DEFAULT 0,
-                created_at REAL NOT NULL,
-                expires_at REAL NOT NULL DEFAULT 0
-            )
-        """)
-        c.execute("""
-            CREATE INDEX IF NOT EXISTS idx_objects_expires
-            ON objects(expires_at)
-        """)
-        conn.commit()
-        conn.close()
+        with get_connection(self._db_path) as conn:
+            c = conn.cursor()
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS objects (
+                    oid TEXT PRIMARY KEY,
+                    data TEXT NOT NULL,
+                    content_type TEXT NOT NULL DEFAULT 'application/json',
+                    size INTEGER NOT NULL DEFAULT 0,
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL DEFAULT 0
+                )
+            """)
+            c.execute("""
+                CREATE INDEX IF NOT EXISTS idx_objects_expires
+                ON objects(expires_at)
+            """)
 
     # ── Core operations ──────────────────────────────────────────────────────
 
@@ -156,11 +156,8 @@ class ObjectStore:
             self._store.pop(oid, None)
             if self._db_path:
                 try:
-                    conn = sqlite3.connect(str(self._db_path))
-                    c = conn.cursor()
-                    c.execute("DELETE FROM objects WHERE oid = ?", (oid,))
-                    conn.commit()
-                    conn.close()
+                    with get_connection(self._db_path) as conn:
+                        conn.execute("DELETE FROM objects WHERE oid = ?", (oid,))
                 except Exception as e:  # noqa: BLE001
                     _log.exception("Failed to delete object %s from db", oid)
         return existed
@@ -192,11 +189,11 @@ class ObjectStore:
                 self._store.pop(oid, None)
             if self._db_path and expired:
                 try:
-                    conn = sqlite3.connect(str(self._db_path))
-                    c = conn.cursor()
-                    c.execute("DELETE FROM objects WHERE expires_at > 0 AND expires_at < ?", (now,))
-                    conn.commit()
-                    conn.close()
+                    with get_connection(self._db_path) as conn:
+                        conn.execute(
+                            "DELETE FROM objects WHERE expires_at > 0 AND expires_at < ?",
+                            (now,),
+                        )
                 except Exception as e:  # noqa: BLE001
                     _log.exception("Failed to evict expired objects from db")
         return len(expired)
@@ -207,23 +204,20 @@ class ObjectStore:
         if not self._db_path:
             return
         try:
-            conn = sqlite3.connect(str(self._db_path))
-            c = conn.cursor()
-            c.execute(
-                """INSERT OR REPLACE INTO objects
-                   (oid, data, content_type, size, created_at, expires_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (
-                    entry["oid"],
-                    entry["data"],
-                    entry["content_type"],
-                    entry["size"],
-                    entry["created_at"],
-                    entry["expires_at"],
-                ),
-            )
-            conn.commit()
-            conn.close()
+            with get_connection(self._db_path) as conn:
+                conn.execute(
+                    """INSERT OR REPLACE INTO objects
+                       (oid, data, content_type, size, created_at, expires_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        entry["oid"],
+                        entry["data"],
+                        entry["content_type"],
+                        entry["size"],
+                        entry["created_at"],
+                        entry["expires_at"],
+                    ),
+                )
         except Exception:  # noqa: BLE001
             _log.exception("Failed to persist object %s", entry["oid"])
 
@@ -231,14 +225,13 @@ class ObjectStore:
         if not self._db_path:
             return None
         try:
-            conn = sqlite3.connect(str(self._db_path))
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute("SELECT * FROM objects WHERE oid = ?", (oid,))
-            row = c.fetchone()
-            conn.close()
-            if row:
-                return dict(row)
+            with get_connection(self._db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+                c.execute("SELECT * FROM objects WHERE oid = ?", (oid,))
+                row = c.fetchone()
+                if row:
+                    return dict(row)
         except Exception as e:  # noqa: BLE001
             _log.exception("Failed to load object %s from db", oid)
         return None
@@ -267,11 +260,8 @@ class ObjectStore:
             self._store.clear()
             if self._db_path:
                 try:
-                    conn = sqlite3.connect(str(self._db_path))
-                    c = conn.cursor()
-                    c.execute("DELETE FROM objects")
-                    conn.commit()
-                    conn.close()
+                    with get_connection(self._db_path) as conn:
+                        conn.execute("DELETE FROM objects")
                 except Exception as e:  # noqa: BLE001
                     _log.exception("Failed to clear objects from db")
 
