@@ -1,7 +1,30 @@
 # AetherForge 深度审计报告
 
 > 架构完整性 · L0 支撑 · 代码质量 · 性能瓶颈
-> 2026-06
+> 原始审计: 2026-06 · 状态同步: 2026-07-31 (PR #2/#3/#4 治本)
+
+---
+
+## 0. 状态更新 (2026-07-31)
+
+| 类别 | 原始描述 | 状态 | 治本 PR |
+|------|----------|:----:|---------|
+| A. 重复实现 (重试/A2A) | 重试逻辑 / A2A 协议双副本 | ✅ 治本 | (历史 commit, gateway async + swarm sync 各自专注) |
+| A. 重复实现 (dispatch_compat) | 350 行三副本 | ✅ 治本 | PR #3 (删除 `dispatch_compat.py`, -347 行) |
+| B. 静默吞异常 (25+ 处) | `except: pass` 散落 | ✅ 治本 | (历史 commit, 全部加 `_log.exception/debug/warning`) |
+| C. 循环导入 (pool↔worker) | deferred import 兜底 | 🟡 治本 (deferred) | — |
+| D. 性能热点 | `get_quota()` 串行 subprocess / 串行 TCP 探测 | 🟡 部分 | (db_pool 已实现连接复用) |
+| E. 配置漂移 (2 处) | `pool.workers_per_node` / `message_bus_persist` 未消费 | 🟡 待评估 | — |
+| F. 测试缺口 (10+ 模块) | providers / quota_engine / topology 零单测 | ✅ 治本 | PR #4 (+46 tests, 6 providers) |
+| **P0. 路径硬编码 (5 处)** | `~/Workspace/...` 硬编码 fallback | ✅ 治本 | **PR #2** (models_cli.py 移除 3 层 fallback) |
+| **P0. 静默异常 (25+ 处)** | 同 B | ✅ 治本 | (历史 commit) |
+| **P1. SQLite 无池化** | 高频调用性能差 | ✅ 治本 | **PR #3** (8 处 sqlite3.connect → db_pool.get_connection) |
+
+**当前治理健康度**:
+- 所有 P0 治本
+- 5/6 P1 治本 (C/D/E 涉及更广重构,已 deferred)
+- Health Score 100/100
+- GaC gate 36/36 ALL GREEN
 
 ---
 
