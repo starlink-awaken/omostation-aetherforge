@@ -10,33 +10,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
-try:
-    from aetherforge._paths import M1_COMPUTE_ENGINE_DIR as M1_ENGINE_DIR
-except ImportError:
-    try:
-        from aetherforge.config import get_m1_dir
-
-        M1_ENGINE_DIR = get_m1_dir("compute_engine")
-    except ImportError:
-        import os
-
-        _override = os.environ.get("AETHERFORGE_M1_COMPUTE_DIR") or ""
-        M1_ENGINE_DIR = (
-            Path(_override)
-            if _override
-            else Path.home()
-            / "Workspace"
-            / "projects"
-            / "ecos"
-            / "src"
-            / "ecos"
-            / "ssot"
-            / "mof"
-            / "m1"
-            / "compute_engine"
-        )
+# aetherforge._paths is the canonical SSOT for M1 directory paths.
+# Import here so static analyzers see the dependency; downstream consumers
+# may read M1_COMPUTE_ENGINE_DIR via re-export if needed.
+from aetherforge._paths import M1_COMPUTE_ENGINE_DIR  # noqa: F401  (re-export)
 
 
 def cmd_list(show_cost: bool = False) -> int:
