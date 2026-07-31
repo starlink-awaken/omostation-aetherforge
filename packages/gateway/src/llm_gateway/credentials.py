@@ -32,6 +32,8 @@ import os
 import sqlite3
 import threading
 import time
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -42,6 +44,29 @@ from .pricing import PricingRegistry
 _log = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path.home() / ".aetherforge" / "credentials.db"
+
+
+@contextmanager
+def _get_connection(db_path: str | Path) -> Generator[sqlite3.Connection]:
+    """Context manager: WAL + NORMAL + auto-commit/rollback. Per-call close."""
+    path = Path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), check_same_thread=False, timeout=10.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        raise
+    finally:
+        conn.close()
 
 
 @dataclass
@@ -212,12 +237,8 @@ def _import_cc_switch_impl(db_path: str | None = None) -> int:
 
     count = 0
     try:
-        conn = sqlite3.connect(path)
-        c = conn.cursor()
-
-        # Import API keys from providers table (settings_config contains env vars)
-        rows = c.execute("SELECT name, settings_config, website_url FROM providers").fetchall()
-        conn.close()
+        with _get_connection(path) as conn:
+            rows = conn.execute("SELECT name, settings_config, website_url FROM providers").fetchall()
 
         cm = CredentialsManager()
         for name, settings_json, website_url in rows:
@@ -233,7 +254,7 @@ def _import_cc_switch_impl(db_path: str | None = None) -> int:
                     provider_key = name.lower().replace(" ", "_").split("/")[0]
                     cm.add_key(provider_key, auth_token, base_url=base_url, note=f"from cc-switch: {name}")
                     count += 1
-            except (json.JSONDecodeError, Exception) as exc:  # noqa: BLE001
+            except (json.JSONDecodeError, Exception) as exc:
                 _log.debug(f"cc-switch import error: {exc}")
                 continue
 
@@ -262,79 +283,72 @@ class CredentialsManager:
 
     def _init_db(self) -> None:
         """Initialize schema."""
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self._db_path))
-        c = conn.cursor()
-
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS credentials (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                provider TEXT NOT NULL,
-                api_key TEXT NOT NULL,
-                base_url TEXT DEFAULT '',
-                weight INTEGER DEFAULT 100,
-                is_active INTEGER DEFAULT 1,
-                note TEXT DEFAULT '',
-                created_at REAL NOT NULL
-            )
-        """)
-        c.execute("""
-            CREATE INDEX IF NOT EXISTS idx_cred_provider
-            ON credentials(provider)
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS budgets (
-                provider TEXT PRIMARY KEY,
-                monthly_limit REAL NOT NULL DEFAULT 0.0,
-                action TEXT NOT NULL DEFAULT 'warn',
-                month TEXT NOT NULL DEFAULT '',
-                month_spend REAL NOT NULL DEFAULT 0.0
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS usage_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                provider TEXT NOT NULL,
-                model TEXT NOT NULL DEFAULT '',
-                tokens_input INTEGER DEFAULT 0,
-                tokens_output INTEGER DEFAULT 0,
-                cost REAL NOT NULL DEFAULT 0.0,
-                timestamp REAL NOT NULL
-            )
-        """)
-        conn.commit()
-        conn.close()
+        with _get_connection(self._db_path) as conn:
+            c = conn.cursor()
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS credentials (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    provider TEXT NOT NULL,
+                    api_key TEXT NOT NULL,
+                    base_url TEXT DEFAULT '',
+                    weight INTEGER DEFAULT 100,
+                    is_active INTEGER DEFAULT 1,
+                    note TEXT DEFAULT '',
+                    created_at REAL NOT NULL
+                )
+            """)
+            c.execute("""
+                CREATE INDEX IF NOT EXISTS idx_cred_provider
+                ON credentials(provider)
+            """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS budgets (
+                    provider TEXT PRIMARY KEY,
+                    monthly_limit REAL NOT NULL DEFAULT 0.0,
+                    action TEXT NOT NULL DEFAULT 'warn',
+                    month TEXT NOT NULL DEFAULT '',
+                    month_spend REAL NOT NULL DEFAULT 0.0
+                )
+            """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS usage_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL DEFAULT '',
+                    tokens_input INTEGER DEFAULT 0,
+                    tokens_output INTEGER DEFAULT 0,
+                    cost REAL NOT NULL DEFAULT 0.0,
+                    timestamp REAL NOT NULL
+                )
+            """)
 
     def _migrate_env_vars(self) -> None:
         """Auto-import credentials from environment variables on first run."""
-        conn = sqlite3.connect(str(self._db_path))
-        c = conn.cursor()
-        existing = c.execute("SELECT COUNT(*) FROM credentials").fetchone()[0]
-        if existing > 0:
-            conn.close()
-            return
+        with _get_connection(self._db_path) as conn:
+            c = conn.cursor()
+            existing = c.execute("SELECT COUNT(*) FROM credentials").fetchone()[0]
+            if existing > 0:
+                return
 
-        env_map = {
-            "openai": ("OPENAI_API_KEY", ""),
-            "anthropic": ("ANTHROPIC_API_KEY", ""),
-            "gemini": ("GOOGLE_API_KEY", ""),
-            "deepseek": ("DEEPSEEK_API_KEY", ""),
-            "azure": ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"),
-        }
-        now = time.time()
-        for provider, (key_env, url_env) in env_map.items():
-            api_key = os.environ.get(key_env, "")
-            if api_key:
-                base_url = os.environ.get(url_env, "") if url_env else ""
-                c.execute(
-                    """INSERT INTO credentials
-                       (provider, api_key, base_url, weight, is_active, created_at)
-                       VALUES (?, ?, ?, 100, 1, ?)""",
-                    (provider, api_key, base_url, now),
-                )
-                _log.info("Migrated %s credential from env", provider)
-        conn.commit()
-        conn.close()
+            env_map = {
+                "openai": ("OPENAI_API_KEY", ""),
+                "anthropic": ("ANTHROPIC_API_KEY", ""),
+                "gemini": ("GOOGLE_API_KEY", ""),
+                "deepseek": ("DEEPSEEK_API_KEY", ""),
+                "azure": ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"),
+            }
+            now = time.time()
+            for provider, (key_env, url_env) in env_map.items():
+                api_key = os.environ.get(key_env, "")
+                if api_key:
+                    base_url = os.environ.get(url_env, "") if url_env else ""
+                    c.execute(
+                        """INSERT INTO credentials
+                           (provider, api_key, base_url, weight, is_active, created_at)
+                           VALUES (?, ?, ?, 100, 1, ?)""",
+                        (provider, api_key, base_url, now),
+                    )
+                    _log.info("Migrated %s credential from env", provider)
 
     # ── Credential CRUD ──────────────────────────────────────────────────────
 
@@ -348,27 +362,20 @@ class CredentialsManager:
     ) -> None:
         """Add an API key for a provider."""
         with self._lock:
-            conn = sqlite3.connect(str(self._db_path))
-            c = conn.cursor()
-            c.execute(
-                """INSERT INTO credentials
-                   (provider, api_key, base_url, weight, is_active, note, created_at)
-                   VALUES (?, ?, ?, ?, 1, ?, ?)""",
-                (provider, api_key, base_url, weight, note, time.time()),
-            )
-            conn.commit()
-            conn.close()
+            with _get_connection(self._db_path) as conn:
+                conn.execute(
+                    """INSERT INTO credentials
+                       (provider, api_key, base_url, weight, is_active, note, created_at)
+                       VALUES (?, ?, ?, ?, 1, ?, ?)""",
+                    (provider, api_key, base_url, weight, note, time.time()),
+                )
 
     def remove_key(self, provider: str, api_key: str) -> bool:
         """Remove a specific key."""
         with self._lock:
-            conn = sqlite3.connect(str(self._db_path))
-            c = conn.cursor()
-            c.execute("DELETE FROM credentials WHERE provider = ? AND api_key = ?", (provider, api_key))
-            removed = c.rowcount > 0
-            conn.commit()
-            conn.close()
-        return removed
+            with _get_connection(self._db_path) as conn:
+                conn.execute("DELETE FROM credentials WHERE provider = ? AND api_key = ?", (provider, api_key))
+                return conn.total_changes > 0
 
     def get_key(self, provider: str) -> str | None:
         """Get an API key for *provider*, with weighted random selection.
@@ -377,16 +384,13 @@ class CredentialsManager:
         more likely to be returned.
         """
         with self._lock:
-            conn = sqlite3.connect(str(self._db_path))
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            rows = c.execute(
-                """SELECT * FROM credentials
-                   WHERE provider = ? AND is_active = 1
-                   ORDER BY weight DESC""",
-                (provider,),
-            ).fetchall()
-            conn.close()
+            with _get_connection(self._db_path) as conn:
+                rows = conn.execute(
+                    """SELECT * FROM credentials
+                       WHERE provider = ? AND is_active = 1
+                       ORDER BY weight DESC""",
+                    (provider,),
+                ).fetchall()
 
         if not rows:
             return None
@@ -407,14 +411,11 @@ class CredentialsManager:
     def list_keys(self, provider: str = "") -> list[dict[str, Any]]:
         """List all stored credentials."""
         with self._lock:
-            conn = sqlite3.connect(str(self._db_path))
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            if provider:
-                rows = c.execute("SELECT * FROM credentials WHERE provider = ?", (provider,)).fetchall()
-            else:
-                rows = c.execute("SELECT * FROM credentials").fetchall()
-            conn.close()
+            with _get_connection(self._db_path) as conn:
+                if provider:
+                    rows = conn.execute("SELECT * FROM credentials WHERE provider = ?", (provider,)).fetchall()
+                else:
+                    rows = conn.execute("SELECT * FROM credentials").fetchall()
         return [
             {
                 "provider": r["provider"],
@@ -437,48 +438,35 @@ class CredentialsManager:
             action: What to do when exceeded — ``block``, ``warn``, or ``log``.
         """
         with self._lock:
-            conn = sqlite3.connect(str(self._db_path))
-            c = conn.cursor()
-            current_month = datetime.now().strftime("%Y-%m")
-            c.execute(
-                """INSERT OR REPLACE INTO budgets
-                   (provider, monthly_limit, action, month, month_spend)
-                   VALUES (?, ?, ?, COALESCE(
-                       (SELECT month FROM budgets WHERE provider = ?), ?), 0)""",
-                (provider, monthly_limit, action, provider, current_month),
-            )
-            conn.commit()
-            conn.close()
+            with _get_connection(self._db_path) as conn:
+                current_month = datetime.now().strftime("%Y-%m")
+                conn.execute(
+                    """INSERT OR REPLACE INTO budgets
+                       (provider, monthly_limit, action, month, month_spend)
+                       VALUES (?, ?, ?, COALESCE(
+                           (SELECT month FROM budgets WHERE provider = ?), ?), 0)""",
+                    (provider, monthly_limit, action, provider, current_month),
+                )
 
     def record_usage(
         self, provider: str, cost: float, model: str = "", tokens_input: int = 0, tokens_output: int = 0
     ) -> None:
         """Record a usage event and update budget tracking."""
         with self._lock:
-            conn = sqlite3.connect(str(self._db_path))
-            c = conn.cursor()
-
-            # Usage log
-            c.execute(
-                """INSERT INTO usage_log
-                   (provider, model, tokens_input, tokens_output, cost, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (provider, model, tokens_input, tokens_output, cost, time.time()),
-            )
-
-            # Update monthly spend
-            current_month = datetime.now().strftime("%Y-%m")
-            c.execute(
-                """
-                UPDATE budgets SET month_spend = month_spend + ?,
-                    month = ?
-                WHERE provider = ? AND month = ?
-            """,
-                (cost, current_month, provider, current_month),
-            )
-
-            conn.commit()
-            conn.close()
+            with _get_connection(self._db_path) as conn:
+                # Usage log
+                conn.execute(
+                    """INSERT INTO usage_log
+                       (provider, model, tokens_input, tokens_output, cost, timestamp)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (provider, model, tokens_input, tokens_output, cost, time.time()),
+                )
+                # Update monthly spend
+                current_month = datetime.now().strftime("%Y-%m")
+                conn.execute(
+                    "UPDATE budgets SET month_spend = month_spend + ?, month = ? WHERE provider = ? AND month = ?",
+                    (cost, current_month, provider, current_month),
+                )
 
     def get_quota(self, provider: str, use_codexbar: bool = True) -> dict[str, Any]:
         """Get quota status for a provider.
@@ -513,14 +501,12 @@ class CredentialsManager:
 
         # Fallback to local budget tracking
         with self._lock:
-            conn = sqlite3.connect(str(self._db_path))
-            c = conn.cursor()
-            current_month = datetime.now().strftime("%Y-%m")
-            row = c.execute(
-                "SELECT monthly_limit, action, month_spend FROM budgets WHERE provider = ?",
-                (provider,),
-            ).fetchone()
-            conn.close()
+            with _get_connection(self._db_path) as conn:
+                current_month = datetime.now().strftime("%Y-%m")
+                row = conn.execute(
+                    "SELECT monthly_limit, action, month_spend FROM budgets WHERE provider = ?",
+                    (provider,),
+                ).fetchone()
 
         if not row:
             return {"provider": provider, "source": "local", "status": "unlimited"}
