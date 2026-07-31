@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from compute_mesh.pool.db_pool import get_connection
+
 _log = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path.home() / ".aetherforge" / "message_bus.db"
@@ -83,24 +85,22 @@ class WorkerMessageBus:
         if not self._db_path:
             return
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self._db_path))
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                sender TEXT NOT NULL,
-                recipient TEXT NOT NULL,
-                msg_type TEXT NOT NULL DEFAULT 'generic',
-                payload TEXT NOT NULL DEFAULT '{}',
-                timestamp REAL NOT NULL
-            )
-        """)
-        c.execute("""
-            CREATE INDEX IF NOT EXISTS idx_messages_recipient
-            ON messages(recipient)
-        """)
-        conn.commit()
-        conn.close()
+        with get_connection(self._db_path) as conn:
+            c = conn.cursor()
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id TEXT PRIMARY KEY,
+                    sender TEXT NOT NULL,
+                    recipient TEXT NOT NULL,
+                    msg_type TEXT NOT NULL DEFAULT 'generic',
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    timestamp REAL NOT NULL
+                )
+            """)
+            c.execute("""
+                CREATE INDEX IF NOT EXISTS idx_messages_recipient
+                ON messages(recipient)
+            """)
 
     # ── Send ─────────────────────────────────────────────────────────────────
 
@@ -154,16 +154,13 @@ class WorkerMessageBus:
         if not self._db_path:
             return
         try:
-            conn = sqlite3.connect(str(self._db_path))
-            c = conn.cursor()
-            c.execute(
-                """INSERT OR IGNORE INTO messages
-                   (id, sender, recipient, msg_type, payload, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (msg.id, msg.sender, msg.recipient, msg.msg_type, json.dumps(msg.payload), msg.timestamp),
-            )
-            conn.commit()
-            conn.close()
+            with get_connection(self._db_path) as conn:
+                conn.execute(
+                    """INSERT OR IGNORE INTO messages
+                       (id, sender, recipient, msg_type, payload, timestamp)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (msg.id, msg.sender, msg.recipient, msg.msg_type, json.dumps(msg.payload), msg.timestamp),
+                )
         except Exception:  # noqa: BLE001
             _log.exception("Failed to persist message %s", msg.id)
 
@@ -222,18 +219,16 @@ class WorkerMessageBus:
         if not self._db_path:
             return []
         try:
-            conn = sqlite3.connect(str(self._db_path))
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute(
-                """SELECT * FROM messages
-                   WHERE recipient = ? OR recipient = '*'
-                   ORDER BY timestamp DESC LIMIT ?""",
-                (worker_id, limit),
-            )
-            rows = [dict(row) for row in c.fetchall()]
-            conn.close()
-            return rows
+            with get_connection(self._db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+                c.execute(
+                    """SELECT * FROM messages
+                       WHERE recipient = ? OR recipient = '*'
+                       ORDER BY timestamp DESC LIMIT ?""",
+                    (worker_id, limit),
+                )
+                return [dict(row) for row in c.fetchall()]
         except Exception:  # noqa: BLE001
             return []
 
