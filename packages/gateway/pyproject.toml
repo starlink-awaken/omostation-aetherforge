@@ -13,6 +13,7 @@ keywords = ["llm", "provider", "gateway", "aetherforge"]
 dependencies = [
     "pyyaml>=6.0.3",
     "httpx>=0.28.1",
+    "aiohttp>=3.10.0",
     "pydantic>=2.13.4",
     "fastmcp>=3.4.2",
     "structlog>=24.0",
