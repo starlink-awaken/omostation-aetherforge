@@ -4,12 +4,12 @@ from typing import Any
 from fastmcp import FastMCP
 from pydantic import BaseModel
 
+from .gateway import GatewayRequest, get_gateway
 from .paths import M1_COMPUTE_ENGINE_DIR as M1_ENGINE_DIR
 from .paths import M1_MODEL_DIR
 from .registry import ModelRegistry
 from .scheduler import ModelScheduler
 from .ssot_loader import load_ssot_models
-from .types import ChatOptions
 
 # Heavy loading is moved to the server startup hook.
 
@@ -25,6 +25,16 @@ class GenerateRequest(BaseModel):
     model: str
     messages: list[dict[str, Any]]
     tools: list[dict[str, Any]] | None = None
+
+
+class GatewayGenerateRequest(BaseModel):
+    """ModelGateway 统一请求格式."""
+    model: str = ""
+    messages: list[dict[str, Any]]
+    task: str = "mcp"
+    timeout: float = 30.0
+    content_title: str = ""
+    content_url: str = ""
 
 
 # Module-level SSOT registry (lazy, shared across tool calls)
@@ -59,34 +69,85 @@ def _resolve_model_id(reg: ModelRegistry, model: str) -> str | None:
 
 @mcp.tool()
 async def llm_generate(req: GenerateRequest) -> str:
-    """Generate an LLM response via the unified SSOT gateway (routes to omlx / local / cloud engines)."""
-    global _REGISTRY_REFRESHED
-    reg = _get_registry()
-    if not _REGISTRY_REFRESHED:
-        try:
-            await reg.refresh()
-            _REGISTRY_REFRESHED = True
-        except Exception as e:
-            return json.dumps({"error": f"registry refresh failed: {e}"})
+    """Generate an LLM response via the unified SSOT gateway (routes to omlx / local / cloud engines).
 
-    model_id = _resolve_model_id(reg, req.model)
-    if not model_id:
-        return json.dumps({"error": f"Model '{req.model}' not found in SSOT registry."})
-
+    内部已切换到 ModelGateway (统一入口, 含 MemoryGuard + WarmPool + K1 硬拦).
+    """
     try:
-        result = await reg.chat(model_id, req.messages, ChatOptions())
-        if not result:
-            return json.dumps({"error": "No response from provider."})
+        gateway = get_gateway()
+        gw_req = GatewayRequest(
+            messages=req.messages,
+            model=req.model,
+            task="mcp",
+        )
+        resp = await gateway.generate(gw_req)
+
+        if resp.error:
+            return json.dumps({"error": resp.error})
         return json.dumps(
             {
                 "role": "assistant",
-                "content": result.content or "",
+                "content": resp.content,
                 "tool_calls": [],
-                "finish_reason": result.finish_reason or "stop",
-                "model": model_id,
+                "finish_reason": "stop",
+                "model": resp.model or req.model,
+                "stripped_thinking": resp.stripped_thinking,
             },
             ensure_ascii=False,
         )
+    except PermissionError as e:
+        return json.dumps({"error": f"[K1] {e}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def gateway_generate(req: GatewayGenerateRequest) -> str:
+    """Generate via ModelGateway (统一入口, 支持 K1 敏感检查 + content filtering).
+
+    与 llm_generate 区别:
+      - 支持 content_title / content_url → 触发 K1 敏感硬拦
+      - 支持 task 标签 (triage/rpc/mcp) 用于指标分类
+    """
+    try:
+        gateway = get_gateway()
+        gw_req = GatewayRequest(
+            messages=req.messages,
+            model=req.model,
+            task=req.task,
+            timeout=req.timeout,
+            content_title=req.content_title,
+            content_url=req.content_url,
+        )
+        resp = await gateway.generate(gw_req)
+
+        return json.dumps(
+            {
+                "role": "assistant",
+                "content": resp.content,
+                "model": resp.model or req.model,
+                "provider": resp.provider,
+                "latency_ms": resp.latency_ms,
+                "tokens_in": resp.tokens_in,
+                "tokens_out": resp.tokens_out,
+                "stripped_thinking": resp.stripped_thinking,
+                "error": resp.error or None,
+            },
+            ensure_ascii=False,
+        )
+    except PermissionError as e:
+        return json.dumps({"error": f"[K1] {e}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def gateway_health() -> str:
+    """Health check all configured models."""
+    try:
+        gateway = get_gateway()
+        health = await gateway.health()
+        return json.dumps(health, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)})
 
