@@ -13,7 +13,7 @@
 | A. 重复实现 (dispatch_compat) | 350 行三副本 | ✅ 治本 | PR #3 (删除 `dispatch_compat.py`, -347 行) |
 | B. 静默吞异常 (25+ 处) | `except: pass` 散落 | ✅ 治本 | (历史 commit, 全部加 `_log.exception/debug/warning`) |
 | C. 循环导入 (pool↔worker) | deferred import 兜底 | 🟡 治本 (deferred) | — |
-| D. 性能热点 | `get_quota()` 串行 subprocess / 串行 TCP 探测 | ✅ 治本 (quota) / 🟡 P3 (TCP) | quota: threading.Thread 并发; TCP: <10 节点影响有限 |
+| D. 性能热点 | `get_quota()` 串行 subprocess / 串行 TCP 探测 | ✅ 治本 (false positive) | quota: threading.Thread 并发; TCP: ThreadPoolExecutor 并发 |
 | E. 配置漂移 (2 处) | `pool.workers_per_node` / `message_bus_persist` 未消费 | ✅ 治本 (false positive) | 复核: `workers_per_node` 真消费, `message_bus_persist` codebase 不存在 |
 | F. 测试缺口 (10+ 模块) | providers / quota_engine / topology 零单测 | ✅ 治本 | PR #4 (+46 tests, 6 providers) |
 | **P0. 路径硬编码 (5 处)** | `~/Workspace/...` 硬编码 fallback | ✅ 治本 | **PR #2** (models_cli.py 移除 3 层 fallback) |
@@ -104,7 +104,7 @@ pool/manager.py ↹ worker/dispatcher.py
 | 热点 | 原始描述 | 复核结果 |
 |------|----------|----------|
 | `get_quota()` 同步等待 codexbar | 每个 Provider 串行 subprocess | ✅ **已治本** — `_refresh()` 已用 `threading.Thread` per provider 并发查询，`join(timeout=20)` 限总等待；2026-06 审计时未实现 |
-| `pool/health_check_all()` TCP 端口串行 | N 个节点 × 2s | 🟡 **仍串行** — 无并发化，N 大时慢（影响有限：当前 <10 节点） |
+| `pool/health_check_all()` TCP 端口串行 | N 个节点 × 2s | ✅ **已治本** — 已用 `concurrent.futures.ThreadPoolExecutor(max_workers=min(N, 20))` 并发探测；PR #7 漏更新 |
 | `credentials.py` SQLite 连接 | 每次调用 open/close | 🟡 **仍串行** — 未迁移 db_pool（PR #3 只迁移了 message_bus/object_store，credentials 未涉及） |
 | `_compat.py` | 270 行 stub | 🟡 **AUDIT 行数过期** — 实际 834 行（含真实 bus-foundation 事件总线集成，非纯 stub） |
 | `NetworkScanner._discover_mdns_hosts()` DNS | 每次扫描 4-6s | 🟡 **仍串行** — DNS 超时固有延迟，优化空间有限 |
