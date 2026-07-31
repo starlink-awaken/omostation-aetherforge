@@ -14,7 +14,7 @@
 | B. 静默吞异常 (25+ 处) | `except: pass` 散落 | ✅ 治本 | (历史 commit, 全部加 `_log.exception/debug/warning`) |
 | C. 循环导入 (pool↔worker) | deferred import 兜底 | 🟡 治本 (deferred) | — |
 | D. 性能热点 | `get_quota()` 串行 subprocess / 串行 TCP 探测 | 🟡 部分 | (db_pool 已实现连接复用) |
-| E. 配置漂移 (2 处) | `pool.workers_per_node` / `message_bus_persist` 未消费 | 🟡 待评估 | — |
+| E. 配置漂移 (2 处) | `pool.workers_per_node` / `message_bus_persist` 未消费 | ✅ 治本 (false positive) | 复核: `workers_per_node` 真消费, `message_bus_persist` codebase 不存在 |
 | F. 测试缺口 (10+ 模块) | providers / quota_engine / topology 零单测 | ✅ 治本 | PR #4 (+46 tests, 6 providers) |
 | **P0. 路径硬编码 (5 处)** | `~/Workspace/...` 硬编码 fallback | ✅ 治本 | **PR #2** (models_cli.py 移除 3 层 fallback) |
 | **P0. 静默异常 (25+ 处)** | 同 B | ✅ 治本 | (历史 commit) |
@@ -109,10 +109,14 @@ pool/manager.py ↹ worker/dispatcher.py
 | `credentials.py` SQLite 连接 | 每次调用 open/close | 无连接池，高频调用慢 |
 | `_compat.py` (270行) | 所有 stub 在 import 时加载 | 拖慢 swarm 导入速度 |
 
-### 🟡 E 类: 配置漂移
+### 🟡 E 类: 配置漂移 (2026-07-31 复核)
 
-`aetherforge.yaml` 的 `pool.workers_per_node` → 代码实际从 `TaskDispatcher.provision_all()` 读取
-`worker.message_bus_persist` → 代码从未消费此配置
+| 配置项 | 复核结果 |
+|--------|----------|
+| `aetherforge.yaml` 的 `pool.workers_per_node` | ✅ **已消费** — `TaskDispatcher.provision_all(workers_per_node=...)` (worker/dispatcher.py:193) |
+| `worker.message_bus_persist` | 🟢 **不存在** — codebase 无任何引用,AUDIT.md 描述过期 (config 项从未被定义) |
+
+结论: 2 个 E 类问题中 1 个不存在,1 个已治本。**E 类实际为 false positive**。
 
 ### 🟢 F 类: 测试缺口
 
