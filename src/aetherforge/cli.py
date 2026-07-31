@@ -156,6 +156,61 @@ def cmd_triage(argv: list[str]) -> int:
     import json as _json
     import sys as _sys
 
+    def _make_router():
+        """创建带 HTTP 网关的路由器."""
+        from aetherforge.triage.router import TriageRouter
+
+        class _DirectHTTPGateway:
+            def __init__(self, url="http://100.96.126.35:4000/v1/chat/completions", key="sk-omlx-admin"):
+                self.url = url
+                self.key = key
+
+            async def generate(self, request):
+                import time
+                import urllib.request
+
+                payload = {
+                    "model": request.model or "triage",
+                    "messages": request.messages,
+                    "max_tokens": 50,
+                    "temperature": 0,
+                    "extra_body": {"reasoning_effort": "none"},
+                }
+                data = _json.dumps(payload).encode()
+                req = urllib.request.Request(self.url, data=data, headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.key}"
+                })
+                t0 = time.time()
+                try:
+                    with urllib.request.urlopen(req, timeout=20) as resp:
+                        d = _json.loads(resp.read())
+                    class _R:
+                        pass
+                    r = _R()
+                    r.content = d["choices"][0]["message"]["content"].strip()
+                    r.model = d.get("model", request.model)
+                    r.latency_ms = (time.time() - t0) * 1000
+                    r.tokens_in = d.get("usage", {}).get("prompt_tokens", 0)
+                    r.tokens_out = d.get("usage", {}).get("completion_tokens", 0)
+                    r.cost_usd = 0.0
+                    r.error = None
+                    return r
+                except Exception as e:
+                    class _R:
+                        pass
+                    r = _R()
+                    r.content = ""
+                    r.model = request.model
+                    r.latency_ms = (time.time() - t0) * 1000
+                    r.tokens_in = 0
+                    r.tokens_out = 0
+                    r.cost_usd = 0.0
+                    r.error = str(e)[:50]
+                    return r
+
+        return TriageRouter(gateway=_DirectHTTPGateway())
+
     parser = argparse.ArgumentParser(
         description="AetherForge 分诊 — 信息自动分类 (丢弃/沉淀/提醒)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -278,7 +333,7 @@ def cmd_triage(argv: list[str]) -> int:
 
         from aetherforge.triage.router import TriageRouter
 
-        router = TriageRouter()
+        router = _make_router()
         texts = [line.strip() for line in Path(args.batch).read_text().splitlines() if line.strip()]
         results = []
         for text in texts:
@@ -297,9 +352,7 @@ def cmd_triage(argv: list[str]) -> int:
 
     # 单条分诊
     if args.text:
-        from aetherforge.triage.router import TriageRouter
-
-        router = TriageRouter()
+        router = _make_router()
         if args.consensus:
             result = router.consensus_triage(args.text)
             output = {
