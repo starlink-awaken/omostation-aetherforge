@@ -7,6 +7,8 @@
 - GET /health — 健康检查
 - GET /status — 状态查询
 
+端口: 由 TRIAGE_PORT 环境变量注入 (默认 8095, 注册于 protocols/port-registry.yaml).
+
 启动:
   python -m aetherforge.triage.server --port 8095
 """
@@ -15,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -157,11 +160,13 @@ class TriageHandler(BaseHTTPRequestHandler):
 
 
 def create_server(
-    port: int = 8095,
+    port: int | None = None,
     gateway_url: str = "http://100.96.126.35:4000/v1/chat/completions",
     api_key: str = "sk-omlx-admin",
 ) -> HTTPServer:
     """创建 HTTP 服务器."""
+    if port is None:
+        port = int(os.environ.get("TRIAGE_PORT", "8095"))
     tracker = TriageTracker()
     router = TriageRouter(tracker=tracker)
     monitor = TriageMonitor(router)
@@ -175,7 +180,7 @@ def create_server(
 
 def main():
     parser = argparse.ArgumentParser(description="分诊 HTTP 服务")
-    parser.add_argument("--port", type=int, default=8095, help="监听端口")
+    parser.add_argument("--port", type=int, default=None, help="监听端口 (默认: TRIAGE_PORT 环境变量或 8095)")
     parser.add_argument("--gateway", default="http://100.96.126.35:4000/v1/chat/completions")
     parser.add_argument("--key", default="sk-omlx-admin")
     args = parser.parse_args()
