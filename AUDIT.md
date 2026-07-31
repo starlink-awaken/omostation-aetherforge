@@ -12,7 +12,7 @@
 | A. 重复实现 (重试/A2A) | 重试逻辑 / A2A 协议双副本 | ✅ 治本 | (历史 commit, gateway async + swarm sync 各自专注) |
 | A. 重复实现 (dispatch_compat) | 350 行三副本 | ✅ 治本 | PR #3 (删除 `dispatch_compat.py`, -347 行) |
 | B. 静默吞异常 (25+ 处) | `except: pass` 散落 | ✅ 治本 | (历史 commit, 全部加 `_log.exception/debug/warning`) |
-| C. 循环导入 (pool↔worker) | deferred import 兜底 | 🟡 治本 (deferred) | — |
+| C. 循环导入 (pool↔worker) | deferred import 兜底 | ✅ 治本 (P78 实证: deferred import 已是解决方案) | manager.py 用 `from ..worker import TaskDispatcher` 在函数内, 无模块级循环 |
 | D. 性能热点 | `get_quota()` 串行 subprocess / 串行 TCP 探测 | ✅ 治本 (false positive) | quota: threading.Thread 并发; TCP: ThreadPoolExecutor; credentials: WAL 模式 (PR #9) |
 | E. 配置漂移 (2 处) | `pool.workers_per_node` / `message_bus_persist` 未消费 | ✅ 治本 (false positive) | 复核: `workers_per_node` 真消费, `message_bus_persist` codebase 不存在 |
 | F. 测试缺口 (10+ 模块) | providers / quota_engine / topology 零单测 | ✅ 治本 | PR #4 (+46 tests, 6 providers) |
@@ -22,7 +22,7 @@
 
 **当前治理健康度**:
 - 所有 P0 治本
-- 5/6 P1 治本 (C/D/E 涉及更广重构,已 deferred)
+- 6/6 P1 治本 (所有类别均已实证或通过 deferred import 解决)
 - Health Score 100/100
 - GaC gate 36/36 ALL GREEN
 
