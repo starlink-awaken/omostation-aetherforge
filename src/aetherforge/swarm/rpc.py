@@ -75,6 +75,7 @@ def run_swarm_workflow(goal: str, **kwargs: Any) -> dict[str, Any]:
         workflow_run_id=kwargs.get("workflow_run_id"),
         trace_id=kwargs.get("trace_id"),
         event_sink=kwargs.get("event_sink"),
+        admission=kwargs.get("admission"),
     )
 
     # 5. 格式化返回结果 (保证是标准的序列化 dict)

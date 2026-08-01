@@ -48,6 +48,7 @@ def cmd_swarm(argv: list[str]) -> int:
     run_parser.add_argument("--json", action="store_true", help="Print outputs in JSON format")
     run_parser.add_argument("--workflow-run-id", default=None, help="Workflow Mesh run identity")
     run_parser.add_argument("--trace-id", default=None, help="Workflow Mesh trace identity")
+    run_parser.add_argument("--admission-json", default=None, help="Workflow Mesh admission grant JSON")
 
     args = parser.parse_args(argv)
 
@@ -76,6 +77,14 @@ def cmd_swarm(argv: list[str]) -> int:
             return 1
 
         from aetherforge.swarm import GraphWorkflow
+
+        admission = None
+        if args.admission_json:
+            try:
+                admission = json.loads(args.admission_json)
+            except json.JSONDecodeError as exc:
+                print(f"Invalid --admission-json: {exc}", file=sys.stderr)
+                return 1
 
         # 1. 初始化工作流
         wf = GraphWorkflow()
@@ -125,6 +134,7 @@ def cmd_swarm(argv: list[str]) -> int:
             initial_state,
             workflow_run_id=args.workflow_run_id,
             trace_id=args.trace_id,
+            admission=admission,
         )
 
         # 3. 结果输出

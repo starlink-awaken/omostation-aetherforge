@@ -25,6 +25,7 @@ from typing import Any
 from uuid import uuid4
 
 from .synapse_gateway import GatewaySynapse
+from .workflow_admission import WorkflowAdmissionError, validate_admission_grant
 from .workflow_checkpoint import WorkflowCheckpointStore
 from .workflow_mesh import EventSink, new_workflow_event
 
@@ -174,6 +175,7 @@ class GraphWorkflow:
         event_sink: EventSink | None = None,
         checkpoint_store: WorkflowCheckpointStore | None = None,
         resume: bool = True,
+        admission: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute the workflow graph.
 
@@ -187,14 +189,24 @@ class GraphWorkflow:
         state["_history"] = []
         state["_errors"] = []
 
+        grant = admission
         run_id = workflow_run_id or (
-            f"swarm-{uuid4().hex[:12]}" if callable(event_sink) else None
-        )
+            grant.get("workflow_run_id")
+            if isinstance(grant, dict)
+            else None
+        ) or (f"swarm-{uuid4().hex[:12]}" if callable(event_sink) else None)
         run_trace_id = trace_id or run_id
         mesh_errors: list[str] = []
         if run_id:
             state["_workflow_run_id"] = run_id
             state["_trace_id"] = run_trace_id
+            try:
+                validate_admission_grant(grant, workflow_run_id=run_id)
+            except WorkflowAdmissionError as exc:
+                state["_errors"].append(
+                    {"error_code": "WORKFLOW_ADMISSION_REQUIRED", "error": str(exc)}
+                )
+                return state
         checkpoint = (
             checkpoint_store.latest(run_id)
             if checkpoint_store is not None and run_id and resume
@@ -252,7 +264,12 @@ class GraphWorkflow:
                 )
                 emit(
                     "WorkflowAdmitted",
-                    {"workflow": "aetherforge.swarm.graph", "backend": "aetherforge"},
+                    {
+                        "workflow": "aetherforge.swarm.graph",
+                        "backend": "aetherforge",
+                        "admission": grant,
+                        **grant,
+                    },
                     idempotency_key=f"{run_id}:admitted",
                 )
 
@@ -277,19 +294,46 @@ class GraphWorkflow:
 
             visited.add(current)
             step_run_id = f"{run_id}:{current}:{attempt}" if run_id else None
+            if run_id:
+                try:
+                    validate_admission_grant(
+                        grant,
+                        workflow_run_id=run_id,
+                        step_run_id=f"{run_id}:{current}",
+                    )
+                except WorkflowAdmissionError as exc:
+                    state["_errors"].append(
+                        {"node": current, "error_code": "WORKFLOW_ADMISSION_REQUIRED", "error": str(exc)}
+                    )
+                    break
             emit(
                 "StepDispatched",
-                {"step_run_id": step_run_id, "step_name": current, "attempt": attempt},
+                {
+                    "step_run_id": step_run_id,
+                    "step_name": current,
+                    "attempt": attempt,
+                    "admission_id": grant["admission_id"] if grant else None,
+                },
                 idempotency_key=f"{step_run_id}:dispatched" if step_run_id else None,
             )
             emit(
                 "StepStarted",
-                {"step_run_id": step_run_id, "step_name": current, "attempt": attempt},
+                {
+                    "step_run_id": step_run_id,
+                    "step_name": current,
+                    "attempt": attempt,
+                    "admission_id": grant["admission_id"] if grant else None,
+                },
                 idempotency_key=f"{step_run_id}:started" if step_run_id else None,
             )
             emit(
                 "StepHeartbeat",
-                {"step_run_id": step_run_id, "step_name": current, "attempt": attempt},
+                {
+                    "step_run_id": step_run_id,
+                    "step_name": current,
+                    "attempt": attempt,
+                    "admission_id": grant["admission_id"] if grant else None,
+                },
                 idempotency_key=f"{step_run_id}:heartbeat" if step_run_id else None,
             )
 
@@ -307,6 +351,7 @@ class GraphWorkflow:
                             "checkpoint": "node-result",
                             "checkpoint_id": f"{step_run_id}:checkpoint",
                             "attempt": attempt,
+                            "admission_id": grant["admission_id"] if grant else None,
                         },
                         idempotency_key=f"{step_run_id}:checkpoint" if step_run_id else None,
                     )
@@ -316,7 +361,13 @@ class GraphWorkflow:
                 state["_history"].append({"node": current, "status": "error", "error": str(e)})
                 emit(
                     "StepFailed",
-                    {"step_run_id": step_run_id, "step_name": current, "error": str(e), "attempt": attempt},
+                    {
+                        "step_run_id": step_run_id,
+                        "step_name": current,
+                        "error": str(e),
+                        "attempt": attempt,
+                        "admission_id": grant["admission_id"] if grant else None,
+                    },
                     idempotency_key=f"{step_run_id}:failed" if step_run_id else None,
                 )
                 emit(
