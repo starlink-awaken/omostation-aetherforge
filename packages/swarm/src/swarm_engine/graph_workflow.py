@@ -25,6 +25,7 @@ from typing import Any
 from uuid import uuid4
 
 from .synapse_gateway import GatewaySynapse
+from .workflow_checkpoint import WorkflowCheckpointStore
 from .workflow_mesh import EventSink, new_workflow_event
 
 _log = logging.getLogger(__name__)
@@ -171,6 +172,8 @@ class GraphWorkflow:
         workflow_run_id: str | None = None,
         trace_id: str | None = None,
         event_sink: EventSink | None = None,
+        checkpoint_store: WorkflowCheckpointStore | None = None,
+        resume: bool = True,
     ) -> dict[str, Any]:
         """Execute the workflow graph.
 
@@ -192,6 +195,26 @@ class GraphWorkflow:
         if run_id:
             state["_workflow_run_id"] = run_id
             state["_trace_id"] = run_trace_id
+        checkpoint = (
+            checkpoint_store.latest(run_id)
+            if checkpoint_store is not None and run_id and resume
+            else None
+        )
+        if checkpoint and checkpoint.get("status") == "succeeded":
+            resumed = dict(checkpoint.get("state", {}))
+            resumed["_resumed"] = True
+            return resumed
+        if checkpoint:
+            saved = checkpoint.get("state")
+            if isinstance(saved, dict):
+                state = saved
+                state.setdefault("_history", [])
+                state.setdefault("_errors", [])
+                if run_id:
+                    state["_workflow_run_id"] = run_id
+                    state["_trace_id"] = run_trace_id
+        attempt = int(checkpoint.get("attempt", 0)) + 1 if checkpoint else 1
+        terminal_key = f"{run_id}:terminal:{attempt}" if checkpoint else f"{run_id}:terminal"
 
         def emit(
             event_type: str,
@@ -215,22 +238,29 @@ class GraphWorkflow:
                 mesh_errors.append(str(exc))
 
         if run_id:
-            emit(
-                "WorkflowRequested",
-                {"workflow": "aetherforge.swarm.graph"},
-                idempotency_key=f"{run_id}:requested",
-            )
-            emit(
-                "WorkflowAdmitted",
-                {"workflow": "aetherforge.swarm.graph", "backend": "aetherforge"},
-                idempotency_key=f"{run_id}:admitted",
-            )
+            if checkpoint and checkpoint.get("status") == "failed":
+                emit(
+                    "WorkflowRecovered",
+                    {"reason": "checkpoint-resume", "attempt": attempt},
+                    idempotency_key=f"{run_id}:recovered:{attempt}",
+                )
+            elif not checkpoint:
+                emit(
+                    "WorkflowRequested",
+                    {"workflow": "aetherforge.swarm.graph"},
+                    idempotency_key=f"{run_id}:requested",
+                )
+                emit(
+                    "WorkflowAdmitted",
+                    {"workflow": "aetherforge.swarm.graph", "backend": "aetherforge"},
+                    idempotency_key=f"{run_id}:admitted",
+                )
 
         if not self._entry or self._entry not in self._nodes:
             raise ValueError(f"Entry node '{self._entry}' not found")
 
-        current = self._entry
-        visited: set[str] = set()
+        current = checkpoint.get("next_node", self._entry) if checkpoint else self._entry
+        visited: set[str] = set(checkpoint.get("visited", [])) if checkpoint else set()
         max_steps = len(self._nodes) * 3  # safety limit
 
         for _ in range(max_steps):
@@ -246,20 +276,20 @@ class GraphWorkflow:
                 break
 
             visited.add(current)
-            step_run_id = f"{run_id}:{current}" if run_id else None
+            step_run_id = f"{run_id}:{current}:{attempt}" if run_id else None
             emit(
                 "StepDispatched",
-                {"step_run_id": step_run_id, "step_name": current},
+                {"step_run_id": step_run_id, "step_name": current, "attempt": attempt},
                 idempotency_key=f"{step_run_id}:dispatched" if step_run_id else None,
             )
             emit(
                 "StepStarted",
-                {"step_run_id": step_run_id, "step_name": current},
+                {"step_run_id": step_run_id, "step_name": current, "attempt": attempt},
                 idempotency_key=f"{step_run_id}:started" if step_run_id else None,
             )
             emit(
                 "StepHeartbeat",
-                {"step_run_id": step_run_id, "step_name": current},
+                {"step_run_id": step_run_id, "step_name": current, "attempt": attempt},
                 idempotency_key=f"{step_run_id}:heartbeat" if step_run_id else None,
             )
 
@@ -275,6 +305,8 @@ class GraphWorkflow:
                             "step_run_id": step_run_id,
                             "step_name": current,
                             "checkpoint": "node-result",
+                            "checkpoint_id": f"{step_run_id}:checkpoint",
+                            "attempt": attempt,
                         },
                         idempotency_key=f"{step_run_id}:checkpoint" if step_run_id else None,
                     )
@@ -284,13 +316,13 @@ class GraphWorkflow:
                 state["_history"].append({"node": current, "status": "error", "error": str(e)})
                 emit(
                     "StepFailed",
-                    {"step_run_id": step_run_id, "step_name": current, "error": str(e)},
+                    {"step_run_id": step_run_id, "step_name": current, "error": str(e), "attempt": attempt},
                     idempotency_key=f"{step_run_id}:failed" if step_run_id else None,
                 )
                 emit(
                     "WorkflowFailed",
                     {"error_code": "NODE_EXECUTION_FAILED", "state": "failed"},
-                    idempotency_key=f"{run_id}:terminal" if run_id else None,
+                    idempotency_key=terminal_key if run_id else None,
                 )
                 break
 
@@ -306,13 +338,36 @@ class GraphWorkflow:
                     else:
                         next_node = edge.to_node
 
+            if checkpoint_store is not None and run_id:
+                checkpoint_store.save(
+                    run_id,
+                    status="running",
+                    next_node=next_node,
+                    visited=visited,
+                    state=state,
+                    attempt=attempt,
+                )
+
             current = next_node
 
         if run_id and not state["_errors"]:
             emit(
                 "WorkflowSucceeded",
                 {"state": "succeeded", "steps": len(state["_history"])},
-                idempotency_key=f"{run_id}:terminal",
+                idempotency_key=terminal_key,
+            )
+        if checkpoint_store is not None and run_id:
+            checkpoint_visited = set(visited)
+            if state["_errors"] and current:
+                # The failing node did not commit a checkpoint; replay it on resume.
+                checkpoint_visited.discard(current)
+            checkpoint_store.save(
+                run_id,
+                status="succeeded" if not state["_errors"] else "failed",
+                next_node=current,
+                visited=checkpoint_visited,
+                state=state,
+                attempt=attempt,
             )
         if mesh_errors:
             state["_event_sink_errors"] = mesh_errors
