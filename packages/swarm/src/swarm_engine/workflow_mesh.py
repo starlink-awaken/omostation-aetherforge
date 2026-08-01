@@ -6,8 +6,9 @@ append-only sink，即可把图执行接入统一 Workflow Mesh。
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 
@@ -26,7 +27,7 @@ def new_workflow_event(
         "event_type": event_type,
         "trace_id": trace_id or workflow_run_id,
         "workflow_run_id": workflow_run_id,
-        "occurred_at": datetime.now(timezone.utc).isoformat(),
+        "occurred_at": datetime.now(UTC).isoformat(),
         "producer": "aetherforge.swarm",
         "schema_version": "workflow-mesh/v1",
         "idempotency_key": idempotency_key

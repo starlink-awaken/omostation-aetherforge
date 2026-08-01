@@ -46,6 +46,8 @@ def cmd_swarm(argv: list[str]) -> int:
     run_parser = subparsers.add_parser("run", help="Run a multi-agent task workflow")
     run_parser.add_argument("--goal", required=False, help="Task goal to execute")
     run_parser.add_argument("--json", action="store_true", help="Print outputs in JSON format")
+    run_parser.add_argument("--workflow-run-id", default=None, help="Workflow Mesh run identity")
+    run_parser.add_argument("--trace-id", default=None, help="Workflow Mesh trace identity")
 
     args = parser.parse_args(argv)
 
@@ -119,7 +121,11 @@ def cmd_swarm(argv: list[str]) -> int:
 
         # 2. 运行
         initial_state = {"goal": goal}
-        state = wf.run(initial_state)
+        state = wf.run(
+            initial_state,
+            workflow_run_id=args.workflow_run_id,
+            trace_id=args.trace_id,
+        )
 
         # 3. 结果输出
         if is_json_output:
@@ -137,6 +143,8 @@ def cmd_swarm(argv: list[str]) -> int:
                     for step in state.get("_history", [])
                 ],
                 "result": state.get("output", ""),
+                "workflow_run_id": state.get("_workflow_run_id"),
+                "trace_id": state.get("_trace_id"),
             }
             print(json.dumps(output_data, ensure_ascii=False, indent=2))
         else:
