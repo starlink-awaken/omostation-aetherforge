@@ -83,3 +83,58 @@ def test_mesh_tracked_graph_rejects_missing_admission() -> None:
     workflow.set_entry("plan")
     state = workflow.run({}, workflow_run_id="swarm-no-admission")
     assert state["_errors"][0]["error_code"] == "WORKFLOW_ADMISSION_REQUIRED"
+
+
+def test_graph_workflow_retries_failed_node_with_same_admission() -> None:
+    workflow = GraphWorkflow()
+    calls = 0
+
+    @workflow.node("retryable")
+    def retryable(_state: dict) -> dict:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("transient")
+        return {"output": "recovered"}
+
+    workflow.set_entry("retryable")
+    events: list[dict] = []
+    state = workflow.run(
+        {},
+        workflow_run_id="swarm-retry",
+        event_sink=events.append,
+        admission=_grant("swarm-retry", ["retryable"]),
+        retry_policy={"max_attempts": 2},
+    )
+
+    assert state["output"] == "recovered"
+    assert calls == 2
+    assert "StepRetryScheduled" in [event["event_type"] for event in events]
+
+
+def test_graph_workflow_runs_compensation_before_terminal_failure() -> None:
+    workflow = GraphWorkflow()
+    compensation_calls: list[str] = []
+
+    def broken(_state: dict) -> dict:
+        raise RuntimeError("permanent")
+
+    def compensate(_state: dict) -> dict:
+        compensation_calls.append("compensated")
+        return {"compensated": True}
+
+    workflow.add_node("broken", broken, compensate=compensate)
+    workflow.set_entry("broken")
+    events: list[dict] = []
+    state = workflow.run(
+        {},
+        workflow_run_id="swarm-compensation",
+        event_sink=events.append,
+        admission=_grant("swarm-compensation", ["broken"]),
+    )
+
+    event_types = [event["event_type"] for event in events]
+    assert state["_errors"]
+    assert state["compensated"] is True
+    assert compensation_calls == ["compensated"]
+    assert event_types.index("CompensationStarted") < event_types.index("StepFailed")

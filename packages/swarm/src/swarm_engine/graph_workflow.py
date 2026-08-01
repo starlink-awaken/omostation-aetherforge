@@ -19,6 +19,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -46,6 +47,8 @@ class GraphNode:
     """The function to execute at this node. Receives state, returns update."""
     description: str = ""
     """Human-readable description of what this node does."""
+    compensate: NodeFn | None = None
+    """Optional compensating action invoked before a terminal node failure."""
 
 
 @dataclass
@@ -91,9 +94,17 @@ class GraphWorkflow:
 
     # ── Node registration ────────────────────────────────────────────────────
 
-    def add_node(self, name: str, fn: NodeFn, description: str = "") -> GraphNode:
+    def add_node(
+        self,
+        name: str,
+        fn: NodeFn,
+        description: str = "",
+        compensate: NodeFn | None = None,
+    ) -> GraphNode:
         """Register a function node."""
-        node = GraphNode(name=name, fn=fn, description=description)
+        node = GraphNode(
+            name=name, fn=fn, description=description, compensate=compensate
+        )
         self._nodes[name] = node
         return node
 
@@ -176,6 +187,7 @@ class GraphWorkflow:
         checkpoint_store: WorkflowCheckpointStore | None = None,
         resume: bool = True,
         admission: dict[str, Any] | None = None,
+        retry_policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute the workflow graph.
 
@@ -279,6 +291,11 @@ class GraphWorkflow:
         current = checkpoint.get("next_node", self._entry) if checkpoint else self._entry
         visited: set[str] = set(checkpoint.get("visited", [])) if checkpoint else set()
         max_steps = len(self._nodes) * 3  # safety limit
+        retry_max_attempts = max(1, int((retry_policy or {}).get("max_attempts", 1)))
+        retry_backoff_seconds = max(
+            0.0, float((retry_policy or {}).get("backoff_seconds", 0.0))
+        )
+        node_attempts: dict[str, int] = {}
 
         for _ in range(max_steps):
             if current is None:
@@ -293,7 +310,11 @@ class GraphWorkflow:
                 break
 
             visited.add(current)
-            step_run_id = f"{run_id}:{current}:{attempt}" if run_id else None
+            node_attempt = node_attempts.get(current, 0) + 1
+            node_attempts[current] = node_attempt
+            step_run_id = (
+                f"{run_id}:{current}:{attempt}:{node_attempt}" if run_id else None
+            )
             if run_id:
                 try:
                     validate_admission_grant(
@@ -357,8 +378,46 @@ class GraphWorkflow:
                     )
             except Exception as e:
                 _log.error("Node '%s' failed: %s", current, e)
+                if node_attempt < retry_max_attempts:
+                    visited.discard(current)
+                    emit(
+                        "StepRetryScheduled",
+                        {
+                            "step_run_id": step_run_id,
+                            "step_name": current,
+                            "retry_count": node_attempt,
+                            "max_attempts": retry_max_attempts,
+                            "backoff_seconds": retry_backoff_seconds,
+                            "admission_id": grant["admission_id"] if grant else None,
+                        },
+                        idempotency_key=f"{step_run_id}:retry:{node_attempt}",
+                    )
+                    if retry_backoff_seconds:
+                        time.sleep(retry_backoff_seconds)
+                    continue
                 state["_errors"].append({"node": current, "error": str(e)})
                 state["_history"].append({"node": current, "status": "error", "error": str(e)})
+                if node.compensate is not None:
+                    emit(
+                        "CompensationStarted",
+                        {
+                            "step_run_id": step_run_id,
+                            "step_name": current,
+                            "admission_id": grant["admission_id"] if grant else None,
+                        },
+                        idempotency_key=f"{step_run_id}:compensation",
+                    )
+                    try:
+                        compensation_update = node.compensate(state)
+                        if compensation_update:
+                            state.update(compensation_update)
+                    except Exception as compensation_error:
+                        state["_errors"].append(
+                            {
+                                "node": current,
+                                "compensation_error": str(compensation_error),
+                            }
+                        )
                 emit(
                     "StepFailed",
                     {
