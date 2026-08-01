@@ -22,8 +22,10 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from .synapse_gateway import GatewaySynapse
+from .workflow_mesh import EventSink, new_workflow_event
 
 _log = logging.getLogger(__name__)
 
@@ -162,7 +164,14 @@ class GraphWorkflow:
 
     # ── Execution ────────────────────────────────────────────────────────────
 
-    def run(self, initial_state: dict[str, Any] | None = None) -> dict[str, Any]:
+    def run(
+        self,
+        initial_state: dict[str, Any] | None = None,
+        *,
+        workflow_run_id: str | None = None,
+        trace_id: str | None = None,
+        event_sink: EventSink | None = None,
+    ) -> dict[str, Any]:
         """Execute the workflow graph.
 
         Args:
@@ -174,6 +183,48 @@ class GraphWorkflow:
         state = dict(initial_state or {})
         state["_history"] = []
         state["_errors"] = []
+
+        run_id = workflow_run_id or (
+            f"swarm-{uuid4().hex[:12]}" if callable(event_sink) else None
+        )
+        run_trace_id = trace_id or run_id
+        mesh_errors: list[str] = []
+        if run_id:
+            state["_workflow_run_id"] = run_id
+            state["_trace_id"] = run_trace_id
+
+        def emit(
+            event_type: str,
+            payload: dict[str, Any] | None = None,
+            *,
+            idempotency_key: str | None = None,
+        ) -> None:
+            if not callable(event_sink) or not run_id:
+                return
+            try:
+                event_sink(
+                    new_workflow_event(
+                        event_type,
+                        run_id,
+                        trace_id=run_trace_id,
+                        payload=payload,
+                        idempotency_key=idempotency_key,
+                    )
+                )
+            except Exception as exc:  # event persistence must not hide execution
+                mesh_errors.append(str(exc))
+
+        if run_id:
+            emit(
+                "WorkflowRequested",
+                {"workflow": "aetherforge.swarm.graph"},
+                idempotency_key=f"{run_id}:requested",
+            )
+            emit(
+                "WorkflowAdmitted",
+                {"workflow": "aetherforge.swarm.graph", "backend": "aetherforge"},
+                idempotency_key=f"{run_id}:admitted",
+            )
 
         if not self._entry or self._entry not in self._nodes:
             raise ValueError(f"Entry node '{self._entry}' not found")
@@ -195,6 +246,22 @@ class GraphWorkflow:
                 break
 
             visited.add(current)
+            step_run_id = f"{run_id}:{current}" if run_id else None
+            emit(
+                "StepDispatched",
+                {"step_run_id": step_run_id, "step_name": current},
+                idempotency_key=f"{step_run_id}:dispatched" if step_run_id else None,
+            )
+            emit(
+                "StepStarted",
+                {"step_run_id": step_run_id, "step_name": current},
+                idempotency_key=f"{step_run_id}:started" if step_run_id else None,
+            )
+            emit(
+                "StepHeartbeat",
+                {"step_run_id": step_run_id, "step_name": current},
+                idempotency_key=f"{step_run_id}:heartbeat" if step_run_id else None,
+            )
 
             # Execute
             try:
@@ -202,10 +269,29 @@ class GraphWorkflow:
                     update = node.fn(state)
                     state.update(update)
                     state["_history"].append({"node": current, "status": "ok"})
+                    emit(
+                        "CheckpointSaved",
+                        {
+                            "step_run_id": step_run_id,
+                            "step_name": current,
+                            "checkpoint": "node-result",
+                        },
+                        idempotency_key=f"{step_run_id}:checkpoint" if step_run_id else None,
+                    )
             except Exception as e:  # noqa: BLE001
                 _log.error("Node '%s' failed: %s", current, e)
                 state["_errors"].append({"node": current, "error": str(e)})
                 state["_history"].append({"node": current, "status": "error", "error": str(e)})
+                emit(
+                    "StepFailed",
+                    {"step_run_id": step_run_id, "step_name": current, "error": str(e)},
+                    idempotency_key=f"{step_run_id}:failed" if step_run_id else None,
+                )
+                emit(
+                    "WorkflowFailed",
+                    {"error_code": "NODE_EXECUTION_FAILED", "state": "failed"},
+                    idempotency_key=f"{run_id}:terminal" if run_id else None,
+                )
                 break
 
             # Find next node
@@ -221,6 +307,15 @@ class GraphWorkflow:
                         next_node = edge.to_node
 
             current = next_node
+
+        if run_id and not state["_errors"]:
+            emit(
+                "WorkflowSucceeded",
+                {"state": "succeeded", "steps": len(state["_history"])},
+                idempotency_key=f"{run_id}:terminal",
+            )
+        if mesh_errors:
+            state["_event_sink_errors"] = mesh_errors
 
         return state
 

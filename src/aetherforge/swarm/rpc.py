@@ -70,7 +70,12 @@ def run_swarm_workflow(goal: str, **kwargs: Any) -> dict[str, Any]:
 
     # 4. 执行工作流
     initial_state = {"goal": goal}
-    state = wf.run(initial_state)
+    state = wf.run(
+        initial_state,
+        workflow_run_id=kwargs.get("workflow_run_id"),
+        trace_id=kwargs.get("trace_id"),
+        event_sink=kwargs.get("event_sink"),
+    )
 
     # 5. 格式化返回结果 (保证是标准的序列化 dict)
     errors = state.get("_errors", [])
@@ -86,4 +91,6 @@ def run_swarm_workflow(goal: str, **kwargs: Any) -> dict[str, Any]:
             for step in history
         ],
         "errors": [str(e) for e in errors],
+        "workflow_run_id": kwargs.get("workflow_run_id") or state.get("_workflow_run_id"),
+        "event_sink_errors": state.get("_event_sink_errors", []),
     }
