@@ -86,9 +86,7 @@ class TestComputeNode:
     def test_effective_cost(self):
         from compute_mesh.topology.node import ComputeNode
 
-        node = ComputeNode(
-            node_id="n1", cost_per_1k_tokens={"input": 0.01, "output": 0.02}
-        )
+        node = ComputeNode(node_id="n1", cost_per_1k_tokens={"input": 0.01, "output": 0.02})
         assert node.effective_cost == 0.03
 
     def test_to_dict(self):
@@ -123,7 +121,7 @@ class TestNodeRegistry:
         reg.register(node1)
         node2 = ComputeNode(node_id="n1", name="Second")
         assert reg.register(node2) is False  # update, not new
-        assert reg.get("n1").name == "Second"
+        assert reg.get("n1").name == "Second"  # type: ignore[reportOptionalMemberAccess]
 
     def test_unregister(self):
         from compute_mesh.topology.node import ComputeNode

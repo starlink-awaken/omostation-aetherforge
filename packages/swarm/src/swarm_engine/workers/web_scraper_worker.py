@@ -5,7 +5,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from ._compat import ISynapseWorker, MessageEnvelope, Receipt, SynapseAgentCard
+from ._compat import ISynapseWorker, MessageEnvelope, Receipt, SynapseAgentCard  # type: ignore[reportMissingImports]
 from .agent_daemon_base import AgentDaemonBase  # type: ignore[import-not-found]
 
 """

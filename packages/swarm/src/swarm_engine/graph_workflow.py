@@ -102,9 +102,7 @@ class GraphWorkflow:
         compensate: NodeFn | None = None,
     ) -> GraphNode:
         """Register a function node."""
-        node = GraphNode(
-            name=name, fn=fn, description=description, compensate=compensate
-        )
+        node = GraphNode(name=name, fn=fn, description=description, compensate=compensate)
         self._nodes[name] = node
         return node
 
@@ -202,11 +200,11 @@ class GraphWorkflow:
         state["_errors"] = []
 
         grant = admission
-        run_id = workflow_run_id or (
-            grant.get("workflow_run_id")
-            if isinstance(grant, dict)
-            else None
-        ) or (f"swarm-{uuid4().hex[:12]}" if callable(event_sink) else None)
+        run_id = (
+            workflow_run_id
+            or (grant.get("workflow_run_id") if isinstance(grant, dict) else None)
+            or (f"swarm-{uuid4().hex[:12]}" if callable(event_sink) else None)
+        )
         run_trace_id = trace_id or run_id
         mesh_errors: list[str] = []
         if run_id:
@@ -215,15 +213,9 @@ class GraphWorkflow:
             try:
                 validate_admission_grant(grant, workflow_run_id=run_id)
             except WorkflowAdmissionError as exc:
-                state["_errors"].append(
-                    {"error_code": "WORKFLOW_ADMISSION_REQUIRED", "error": str(exc)}
-                )
+                state["_errors"].append({"error_code": "WORKFLOW_ADMISSION_REQUIRED", "error": str(exc)})
                 return state
-        checkpoint = (
-            checkpoint_store.latest(run_id)
-            if checkpoint_store is not None and run_id and resume
-            else None
-        )
+        checkpoint = checkpoint_store.latest(run_id) if checkpoint_store is not None and run_id and resume else None
         if checkpoint and checkpoint.get("status") == "succeeded":
             resumed = dict(checkpoint.get("state", {}))
             resumed["_resumed"] = True
@@ -280,7 +272,7 @@ class GraphWorkflow:
                         "workflow": "aetherforge.swarm.graph",
                         "backend": "aetherforge",
                         "admission": grant,
-                        **grant,
+                        **grant,  # type: ignore[reportGeneralTypeIssues]
                     },
                     idempotency_key=f"{run_id}:admitted",
                 )
@@ -292,9 +284,7 @@ class GraphWorkflow:
         visited: set[str] = set(checkpoint.get("visited", [])) if checkpoint else set()
         max_steps = len(self._nodes) * 3  # safety limit
         retry_max_attempts = max(1, int((retry_policy or {}).get("max_attempts", 1)))
-        retry_backoff_seconds = max(
-            0.0, float((retry_policy or {}).get("backoff_seconds", 0.0))
-        )
+        retry_backoff_seconds = max(0.0, float((retry_policy or {}).get("backoff_seconds", 0.0)))
         node_attempts: dict[str, int] = {}
 
         for _ in range(max_steps):
@@ -312,9 +302,7 @@ class GraphWorkflow:
             visited.add(current)
             node_attempt = node_attempts.get(current, 0) + 1
             node_attempts[current] = node_attempt
-            step_run_id = (
-                f"{run_id}:{current}:{attempt}:{node_attempt}" if run_id else None
-            )
+            step_run_id = f"{run_id}:{current}:{attempt}:{node_attempt}" if run_id else None
             if run_id:
                 try:
                     validate_admission_grant(

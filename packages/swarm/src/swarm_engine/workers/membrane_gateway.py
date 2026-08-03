@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ._compat import _log
+from ._compat import _log  # type: ignore[reportMissingImports]
 
 """
 ---
@@ -76,7 +76,7 @@ class MembraneGateway:
         meta = self._get_toolkit()
         if meta is not None:
             meta = meta.get_node_metadata(target_node_rel)
-        if not self._audit_call(target_node_rel, meta):
+        if not self._audit_call(target_node_rel, meta):  # type: ignore[reportArgumentType]
             return None
 
         # 物理执行...

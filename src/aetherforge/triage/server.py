@@ -19,7 +19,7 @@ import argparse
 import json
 import os
 import sys
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +28,9 @@ _src = str(Path(__file__).resolve().parents[2])
 if _src not in sys.path:
     sys.path.insert(0, _src)
 
-from aetherforge.triage.router import TriageRouter, TriageResult
-from aetherforge.triage.tracker import TriageTracker
 from aetherforge.triage.monitor import TriageMonitor
+from aetherforge.triage.router import TriageRouter
+from aetherforge.triage.tracker import TriageTracker
 
 
 class TriageHandler(BaseHTTPRequestHandler):
@@ -70,12 +70,15 @@ class TriageHandler(BaseHTTPRequestHandler):
             return
 
         result = self.router.triage_one(text)
-        self._respond(200, {
-            "verdict": result.verdict,
-            "model": result.model,
-            "latency": round(result.latency, 3),
-            "error": result.error,
-        })
+        self._respond(
+            200,
+            {
+                "verdict": result.verdict,
+                "model": result.model,
+                "latency": round(result.latency, 3),
+                "error": result.error,
+            },
+        )
 
     def _handle_batch(self):
         """批量分诊."""
@@ -89,17 +92,20 @@ class TriageHandler(BaseHTTPRequestHandler):
             return
 
         results = self.router.triage_batch(texts)
-        self._respond(200, {
-            "results": [
-                {
-                    "verdict": r.verdict,
-                    "model": r.model,
-                    "latency": round(r.latency, 3),
-                    "error": r.error,
-                }
-                for r in results
-            ]
-        })
+        self._respond(
+            200,
+            {
+                "results": [
+                    {
+                        "verdict": r.verdict,
+                        "model": r.model,
+                        "latency": round(r.latency, 3),
+                        "error": r.error,
+                    }
+                    for r in results
+                ]
+            },
+        )
 
     def _handle_consensus(self):
         """共识分诊."""
@@ -113,26 +119,29 @@ class TriageHandler(BaseHTTPRequestHandler):
             return
 
         result = self.router.consensus_triage(text)
-        self._respond(200, {
-            "verdict": result.verdict,
-            "votes": result.votes,
-            "agreement": result.agreement,
-            "status": result.status,
-            "latency": round(result.latency, 3),
-            "cost_usd": result.cost_usd,
-            "models": {
-                d.model: {"verdict": d.verdict, "latency": round(d.latency, 3)}
-                for d in result.details
+        self._respond(
+            200,
+            {
+                "verdict": result.verdict,
+                "votes": result.votes,
+                "agreement": result.agreement,
+                "status": result.status,
+                "latency": round(result.latency, 3),
+                "cost_usd": result.cost_usd,
+                "models": {d.model: {"verdict": d.verdict, "latency": round(d.latency, 3)} for d in result.details},
             },
-        })
+        )
 
     def _handle_status(self):
         """状态查询."""
         trend = self.monitor.get_trend()
-        self._respond(200, {
-            "tracker": self.tracker.summary(),
-            "monitor": trend,
-        })
+        self._respond(
+            200,
+            {
+                "tracker": self.tracker.summary(),
+                "monitor": trend,
+            },
+        )
 
     def _read_body(self) -> dict[str, Any] | None:
         """读取请求体."""
@@ -187,11 +196,11 @@ def main():
 
     server = create_server(args.port, args.gateway, args.key)
     print(f"分诊服务启动: http://0.0.0.0:{args.port}")
-    print(f"  POST /triage — 单条分诊")
-    print(f"  POST /triage/batch — 批量分诊")
-    print(f"  POST /triage/consensus — 共识分诊")
-    print(f"  GET /health — 健康检查")
-    print(f"  GET /status — 状态查询")
+    print("  POST /triage — 单条分诊")
+    print("  POST /triage/batch — 批量分诊")
+    print("  POST /triage/consensus — 共识分诊")
+    print("  GET /health — 健康检查")
+    print("  GET /status — 状态查询")
 
     try:
         server.serve_forever()

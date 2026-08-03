@@ -304,7 +304,7 @@ class ExecutionScheduler:
                             priority,
                         )
                         if _STRUCTURED_ERRORS_AVAILABLE:
-                            raise _ErrorCatalog.task_queue_full(limit=self.MAX_QUEUE_SIZE)
+                            raise _ErrorCatalog.task_queue_full(limit=self.MAX_QUEUE_SIZE)  # type: ignore[reportPossiblyUnboundVariable]
                         raise QueueFullError("The QUEUED tasks limit has been reached.")
 
                 task_id = f"TASK-{uuid.uuid4().hex[:8].upper()}"
@@ -843,7 +843,7 @@ class ExecutionScheduler:
             "failed_tasks": failed,
             "completed_tasks": completed,
             "queue_size_by_priority": stats.get("queue_size_by_priority", {}),
-            "metrics": self.get_metrics(),
+            "metrics": self.get_metrics(),  # type: ignore[reportReturnType]
         }
 
 

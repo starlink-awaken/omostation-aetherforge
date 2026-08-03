@@ -46,7 +46,7 @@ def _load_model_defs(m1_model_dir: str) -> dict[str, list[dict]]:
             if not engine_ref or not models:
                 continue
             engine_models.setdefault(engine_ref, []).extend(models)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.warning("Failed to load model defs from %s: %s", filepath, e)
     return engine_models
 
@@ -75,7 +75,7 @@ def _get_credentials_for(provider_name: str) -> dict | None:
         base_url = keys[0].get("note", "") if keys else ""
 
         return {"api_key": api_key, "base_url": base_url}
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _log.debug("Credentials lookup failed for %s: %s", provider_name, e)
     return None
 
@@ -129,7 +129,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
             self._underlying = AnthropicCompatProvider(**kwargs)
             self._provider_type = "anthropic"
         elif self._type == "local_daemon" or "ollama" in self.protocols:
-            self._underlying = OllamaProvider(base_url=self.base_url)
+            self._underlying = OllamaProvider(base_url=self.base_url)  # type: ignore[reportArgumentType]
             self._provider_type = "ollama"
         else:
             self._provider_type = "unknown"
@@ -178,8 +178,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
             for m in model_names
         ]
 
-    def _build_request(self, model: str, messages: list[dict[str, Any]],
-                       options: ChatOptions | None) -> LLMRequest:
+    def _build_request(self, model: str, messages: list[dict[str, Any]], options: ChatOptions | None) -> LLMRequest:
         real_model = model.split("/")[-1] if "/" in model else model
 
         context = list(messages)
@@ -211,9 +210,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
         options: ChatOptions | None = None,
     ) -> ChatResult:
         if not self._underlying:
-            raise RuntimeError(
-                f"Provider {self.name} has no underlying implementation."
-            )
+            raise RuntimeError(f"Provider {self.name} has no underlying implementation.")
 
         req = self._build_request(model, messages, options)
         resp = await self._underlying.generate(req)
@@ -236,9 +233,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
         options: ChatOptions | None = None,
     ) -> AsyncIterator[StreamChunk]:
         if not self._underlying:
-            raise RuntimeError(
-                f"Provider {self.name} has no underlying implementation."
-            )
+            raise RuntimeError(f"Provider {self.name} has no underlying implementation.")
 
         req = self._build_request(model, messages, options)
 
@@ -283,7 +278,7 @@ def load_ssot_models(
         try:
             with open(filepath) as f:
                 config = yaml.safe_load(f)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.warning("Failed to load yaml %s: %s", filepath, e)
             continue
 

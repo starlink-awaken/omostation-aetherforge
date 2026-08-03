@@ -9,27 +9,27 @@
 from __future__ import annotations
 
 import json
-import time
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
-from .router import TriageRouter, ConsensusResult
+from .router import TriageRouter
 
 
 @dataclass
 class MonitorConfig:
     """监控配置."""
+
     check_interval: int = 3600  # 检查间隔 (秒), 默认 1 小时
     accuracy_threshold: float = 0.8  # 准确率告警阈值
     latency_threshold: float = 2.0  # 延迟告警阈值 (秒)
-    log_path: Optional[Path] = None  # 监控日志路径
+    log_path: Path | None = None  # 监控日志路径
 
 
 @dataclass
 class MonitorResult:
     """单次监控结果."""
+
     timestamp: str
     accuracy: float
     avg_latency: float
@@ -38,7 +38,7 @@ class MonitorResult:
     correct: int
     errors: int
     alert: bool  # 是否触发告警
-    alert_reason: Optional[str] = None
+    alert_reason: str | None = None
 
 
 # 标准 benchmark 样本
@@ -72,13 +72,13 @@ class TriageMonitor:
     def __init__(
         self,
         router: TriageRouter,
-        config: Optional[MonitorConfig] = None,
+        config: MonitorConfig | None = None,
     ):
         self.router = router
         self.config = config or MonitorConfig()
         self.history: list[MonitorResult] = []
 
-    def run_check(self, samples: Optional[list[tuple[str, str]]] = None) -> MonitorResult:
+    def run_check(self, samples: list[tuple[str, str]] | None = None) -> MonitorResult:
         """运行一次准确率检查."""
         if samples is None:
             samples = BENCHMARK_SAMPLES
@@ -110,7 +110,7 @@ class TriageMonitor:
             alert_reason = f"延迟 {avg_lat:.2f}s > {self.config.latency_threshold}s"
 
         result = MonitorResult(
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             accuracy=acc,
             avg_latency=avg_lat,
             p95_latency=p95_lat,
@@ -156,16 +156,21 @@ class TriageMonitor:
 
     def _log_result(self, result: MonitorResult):
         """记录结果到日志."""
-        self.config.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.config.log_path, "a") as f:
-            f.write(json.dumps({
-                "ts": result.timestamp,
-                "acc": result.accuracy,
-                "lat_avg": result.avg_latency,
-                "lat_p95": result.p95_latency,
-                "samples": result.total_samples,
-                "correct": result.correct,
-                "errors": result.errors,
-                "alert": result.alert,
-                "reason": result.alert_reason,
-            }) + "\n")
+        self.config.log_path.parent.mkdir(parents=True, exist_ok=True)  # type: ignore[reportOptionalMemberAccess]
+        with open(self.config.log_path, "a") as f:  # type: ignore[reportArgumentType]
+            f.write(
+                json.dumps(
+                    {
+                        "ts": result.timestamp,
+                        "acc": result.accuracy,
+                        "lat_avg": result.avg_latency,
+                        "lat_p95": result.p95_latency,
+                        "samples": result.total_samples,
+                        "correct": result.correct,
+                        "errors": result.errors,
+                        "alert": result.alert,
+                        "reason": result.alert_reason,
+                    }
+                )
+                + "\n"
+            )

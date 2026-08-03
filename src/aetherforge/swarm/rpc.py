@@ -53,9 +53,9 @@ def run_swarm_workflow(goal: str, **kwargs: Any) -> dict[str, Any]:
 
             if model and provider_name:
                 prov = create_provider(provider_name)
-                resp = prov.generate(f"将以下任务目标拆解为3步，仅输出简短文本: {task_goal}")
-                analysis = resp.text
-        except Exception as e:  # defensive fallback  # noqa: BLE001
+                resp = prov.generate(f"将以下任务目标拆解为3步，仅输出简短文本: {task_goal}")  # type: ignore[reportArgumentType]
+                analysis = resp.text  # type: ignore[reportAttributeAccessIssue]
+        except Exception as e:  # defensive fallback
             _log.warning("[Swarm RPC] Planning stage gateway generate failed: %s", e)
         return {"plan": analysis}
 

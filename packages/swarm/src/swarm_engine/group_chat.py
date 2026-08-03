@@ -173,7 +173,7 @@ class GroupChat:
         resp = self._synapse.generate(
             model="",
             prompt=prompt,
-            system=self._moderator.system_prompt or "You are a conversation moderator.",
+            system=self._moderator.system_prompt or "You are a conversation moderator.",  # type: ignore[reportOptionalMemberAccess]
             options={"max_tokens": 10, "temperature": 0.1},
         )
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+
 def _resolve_workspace_root() -> Path:
     """按优先级动态解析 Workspace 根目录，避免硬编码"""
     # 1. 优先读取环境变量
@@ -44,6 +45,7 @@ def _resolve_workspace_root() -> Path:
 
     # 3. 默认兜底
     return Path.home() / "Workspace"
+
 
 # ── M1 根目录 ─────────────────────────────────────────────────────────────────
 _M1_ROOT_OVERRIDE = os.environ.get("AETHERFORGE_M1_DIR", "")

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from contextlib import contextmanager
 from typing import Any
 
@@ -17,11 +16,13 @@ _log = logging.getLogger(__name__)
 # Soft import
 try:
     from langfuse import Langfuse
+
     _LANGFUSE_AVAILABLE = True
 except ImportError:
     _LANGFUSE_AVAILABLE = False
 
 _client = None
+
 
 def get_langfuse_client() -> Langfuse | None:
     """Lazy initialize and return a Langfuse client if configured."""
@@ -44,11 +45,11 @@ def get_langfuse_client() -> Langfuse | None:
 
     try:
         if api_key:
-            _client = Langfuse(api_key=api_key, host=host)
+            _client = Langfuse(api_key=api_key, host=host)  # type: ignore[reportCallIssue]
         else:
-            _client = Langfuse(public_key=public_key, secret_key=secret_key, host=host)
+            _client = Langfuse(public_key=public_key, secret_key=secret_key, host=host)  # type: ignore[reportPossiblyUnboundVariable]
         return _client
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _log.debug("Failed to initialize Langfuse client: %s", e)
         return None
 
@@ -64,26 +65,24 @@ def trace_llm_call(model_id: str, messages: list[dict[str, Any]], options: Any =
     try:
         # Create trace
         strategy = getattr(options, "strategy", "balanced") if options else "balanced"
-        trace = client.trace(
+        trace = client.trace(  # type: ignore[reportAttributeAccessIssue]
             name="aetherforge-gateway-call",
             metadata={
                 "model_id": model_id,
                 "strategy": strategy,
-            }
+            },
         )
 
         # Standard formatted input for Langfuse dashboard
-        prompt_formatted = "\n".join(
-            f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages
-        )
+        prompt_formatted = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages)
 
         generation = trace.generation(
             name="chat-completion",
             model=model_id.split("/")[-1],
             input=prompt_formatted,
-            metadata={"messages": messages}
+            metadata={"messages": messages},
         )
         yield generation
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _log.debug("Langfuse tracing setup failed: %s", e)
         yield None

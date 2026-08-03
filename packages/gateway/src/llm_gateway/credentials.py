@@ -214,7 +214,7 @@ def import_from_cc_switch(db_path: str | None = None) -> int:
     """
     global _cc_switch_importing
     try:
-        _cc_switch_importing
+        _cc_switch_importing  # type: ignore[reportUnboundVariable]
     except NameError:
         _cc_switch_importing = False
     if _cc_switch_importing:

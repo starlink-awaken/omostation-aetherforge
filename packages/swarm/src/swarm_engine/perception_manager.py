@@ -23,7 +23,7 @@ import os
 import sqlite3
 import time
 from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +34,7 @@ def _managed_connection(conn: sqlite3.Connection) -> Generator[sqlite3.Connectio
     try:
         yield conn
         conn.commit()
-    except Exception:  # noqa: BLE001
+    except Exception:
         conn.rollback()
         raise
     finally:
@@ -96,7 +96,7 @@ class PerceptionManager:
         self._monitoring_task = None
         self.initialize()
 
-    def _get_connection(self) -> Generator[sqlite3.Connection]:
+    def _get_connection(self) -> AbstractContextManager[sqlite3.Connection]:
         """获取数据库连接"""
         if not self.db_path.startswith("file:"):
             Path(self.db_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
@@ -107,7 +107,7 @@ class PerceptionManager:
             conn.execute("PRAGMA journal_mode=DELETE")
         except sqlite3.OperationalError:
             pass  # Ignore if already in other mode
-        conn.isolation_level = ""  # Restore autocommit
+        conn.isolation_level = ""  # Restore autocommit  # type: ignore[reportAttributeAccessIssue]
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.row_factory = sqlite3.Row
         return _managed_connection(conn)
@@ -142,7 +142,7 @@ class PerceptionManager:
 
         _log.info("[*] PerceptionManager initialized")
 
-    def monitor_filesystem(self, path: str, callback: Callable = None) -> str:
+    def monitor_filesystem(self, path: str, callback: Callable[..., Any] | None = None) -> str:
         """
         监控文件系统变化
 
@@ -235,7 +235,7 @@ class PerceptionManager:
         # 简化实现：使用轮询
         # 可以扩展为使用 watchdog 库
 
-    async def async_monitor_filesystem(self, path: str, callback: Callable = None) -> str:
+    async def async_monitor_filesystem(self, path: str, callback: Callable[..., Any] | None = None) -> str:
         """
         异步监控文件系统变化（使用 watchdog）
 
@@ -251,8 +251,8 @@ class PerceptionManager:
         monitor_id = hashlib.md5(f"{path}_{time.time()}".encode(), usedforsecurity=False).hexdigest()
 
         try:
-            from watchdog.events import FileSystemEventHandler
-            from watchdog.observers import Observer
+            from watchdog.events import FileSystemEventHandler  # type: ignore[reportMissingImports]
+            from watchdog.observers import Observer  # type: ignore[reportMissingImports]
 
             class FileChangeHandler(FileSystemEventHandler):
                 def __init__(
@@ -326,7 +326,7 @@ class PerceptionManager:
 
             # 创建观察者
             observer = Observer()
-            event_handler = FileChangeHandler(self, monitor_id, path, callback)
+            event_handler = FileChangeHandler(self, monitor_id, path, callback or (lambda *a, **k: None))
             observer.schedule(event_handler, path, recursive=True)
 
             # 启动观察者
@@ -487,7 +487,7 @@ class PerceptionManager:
         # 实际应该根据事件类型和配置通知相应的 Agent 或 Tool
         _log.info("📢 [Perception] Notifying recipients for event: {event['event_type']}")
 
-    def get_events(self, event_type: str = None, limit: int = 100) -> list[dict]:
+    def get_events(self, event_type: str | None = None, limit: int = 100) -> list[dict]:
         """
         获取事件
 

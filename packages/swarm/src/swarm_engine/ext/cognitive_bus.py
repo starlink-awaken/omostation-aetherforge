@@ -115,7 +115,7 @@ class CognitiveBus:
             >>> bus = CognitiveBus(mode="Possession")
             >>> bus.think("Execute this task")  # Prints request, returns None
         """
-        self._constraint_check(f"THINK: {prompt[:30]}...")
+        self._constraint_check(f"THINK: {prompt[:30]}...")  # type: ignore[reportAttributeAccessIssue]
         persona_prompt = f"[System Persona: {self.active_persona}]\n{prompt}"
 
         if self.mode == "Possession":
@@ -135,7 +135,7 @@ class CognitiveBus:
         """逻辑转录接口 — 将意图结构化并写入认知拓扑记录。
         返回 {"intent": ..., "constraints": ..., "persona": ...} 供上游写入拓扑节点。
         """
-        self._constraint_check(f"SCRIBE: {intent[:30]}...")
+        self._constraint_check(f"SCRIBE: {intent[:30]}...")  # type: ignore[reportAttributeAccessIssue]
         record = {
             "intent": intent,
             "constraints": constraints or [],
@@ -150,7 +150,7 @@ class CognitiveBus:
         """语义压缩接口 — 从原始数据提炼核心洞察。
         Self 模式调用 LLM；Possession 模式打印信号并返回 pass-through 结构。
         """
-        self._constraint_check(f"DISTILL: {focus}")
+        self._constraint_check(f"DISTILL: {focus}")  # type: ignore[reportAttributeAccessIssue]
         if self.mode == "Possession":
             _log.info("🔬 [CognitiveBus] DISTILL [focus={focus}] — awaiting host agent cognition")
             return {"focus": focus, "raw": raw_data, "distilled": None, "mode": "Possession"}
@@ -171,10 +171,10 @@ class CognitiveBus:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(result)
+            return asyncio.run(result)  # type: ignore[reportArgumentType]
 
         with ThreadPoolExecutor(max_workers=1) as executor:
-            return executor.submit(asyncio.run, result).result()
+            return executor.submit(asyncio.run, result).result()  # type: ignore[reportArgumentType]
 
     def _call_internal_adapter(
         self, prompt: str, context: dict[str, Any] | None, schema: dict[str, Any] | None

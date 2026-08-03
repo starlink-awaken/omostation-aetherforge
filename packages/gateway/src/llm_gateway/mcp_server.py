@@ -29,6 +29,7 @@ class GenerateRequest(BaseModel):
 
 class GatewayGenerateRequest(BaseModel):
     """ModelGateway 统一请求格式."""
+
     model: str = ""
     messages: list[dict[str, Any]]
     task: str = "mcp"

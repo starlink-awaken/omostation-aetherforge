@@ -46,11 +46,11 @@ from .types import LoadInfo, ModelDescriptor, ModelRequest, ModelRoutePolicy
 
 ScoreFn = callable  # legacy: Callable[[ModelDescriptor, ModelRequest], float]
 
-_legacy_registry: dict[str, ScoreFn] = {}
+_legacy_registry: dict[str, ScoreFn] = {}  # type: ignore[reportInvalidTypeForm]
 REFERENCE_CTX = 128_000
 
 
-def register_policy(name: str, fn: ScoreFn) -> None:
+def register_policy(name: str, fn: ScoreFn) -> None:  # type: ignore[reportInvalidTypeForm]
     """[Legacy] Register a custom scoring policy.
 
     Deprecated: Use ``RouterPipeline.add_score()`` instead.
@@ -162,8 +162,8 @@ class BudgetFilter(RouterFilter):
         request: ModelRequest,
     ) -> list[ModelDescriptor]:
         request_budget = (
-            request.metadata.get("max_cost", self.max_cost)
-            if hasattr(request, "metadata") and request.metadata
+            request.metadata.get("max_cost", self.max_cost)  # type: ignore[reportAttributeAccessIssue]
+            if hasattr(request, "metadata") and request.metadata  # type: ignore[reportAttributeAccessIssue]
             else self.max_cost
         )
         return [

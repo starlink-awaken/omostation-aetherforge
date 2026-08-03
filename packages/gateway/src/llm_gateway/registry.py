@@ -117,6 +117,7 @@ class ModelRegistry:
         provider, provider_name = p
 
         from .tracing import trace_llm_call
+
         with trace_llm_call(model_id, messages, options) as gen:
             try:
                 if self.retry_config:
@@ -135,7 +136,7 @@ class ModelRegistry:
                         usage={
                             "input": input_tok,
                             "output": output_tok,
-                        }
+                        },
                     )
 
                 self.circuit_breaker.record_success(provider_name)

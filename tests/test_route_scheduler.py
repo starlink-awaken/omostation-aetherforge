@@ -133,7 +133,9 @@ def test_policy_cost_first_picks_cheaper() -> None:
         models=MockModels(models_diff),
         providers=MockProviders(providers),
         nodes=MockNodes({"cheap": [Node("n-cheap", "cheap")], "fast": [Node("n-fast", "fast")]}),
-        policy=RoutingPolicy(id="RP-COST", strategy="cost-first", weights={"cost": 1.0, "speed": 0, "quota": 0, "affinity": 0}),
+        policy=RoutingPolicy(
+            id="RP-COST", strategy="cost-first", weights={"cost": 1.0, "speed": 0, "quota": 0, "affinity": 0}
+        ),
     )
     route = sched.select(RouteRequest(model_id="m"))
     assert route.provider == "cheap"
@@ -181,7 +183,9 @@ def test_fallback_all_exhausted_raises(scheduler_balanced: RouteScheduler) -> No
 
 def test_policy_from_yaml() -> None:
     """RP-BALANCED.yaml 能加载 + weights 正确."""
-    policy_path = Path(__file__).resolve().parent.parent / "src" / "aetherforge" / "route" / "policies" / "RP-BALANCED.yaml"
+    policy_path = (
+        Path(__file__).resolve().parent.parent / "src" / "aetherforge" / "route" / "policies" / "RP-BALANCED.yaml"
+    )
     policy = RoutingPolicy.from_yaml(policy_path)
     assert policy.id == "RP-BALANCED"
     assert policy.strategy == "balanced"

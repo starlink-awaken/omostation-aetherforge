@@ -195,39 +195,44 @@ def cmd_triage(argv: list[str]) -> int:
                     "extra_body": {"reasoning_effort": "none"},
                 }
                 data = _json.dumps(payload).encode()
-                req = urllib.request.Request(self.url, data=data, headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.key}"
-                })
+                req = urllib.request.Request(
+                    self.url,
+                    data=data,
+                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.key}"},
+                )
                 t0 = time.time()
                 try:
                     with urllib.request.urlopen(req, timeout=20) as resp:
                         d = _json.loads(resp.read())
-                    class _R:
+
+                    class _R:  # type: ignore[reportRedeclaration]
                         pass
+
                     r = _R()
-                    r.content = d["choices"][0]["message"]["content"].strip()
-                    r.model = d.get("model", request.model)
-                    r.latency_ms = (time.time() - t0) * 1000
-                    r.tokens_in = d.get("usage", {}).get("prompt_tokens", 0)
-                    r.tokens_out = d.get("usage", {}).get("completion_tokens", 0)
-                    r.cost_usd = 0.0
-                    r.error = None
+                    r.content = d["choices"][0]["message"]["content"].strip()  # type: ignore[reportAttributeAccessIssue]
+                    r.model = d.get("model", request.model)  # type: ignore[reportAttributeAccessIssue]
+                    r.latency_ms = (time.time() - t0) * 1000  # type: ignore[reportAttributeAccessIssue]
+                    r.tokens_in = d.get("usage", {}).get("prompt_tokens", 0)  # type: ignore[reportAttributeAccessIssue]
+                    r.tokens_out = d.get("usage", {}).get("completion_tokens", 0)  # type: ignore[reportAttributeAccessIssue]
+                    r.cost_usd = 0.0  # type: ignore[reportAttributeAccessIssue]
+                    r.error = None  # type: ignore[reportAttributeAccessIssue]
                     return r
                 except Exception as e:
+
                     class _R:
                         pass
+
                     r = _R()
-                    r.content = ""
-                    r.model = request.model
-                    r.latency_ms = (time.time() - t0) * 1000
-                    r.tokens_in = 0
-                    r.tokens_out = 0
-                    r.cost_usd = 0.0
-                    r.error = str(e)[:50]
+                    r.content = ""  # type: ignore[reportAttributeAccessIssue]
+                    r.model = request.model  # type: ignore[reportAttributeAccessIssue]
+                    r.latency_ms = (time.time() - t0) * 1000  # type: ignore[reportAttributeAccessIssue]
+                    r.tokens_in = 0  # type: ignore[reportAttributeAccessIssue]
+                    r.tokens_out = 0  # type: ignore[reportAttributeAccessIssue]
+                    r.cost_usd = 0.0  # type: ignore[reportAttributeAccessIssue]
+                    r.error = str(e)[:50]  # type: ignore[reportAttributeAccessIssue]
                     return r
 
-        return TriageRouter(gateway=_DirectHTTPGateway())
+        return TriageRouter(gateway=_DirectHTTPGateway())  # type: ignore[reportArgumentType]
 
     parser = argparse.ArgumentParser(
         description="AetherForge 分诊 — 信息自动分类 (丢弃/沉淀/提醒)",
@@ -259,9 +264,9 @@ def cmd_triage(argv: list[str]) -> int:
 
         server = create_server(args.port)
         print(f"分诊服务启动: http://0.0.0.0:{args.port}", file=_sys.stderr)
-        print(f"  POST /triage — 单条分诊", file=_sys.stderr)
-        print(f"  POST /triage/consensus — 共识分诊", file=_sys.stderr)
-        print(f"  GET /health — 健康检查", file=_sys.stderr)
+        print("  POST /triage — 单条分诊", file=_sys.stderr)
+        print("  POST /triage/consensus — 共识分诊", file=_sys.stderr)
+        print("  GET /health — 健康检查", file=_sys.stderr)
         try:
             server.serve_forever()
         except KeyboardInterrupt:
@@ -272,7 +277,6 @@ def cmd_triage(argv: list[str]) -> int:
     # --benchmark 模式
     if args.benchmark:
         import time
-        from concurrent.futures import ThreadPoolExecutor
 
         from aetherforge.triage.monitor import BENCHMARK_SAMPLES
 
@@ -291,14 +295,15 @@ def cmd_triage(argv: list[str]) -> int:
             payload = {
                 "model": model,
                 "messages": [{"role": "user", "content": prompt_tpl.format(text=text)}],
-                "max_tokens": 20, "temperature": 0,
+                "max_tokens": 20,
+                "temperature": 0,
             }
             if needs_off:
                 payload["extra_body"] = {"reasoning_effort": "none"}
             data = _json.dumps(payload).encode()
-            req = urllib.request.Request(gateway, data=data, headers={
-                "Content-Type": "application/json", "Authorization": f"Bearer {key}"
-            })
+            req = urllib.request.Request(
+                gateway, data=data, headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
+            )
             t0 = time.time()
             try:
                 with urllib.request.urlopen(req, timeout=20) as resp:
@@ -332,8 +337,8 @@ def cmd_triage(argv: list[str]) -> int:
 
     # --monitor 模式
     if args.monitor:
-        from aetherforge.triage.router import TriageRouter
         from aetherforge.triage.monitor import TriageMonitor
+        from aetherforge.triage.router import TriageRouter
 
         router = TriageRouter()
         monitor = TriageMonitor(router)
@@ -357,7 +362,9 @@ def cmd_triage(argv: list[str]) -> int:
         for text in texts:
             if args.consensus:
                 r = router.consensus_triage(text)
-                results.append({"text": text[:40], "verdict": r.verdict, "status": r.status, "latency": round(r.latency, 3)})
+                results.append(
+                    {"text": text[:40], "verdict": r.verdict, "status": r.status, "latency": round(r.latency, 3)}
+                )
             else:
                 r = router.triage_one(text)
                 results.append({"text": text[:40], "verdict": r.verdict, "latency": round(r.latency, 3)})
@@ -392,10 +399,10 @@ def cmd_triage(argv: list[str]) -> int:
             print(_json.dumps(output, ensure_ascii=False, indent=2))
         else:
             if args.consensus:
-                print(f"[{result.verdict}] {result.status} {result.latency:.2f}s")
-                print(f"  投票: {result.votes}")
+                print(f"[{result.verdict}] {result.status} {result.latency:.2f}s")  # type: ignore[reportAttributeAccessIssue]
+                print(f"  投票: {result.votes}")  # type: ignore[reportAttributeAccessIssue]
             else:
-                print(f"[{result.verdict}] {result.latency:.2f}s ({result.model})")
+                print(f"[{result.verdict}] {result.latency:.2f}s ({result.model})")  # type: ignore[reportAttributeAccessIssue]
         return 0
 
     parser.print_help()
@@ -447,12 +454,16 @@ def cmd_route(argv: list[str]) -> int:
     if cmd == "select":
         model_id = argv[1] if len(argv) > 1 else "gpt-4o"
         sched = RouteScheduler(
-            models=_DemoModels(), providers=_DemoProviders(), nodes=_DemoNodes(),
+            models=_DemoModels(),  # type: ignore[reportArgumentType]
+            providers=_DemoProviders(),
+            nodes=_DemoNodes(),  # type: ignore[reportArgumentType]
             policy=RoutingPolicy.balanced(),
         )
         route = sched.select(RouteRequest(model_id=model_id))
-        print(f"🎯 Route: provider={route.provider} model={route.model} "
-              f"node={route.node} cost=${route.cost_per_1k}/1k score={route.score}")
+        print(
+            f"🎯 Route: provider={route.provider} model={route.model} "
+            f"node={route.node} cost=${route.cost_per_1k}/1k score={route.score}"
+        )
         print(f"   policy=balanced ({route.reason})")
         return 0
 

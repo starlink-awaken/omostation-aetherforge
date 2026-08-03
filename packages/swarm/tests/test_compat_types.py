@@ -95,7 +95,7 @@ class TestMessageEnvelope:
         from swarm_engine._compat import MessageEnvelope
 
         env = MessageEnvelope(id="msg-1", extra_field="extra_value")
-        assert env.extra_field == "extra_value"
+        assert env.extra_field == "extra_value"  # type: ignore[reportAttributeAccessIssue]
 
 
 class TestSynapseAgentCard:
@@ -245,8 +245,8 @@ class TestWorkerHandle:
         from swarm_engine._compat import WorkerHandle
 
         wh = WorkerHandle(extra="value", flag=True)
-        assert wh.extra == "value"
-        assert wh.flag is True
+        assert wh.extra == "value"  # type: ignore[reportAttributeAccessIssue]
+        assert wh.flag is True  # type: ignore[reportAttributeAccessIssue]
 
 
 class TestWorkerBundle:

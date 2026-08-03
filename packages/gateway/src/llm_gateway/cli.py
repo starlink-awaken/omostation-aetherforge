@@ -36,7 +36,7 @@ def _get_quota_status() -> dict[str, dict]:
             _QUOTA_ENGINE = QuotaEngine()
             _QUOTA_ENGINE.start()
             _QUOTA_ENGINE.wait_ready(timeout=8)  # Wait for first data batch
-        except Exception:  # noqa: BLE001
+        except Exception:
             return {}
     try:
         all_status = _QUOTA_ENGINE.get_all_status()
@@ -44,11 +44,13 @@ def _get_quota_status() -> dict[str, dict]:
             p: {"pct": s.quota_pct, "source": s.quota_source or "local", "available": s.available}
             for p, s in all_status.items()
         }
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
 
 
-def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool = False, show_group: bool = False) -> int:
+def cmd_list(
+    use_ssot: bool = False, show_quota: bool = False, show_cost: bool = False, show_group: bool = False
+) -> int:
     if show_quota:
         return _cmd_list_quota()
     if show_cost:
@@ -72,6 +74,7 @@ def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool =
 
             if show_group:
                 from collections import defaultdict
+
                 groups: dict[str, list] = defaultdict(list)
                 for m in models:
                     engine = m.id.split("/")[0] if "/" in m.id else "unknown"
@@ -86,14 +89,14 @@ def cmd_list(use_ssot: bool = False, show_quota: bool = False, show_cost: bool =
                         c_out = cost.get("output", "?")
                         print(f"  │  🟢 {m.id.split('/')[-1]:45s} in=${c_in} out=${c_out}")
                     if len(emodels) > 5:
-                        print(f"  │  ... and {len(emodels)-5} more")
+                        print(f"  │  ... and {len(emodels) - 5} more")
                     print()
             else:
                 print(f"L0 M1 compute_engine ({len(models)} models, {loaded} with real prices):")
                 for m in models:
                     cost = m.cost_per_1k_tokens
-                    c_in = cost.get("input", "?")
-                    c_out = cost.get("output", "?")
+                    c_in = cost.get("input", "?")  # type: ignore[reportOptionalMemberAccess]
+                    c_out = cost.get("output", "?")  # type: ignore[reportOptionalMemberAccess]
                     # Extract provider from model id (format: "ENG-XX/model-name")
                     prov_key = m.id.split("/")[0] if "/" in m.id else ""
                     # Map compute engine name → quota provider name
@@ -187,7 +190,10 @@ def cmd_generate(
         sched = RouteScheduler()
         route = sched.select(task=prompt, model=md.name, strategy=strategy)
         if route:
-            print(f"[{route.provider}/{route.model}] cost=${route.cost_per_1k_input:.4f}/1K  quota={route.quota_pct:.0f}%  strategy={strategy}", file=sys.stderr)
+            print(
+                f"[{route.provider}/{route.model}] cost=${route.cost_per_1k_input:.4f}/1K  quota={route.quota_pct:.0f}%  strategy={strategy}",
+                file=sys.stderr,
+            )
 
         opts = ChatOptions()
         result = asyncio.run(reg.chat(md.id, [{"role": "user", "content": prompt}], opts))
@@ -214,10 +220,10 @@ def cmd_generate(
     if not provider.is_available():
         print(f"Provider {provider.provider_name} not available.", file=sys.stderr)
         return 1
-    req = LLMRequest(prompt=prompt, model=model or provider.default_model)
+    req = LLMRequest(prompt=prompt, model=model or provider.default_model)  # type: ignore[reportAttributeAccessIssue]
     try:
         resp = provider.complete(req)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     print(resp.content)

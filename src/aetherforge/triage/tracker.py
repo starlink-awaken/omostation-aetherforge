@@ -10,14 +10,15 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
+from .router import TriageResult
 
 
 @dataclass
 class TriageRecord:
     """单条记账记录."""
+
     timestamp: str
     text_hash: str  # 不存原文, 只存 hash
     verdict: str
@@ -26,20 +27,20 @@ class TriageRecord:
     tokens_in: int
     tokens_out: int
     cost_usd: float
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
 class TriageTracker:
     """分诊记账器."""
-    log_path: Optional[Path] = None
+
+    log_path: Path | None = None
     records: list[TriageRecord] = field(default_factory=list)
 
-    def record(self, result: "TriageResult"):
+    def record(self, result: TriageResult):  # type: ignore[reportUndefinedVariable]
         """记录一条分诊结果."""
-        import hashlib
         rec = TriageRecord(
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             text_hash="",  # 不存原文
             verdict=result.verdict,
             model=result.model,
@@ -94,15 +95,20 @@ class TriageTracker:
 
     def _append_log(self, rec: TriageRecord):
         """追加到 JSONL 日志."""
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.log_path, "a") as f:
-            f.write(json.dumps({
-                "ts": rec.timestamp,
-                "verdict": rec.verdict,
-                "model": rec.model,
-                "lat": round(rec.latency, 3),
-                "tok_in": rec.tokens_in,
-                "tok_out": rec.tokens_out,
-                "cost": rec.cost_usd,
-                "err": rec.error,
-            }) + "\n")
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)  # type: ignore[reportOptionalMemberAccess]
+        with open(self.log_path, "a") as f:  # type: ignore[reportArgumentType]
+            f.write(
+                json.dumps(
+                    {
+                        "ts": rec.timestamp,
+                        "verdict": rec.verdict,
+                        "model": rec.model,
+                        "lat": round(rec.latency, 3),
+                        "tok_in": rec.tokens_in,
+                        "tok_out": rec.tokens_out,
+                        "cost": rec.cost_usd,
+                        "err": rec.error,
+                    }
+                )
+                + "\n"
+            )

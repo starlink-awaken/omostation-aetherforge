@@ -8,7 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 
-from ._compat import (
+from ._compat import (  # type: ignore[reportMissingImports]
     InferenceOracle,
     ISynapseWorker,
     MessageEnvelope,
@@ -110,10 +110,10 @@ class InternalLlmWorker(KnowledgeEnhancementMixin, AgentDaemonBase, ISynapseWork
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return cast(dict[str, Any], asyncio.run(result))
+            return cast(dict[str, Any], asyncio.run(result))  # type: ignore[reportArgumentType]
 
         with ThreadPoolExecutor(max_workers=1) as executor:
-            return cast(dict[str, Any], executor.submit(asyncio.run, result).result())
+            return cast(dict[str, Any], executor.submit(asyncio.run, result).result())  # type: ignore[reportArgumentType]
 
     def process_task(self, task_payload: dict[str, Any]) -> dict[str, Any]:
         """
@@ -124,10 +124,10 @@ class InternalLlmWorker(KnowledgeEnhancementMixin, AgentDaemonBase, ISynapseWork
 
         # Handle both direct payload and MessageEnvelope
         if isinstance(task_payload, MessageEnvelope):
-            prompt = task_payload.payload.get("content", "")
-            context_dict = task_payload.payload.get("synthesized_context", {})
-            summary = task_payload.payload.get("summary", "Direct synapse task")
-            eu_budget = task_payload.eu_budget
+            prompt = task_payload.payload.get("content", "")  # type: ignore[reportAttributeAccessIssue]
+            context_dict = task_payload.payload.get("synthesized_context", {})  # type: ignore[reportAttributeAccessIssue]
+            summary = task_payload.payload.get("summary", "Direct synapse task")  # type: ignore[reportAttributeAccessIssue]
+            eu_budget = task_payload.eu_budget  # type: ignore[reportAttributeAccessIssue]
         else:
             prompt = task_payload.get("content", str(task_payload))
             summary = task_payload.get("summary", "No summary provided")

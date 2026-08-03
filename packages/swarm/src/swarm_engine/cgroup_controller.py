@@ -70,7 +70,7 @@ class LinuxCgroupProvider(IResourceProvider):
                 f.write(limit_str)
 
             return True
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.error(f"Failed to set cgroup limits: {e}")
             return False
 

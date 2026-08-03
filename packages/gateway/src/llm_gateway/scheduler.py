@@ -176,7 +176,7 @@ class ModelScheduler:
                 await asyncio.sleep(interval_ms / 1000)
                 try:
                     await self._registry.refresh()
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     _log.warning("[ModelScheduler] auto-refresh failed: %s", exc)
 
         self._refresh_task = asyncio.create_task(_loop())
@@ -202,7 +202,7 @@ class ModelScheduler:
         try:
             with open(cache_path) as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, Exception):  # noqa: BLE001
+        except (json.JSONDecodeError, Exception):
             return 0
         rates = data.get("rates", {})
         updated = 0
@@ -211,8 +211,8 @@ class ModelScheduler:
             if model_id_short in rates:
                 r = rates[model_id_short]
                 if r.get("input") is not None:
-                    model.cost_per_1k_tokens["input"] = r["input"]
-                    model.cost_per_1k_tokens["output"] = r.get("output", r["input"])
+                    model.cost_per_1k_tokens["input"] = r["input"]  # type: ignore[reportOptionalSubscript]
+                    model.cost_per_1k_tokens["output"] = r.get("output", r["input"])  # type: ignore[reportOptionalSubscript]
                     updated += 1
         return updated
 

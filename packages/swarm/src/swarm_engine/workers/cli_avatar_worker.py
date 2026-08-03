@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from ._compat import (
+from ._compat import (  # type: ignore[reportMissingImports]
     CapabilityRegistry,
     ISynapseWorker,
     MessageEnvelope,
@@ -21,7 +21,7 @@ from ._compat import (
     agent_send,
     get_synapse_registry,
 )
-from .context_injector import ContextInjector
+from .context_injector import ContextInjector  # type: ignore[reportMissingImports]
 from .workspace_manager import WorkspaceManager  # type: ignore[import-not-found]
 
 # =============================================================================
@@ -201,7 +201,7 @@ class CliAvatarWorker(ISynapseWorker):
                     # Derive knowledge query from task content
                     knowledge_query = msg.get("summary", "") + " " + msg.get("content", "")[:200]
                     # Inject harvest context with knowledge retrieval
-                    task_prompt = await harvest_injector.inject_harvest_context(
+                    task_prompt = await harvest_injector.inject_harvest_context(  # type: ignore[reportAttributeAccessIssue]
                         persona=self.persona,
                         task_msg=msg,
                         workspace_path=sandbox_path,

@@ -11,23 +11,24 @@ from __future__ import annotations
 import json
 import time
 import urllib.request
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 
 @dataclass
 class ModelHealth:
     """模型健康状态."""
+
     name: str
     available: bool = False
     latency: float = 0.0
     last_check: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
 class HotSwapConfig:
     """热切换配置."""
+
     gateway_url: str = "http://100.96.126.35:4000/v1/chat/completions"
     api_key: str = "sk-omlx-admin"
     health_check_interval: int = 60  # 健康检查间隔 (秒)
@@ -37,10 +38,10 @@ class HotSwapConfig:
 class ModelHotSwap:
     """模型热切换管理器."""
 
-    def __init__(self, config: Optional[HotSwapConfig] = None):
+    def __init__(self, config: HotSwapConfig | None = None):
         self.config = config or HotSwapConfig()
         self.health: dict[str, ModelHealth] = {}
-        self.active_model: Optional[str] = None
+        self.active_model: str | None = None
         self.fallback_chain: list[str] = []
 
     def set_chain(self, chain: list[str]):
@@ -66,13 +67,15 @@ class ModelHotSwap:
 
     def check_health(self, model: str) -> ModelHealth:
         """检查模型健康状态."""
-        payload = json.dumps({
-            "model": model,
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 5,
-            "temperature": 0,
-            "extra_body": {"reasoning_effort": "none"},
-        }).encode()
+        payload = json.dumps(
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 5,
+                "temperature": 0,
+                "extra_body": {"reasoning_effort": "none"},
+            }
+        ).encode()
 
         req = urllib.request.Request(
             self.config.gateway_url,

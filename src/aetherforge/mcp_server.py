@@ -46,6 +46,7 @@ mcp.tool(name="forge_generate_mesh")(mesh_generate)
 
 # ── Triage tools ───────────────────────────────────────────────────────────
 
+
 class _DirectHTTPGateway:
     """轻量级网关包装 — 直接 HTTP 调用, 不依赖 ModelGateway."""
 
@@ -71,10 +72,9 @@ class _DirectHTTPGateway:
             payload["extra_body"] = {"reasoning_effort": "none"}
 
         data = json.dumps(payload).encode()
-        req = urllib.request.Request(self.url, data=data, headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.key}"
-        })
+        req = urllib.request.Request(
+            self.url, data=data, headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.key}"}
+        )
 
         t0 = time.time()
         try:
@@ -85,28 +85,31 @@ class _DirectHTTPGateway:
             usage = d.get("usage", {})
 
             # 模拟 GatewayResponse
-            class _Response:
+            class _Response:  # type: ignore[reportRedeclaration]
                 pass
+
             resp = _Response()
-            resp.content = content
-            resp.model = d.get("model", request.model)
-            resp.latency_ms = latency
-            resp.tokens_in = usage.get("prompt_tokens", 0)
-            resp.tokens_out = usage.get("completion_tokens", 0)
-            resp.cost_usd = 0.0
-            resp.error = None
+            resp.content = content  # type: ignore[reportAttributeAccessIssue]
+            resp.model = d.get("model", request.model)  # type: ignore[reportAttributeAccessIssue]
+            resp.latency_ms = latency  # type: ignore[reportAttributeAccessIssue]
+            resp.tokens_in = usage.get("prompt_tokens", 0)  # type: ignore[reportAttributeAccessIssue]
+            resp.tokens_out = usage.get("completion_tokens", 0)  # type: ignore[reportAttributeAccessIssue]
+            resp.cost_usd = 0.0  # type: ignore[reportAttributeAccessIssue]
+            resp.error = None  # type: ignore[reportAttributeAccessIssue]
             return resp
         except Exception as e:
+
             class _Response:
                 pass
+
             resp = _Response()
-            resp.content = ""
-            resp.model = request.model
-            resp.latency_ms = (time.time() - t0) * 1000
-            resp.tokens_in = 0
-            resp.tokens_out = 0
-            resp.cost_usd = 0.0
-            resp.error = str(e)[:50]
+            resp.content = ""  # type: ignore[reportAttributeAccessIssue]
+            resp.model = request.model  # type: ignore[reportAttributeAccessIssue]
+            resp.latency_ms = (time.time() - t0) * 1000  # type: ignore[reportAttributeAccessIssue]
+            resp.tokens_in = 0  # type: ignore[reportAttributeAccessIssue]
+            resp.tokens_out = 0  # type: ignore[reportAttributeAccessIssue]
+            resp.cost_usd = 0.0  # type: ignore[reportAttributeAccessIssue]
+            resp.error = str(e)[:50]  # type: ignore[reportAttributeAccessIssue]
             return resp
 
 
@@ -117,8 +120,8 @@ def _get_triage_router():
 
         # 使用轻量级 HTTP 网关
         gateway = _DirectHTTPGateway()
-        _get_triage_router._instance = TriageRouter(gateway=gateway)
-    return _get_triage_router._instance
+        _get_triage_router._instance = TriageRouter(gateway=gateway)  # type: ignore[reportArgumentType]
+    return _get_triage_router._instance  # type: ignore[reportFunctionMemberAccess]
 
 
 def forge_triage(text: str) -> dict:
@@ -176,19 +179,23 @@ def forge_triage_batch(texts: list[str], consensus: bool = False) -> dict:
     for text in texts:
         if consensus:
             r = router.consensus_triage(text)
-            results.append({
-                "text": text[:50],
-                "verdict": r.verdict,
-                "status": r.status,
-                "latency": round(r.latency, 3),
-            })
+            results.append(
+                {
+                    "text": text[:50],
+                    "verdict": r.verdict,
+                    "status": r.status,
+                    "latency": round(r.latency, 3),
+                }
+            )
         else:
             r = router.triage_one(text)
-            results.append({
-                "text": text[:50],
-                "verdict": r.verdict,
-                "latency": round(r.latency, 3),
-            })
+            results.append(
+                {
+                    "text": text[:50],
+                    "verdict": r.verdict,
+                    "latency": round(r.latency, 3),
+                }
+            )
 
     # 统计
     verdicts = {}
@@ -219,6 +226,7 @@ def forge_triage_status() -> dict:
         req = urllib.request.Request(f"{gateway}/v1/models", headers={"Authorization": "Bearer sk-omlx-admin"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             import json
+
             data = json.loads(resp.read())
             status["gateway"] = "ok"
             status["models"] = [m["id"] for m in data.get("data", [])]
@@ -243,7 +251,7 @@ def main() -> None:
         return
 
     mcp.run(
-        transport=transport,
+        transport=transport,  # type: ignore[reportArgumentType]
         host=os.getenv("AETHERFORGE_MCP_HOST", "0.0.0.0"),
         port=port,
     )

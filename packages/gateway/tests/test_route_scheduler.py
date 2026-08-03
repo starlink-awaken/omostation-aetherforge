@@ -83,6 +83,7 @@ class TestRouteSchedulerDynamic:
     def test_load_policies(self, tmp_path, monkeypatch):
         # Mock _load_model_provider_map to decouple tests from physical L0 MOF model directory
         from llm_gateway import route_scheduler
+
         monkeypatch.setattr(route_scheduler, "_load_model_provider_map", lambda: {})
 
         # 1. 模拟 M1_ROUTING_POLICY_DIR
@@ -106,20 +107,26 @@ constraints:
 
         # Mock M1_ROUTING_POLICY_DIR
         from llm_gateway import route_scheduler
+
         monkeypatch.setattr(route_scheduler, "M1_ROUTING_POLICY_DIR", policy_dir)
 
         # 2. Mock QuotaEngine
         class MockQuotaEngine:
             def __init__(self):
                 pass
+
             def start(self):
                 pass
+
             def stop(self):
                 pass
+
             def wait_ready(self, timeout=8):
                 return True
+
             def get_all_status(self):
                 from llm_gateway.quota_engine import ProviderData
+
                 # provider_a: 配额 10% < 15% (不符合 min_quota 15)
                 # provider_b: 配额 50% > 15% (全部符合)
                 # provider_c: 配额 10% < 15% (不符合 min_quota 15)
@@ -138,6 +145,7 @@ constraints:
                     # provider A 成本高为 0.08
                     return {"input": 0.08, "output": 0.05}
                 return {"input": 0.01, "output": 0.02}
+
             def get_price(self, model, provider):
                 return "test_model"
 

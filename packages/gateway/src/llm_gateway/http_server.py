@@ -81,7 +81,7 @@ class LLMGatewayHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(result).encode())
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self.send_response(500)
             self.end_headers()
             self.wfile.write(json.dumps({"error": str(e)}).encode())
@@ -103,7 +103,7 @@ class LLMGatewayHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def log_message(self, fmt: str, *args: Any) -> None:
+    def log_message(self, format: str, *args: Any) -> None:
         sys.stderr.write(f"[llm-gateway] {args[0]} {args[1]} {args[2]}\n")
 
 

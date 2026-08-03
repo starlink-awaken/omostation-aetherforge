@@ -136,14 +136,14 @@ class WorkerMessageBus:
             for listener in self._subscribers.get(recipient, []):
                 try:
                     listener(msg)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     _log.exception("Subscriber failed for message %s", msg.id)
 
             # Broadcast subscribers
             for listener in self._subscribers.get("*", []):
                 try:
                     listener(msg)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     _log.exception("Broadcast subscriber failed for message %s", msg.id)
 
         _log.debug("Message %s sent to %s (type=%s)", msg.id[:8], recipient, msg_type)
@@ -161,7 +161,7 @@ class WorkerMessageBus:
                        VALUES (?, ?, ?, ?, ?, ?)""",
                     (msg.id, msg.sender, msg.recipient, msg.msg_type, json.dumps(msg.payload), msg.timestamp),
                 )
-        except Exception:  # noqa: BLE001
+        except Exception:
             _log.exception("Failed to persist message %s", msg.id)
 
     # ── Receive ──────────────────────────────────────────────────────────────
@@ -229,7 +229,7 @@ class WorkerMessageBus:
                     (worker_id, limit),
                 )
                 return [dict(row) for row in c.fetchall()]
-        except Exception:  # noqa: BLE001
+        except Exception:
             return []
 
     # ── Stats ────────────────────────────────────────────────────────────────

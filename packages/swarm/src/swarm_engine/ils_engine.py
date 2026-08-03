@@ -237,7 +237,7 @@ class ImmuneLawSystem(ShieldMixin, WitnessMixin):  # type: ignore[misc]
             )
 
             # Log authorization event
-            self._log_event(
+            self._log_event(  # type: ignore[reportAttributeAccessIssue]
                 EventType.AUTHORIZATION,
                 actor,
                 action,
@@ -253,7 +253,7 @@ class ImmuneLawSystem(ShieldMixin, WitnessMixin):  # type: ignore[misc]
 
         except (TypeError, ValueError, AttributeError) as e:
             logger.error("%s: %s", type(e).__name__, e)
-            self._log_event(
+            self._log_event(  # type: ignore[reportAttributeAccessIssue]
                 EventType.AUTHORIZATION,
                 actor,
                 action,
@@ -283,7 +283,7 @@ class ImmuneLawSystem(ShieldMixin, WitnessMixin):  # type: ignore[misc]
                     self.ledger.charge(actor, abs(rebate), f"Low Taste Penalty: {score} on {target}")
 
                 # 3. Log the aesthetic event
-                self._log_event(
+                self._log_event(  # type: ignore[reportAttributeAccessIssue]
                     EventType.GOVERNANCE,
                     actor,
                     "finalize_aesthetic",
@@ -326,7 +326,7 @@ class ImmuneLawSystem(ShieldMixin, WitnessMixin):  # type: ignore[misc]
         )
 
         # Log governance check
-        self._log_event(
+        self._log_event(  # type: ignore[reportAttributeAccessIssue]
             EventType.GOVERNANCE,
             intent.actor,
             intent.operation,
@@ -391,7 +391,7 @@ class ImmuneLawSystem(ShieldMixin, WitnessMixin):  # type: ignore[misc]
             sanitized_data=sanitized if valid else None,
         )
 
-        self._log_event(
+        self._log_event(  # type: ignore[reportAttributeAccessIssue]
             EventType.VALIDATION,
             "system",
             "validate",
@@ -498,7 +498,7 @@ class ImmuneLawSystem(ShieldMixin, WitnessMixin):  # type: ignore[misc]
             remediation=remediation,
         )
 
-        self._log_event(
+        self._log_event(  # type: ignore[reportAttributeAccessIssue]
             EventType.RISK_ASSESSMENT,
             intent.actor,
             intent.operation,
@@ -574,7 +574,7 @@ class ImmuneLawSystem(ShieldMixin, WitnessMixin):  # type: ignore[misc]
         permitted = len(constraints_violated) == 0
 
         # Log-First Principle
-        self._log_event(
+        self._log_event(  # type: ignore[reportAttributeAccessIssue]
             EventType.GOVERNANCE,
             context.get("actor", "unknown"),
             action,
@@ -676,7 +676,7 @@ class ImmuneLawSystem(ShieldMixin, WitnessMixin):  # type: ignore[misc]
         elevations[actor] = {"target_layer": layer, "expires_at": expires_at}
         self._save_elevations(elevations)
 
-        self.log_event(
+        self.log_event(  # type: ignore[reportAttributeAccessIssue]
             EventType.GOVERNANCE,
             actor,
             "sudo",
@@ -842,7 +842,7 @@ class ImmuneLawSystem(ShieldMixin, WitnessMixin):  # type: ignore[misc]
             report = self.cedar.assess(actor, operation, target_path)
             warnings = report.get("warnings", [])
             if warnings:
-                self._log_event(
+                self._log_event(  # type: ignore[reportAttributeAccessIssue]
                     EventType.GOVERNANCE,
                     actor,
                     operation,

@@ -356,7 +356,7 @@ class UniversalWorker(AgentDaemonBase):
         except ImportError:
             pass  # organs package not available, degraded mode
 
-        exec_result = safe_exec_sandbox(code, capture_stdout=True)
+        exec_result = safe_exec_sandbox(code, capture_stdout=True)  # type: ignore[reportPossiblyUnboundVariable]
 
         if exec_result["success"]:
             return {

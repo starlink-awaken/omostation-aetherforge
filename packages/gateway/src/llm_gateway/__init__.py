@@ -39,7 +39,17 @@ Version: 0.5.0
 import builtins  # noqa: F401
 
 from .detection import create_provider, detect_backends
-from .gateway import GatewayConfig, GatewayRequest, GatewayResponse, ModelGateway, get_gateway, is_sensitive, reset_gateway, run_async, strip_thinking
+from .gateway import (
+    GatewayConfig,
+    GatewayRequest,
+    GatewayResponse,
+    ModelGateway,
+    get_gateway,
+    is_sensitive,
+    reset_gateway,
+    run_async,
+    strip_thinking,
+)
 from .provider import (
     LLMError,
     LLMProvider,

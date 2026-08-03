@@ -425,7 +425,7 @@ class IntentClassifier:
         )
 
         try:
-            response = asyncio.run(InferenceOracle.get_instance().infer(prompt=prompt, max_tokens=64))
+            response = asyncio.run(InferenceOracle.get_instance().infer(prompt=prompt, max_tokens=64))  # type: ignore[reportAttributeAccessIssue]
             if response.get("status") != "success":
                 return result
 

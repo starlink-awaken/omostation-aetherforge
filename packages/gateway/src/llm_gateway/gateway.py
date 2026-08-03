@@ -70,22 +70,48 @@ def strip_thinking(text: str) -> str:
 # 以 sensitive_router 的列表为基准 (覆盖 OA/邮箱/企业协作/内部 IP)
 _SENSITIVE_PATTERNS = [
     # 工作 OA / 公文系统
-    r"oa\.", r"office\.", r"erp\.", r"crm\.", r"hr\.",
-    r"gov\.cn", r"gov\.com", r"政务", r"公文",
+    r"oa\.",
+    r"office\.",
+    r"erp\.",
+    r"crm\.",
+    r"hr\.",
+    r"gov\.cn",
+    r"gov\.com",
+    r"政务",
+    r"公文",
     # 邮件
-    r"mail\.", r"email\.", r"imap\.", r"smtp\.",
-    r"mail\.google\.com", r"outlook\.", r"office365\.",
+    r"mail\.",
+    r"email\.",
+    r"imap\.",
+    r"smtp\.",
+    r"mail\.google\.com",
+    r"outlook\.",
+    r"office365\.",
     # 工作协作
-    r"slack\.", r"teams\.", r"zoom\.", r"meet\.",
-    r"feishu\.", r"lark\.", r"wecom\.", r"dingtalk\.",
+    r"slack\.",
+    r"teams\.",
+    r"zoom\.",
+    r"meet\.",
+    r"feishu\.",
+    r"lark\.",
+    r"wecom\.",
+    r"dingtalk\.",
     # 代码/文档 (企业内部)
-    r"gitlab\.", r"github\.com/starlink", r"bitbucket\.",
-    r"confluence\.", r"notion\.so", r"wiki\.",
+    r"gitlab\.",
+    r"github\.com/starlink",
+    r"bitbucket\.",
+    r"confluence\.",
+    r"notion\.so",
+    r"wiki\.",
     r"docs\.google\.com",  # Google 文档 (工作文档/行动卡)
     # 企业邮箱
-    r"163\.com", r"126\.com", r"yeah\.net",  # 网易系
-    r"qq\.com", r"vip\.qq\.com",  # QQ 邮箱
-    r"sina\.com\.cn", r"sina\.cn",  # 新浪邮箱
+    r"163\.com",
+    r"126\.com",
+    r"yeah\.net",  # 网易系
+    r"qq\.com",
+    r"vip\.qq\.com",  # QQ 邮箱
+    r"sina\.com\.cn",
+    r"sina\.cn",  # 新浪邮箱
     r"sohu\.com",  # 搜狐邮箱
     # 内网 IP (协议无关: http://10.x / 10.0.0.1 都匹配)
     r"(?:^|://)10\.\d+\.\d+\.\d+",
@@ -93,9 +119,16 @@ _SENSITIVE_PATTERNS = [
     r"(?:^|://)127\.\d+\.\d+\.\d+",
     r"(?:^|://)172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+",
     # OA 协同软件
-    r"seeyon", r"致远", r"泛微", r"蓝凌", r"通达",
+    r"seeyon",
+    r"致远",
+    r"泛微",
+    r"蓝凌",
+    r"通达",
     # 财务/法务
-    r"finance\.", r"legal\.", r"contract\.", r"invoice\.",
+    r"finance\.",
+    r"legal\.",
+    r"contract\.",
+    r"invoice\.",
 ]
 
 _SENSITIVE_KEYWORDS = re.compile(
@@ -137,6 +170,7 @@ _is_sensitive = is_sensitive
 @dataclass
 class GatewayRequest:
     """网关统一请求."""
+
     messages: list[dict[str, Any]]
     model: str = ""  # 优先模型 (bare name or full id)
     task: str = ""  # triage / chat / embed
@@ -150,6 +184,7 @@ class GatewayRequest:
 @dataclass
 class GatewayResponse:
     """网关统一响应."""
+
     content: str
     model: str  # 实际使用的模型
     latency_ms: float
@@ -164,34 +199,37 @@ class GatewayResponse:
 @dataclass
 class GatewayConfig:
     """网关配置."""
+
     # omlx CLI 路径
     omlx_bin: str = "/Volumes/Model/omlx/bin/omlx"
     # 本地模型基础 URL
     local_base_url: str = "http://100.96.126.35"
     # 模型端口映射 (model_name → port)
-    model_ports: dict[str, int] = field(default_factory=lambda: {
-        "coding-fast": 8081,
-        "coding": 8082,
-        "reasoning": 8083,
-        "reasoning-lite": 8085,
-        "mid-local": 8092,
-        "coder-precise": 8091,
-        "mythos-fast": 8185,
-    })
+    model_ports: dict[str, int] = field(
+        default_factory=lambda: {
+            "coding-fast": 8081,
+            "coding": 8082,
+            "reasoning": 8083,
+            "reasoning-lite": 8085,
+            "mid-local": 8092,
+            "coder-precise": 8091,
+            "mythos-fast": 8185,
+        }
+    )
     # 模型大小 (GB) — MemoryGuard 用 (未知大小的模型跳过检查)
-    model_sizes: dict[str, float] = field(default_factory=lambda: {
-        "coding-fast": 18.0,    # Qwen3.6-35B-A3B MoE ~18GB
-        "coding": 13.0,         # devstral-24B ~13GB
-        "reasoning": 10.0,      # GLM-4.7-Flash ~10GB
-        "reasoning-lite": 18.0, # Nemotron-Cascade 30B-A3B ~18GB
-        "mid-local": 15.0,      # Qwen3.6-27B 4bit ~15GB
-        "coder-precise": 28.0,  # Qwopus3.6-27B-Coder 8bit ~28GB
-        "mythos-fast": 5.0,     # Qwythos-9B ~5GB
-    })
+    model_sizes: dict[str, float] = field(
+        default_factory=lambda: {
+            "coding-fast": 18.0,  # Qwen3.6-35B-A3B MoE ~18GB
+            "coding": 13.0,  # devstral-24B ~13GB
+            "reasoning": 10.0,  # GLM-4.7-Flash ~10GB
+            "reasoning-lite": 18.0,  # Nemotron-Cascade 30B-A3B ~18GB
+            "mid-local": 15.0,  # Qwen3.6-27B 4bit ~15GB
+            "coder-precise": 28.0,  # Qwopus3.6-27B-Coder 8bit ~28GB
+            "mythos-fast": 5.0,  # Qwythos-9B ~5GB
+        }
+    )
     # fallback 链 (按优先级)
-    fallback_chain: list[str] = field(default_factory=lambda: [
-        "coding-fast", "mid-local", "deepseek-chat"
-    ])
+    fallback_chain: list[str] = field(default_factory=lambda: ["coding-fast", "mid-local", "deepseek-chat"])
     # MemoryGuard: 预留内存倍数
     memory_safety_factor: float = 1.2
     # 是否启用内存检查
@@ -220,7 +258,10 @@ class MemoryGuard:
         if free_gb < required:
             _log.warning(
                 "[MemoryGuard] 内存不足: 需要 %.1fGB, 可用 %.1fGB (模型 %.1fGB × %.1f)",
-                required, free_gb, model_size_gb, self._safety_factor,
+                required,
+                free_gb,
+                model_size_gb,
+                self._safety_factor,
             )
             return False
         return True
@@ -229,9 +270,13 @@ class MemoryGuard:
         """获取可用内存 (GB). macOS: vm_stat + sysctl."""
         try:
             import subprocess
+
             # 用 vm_stat 获取 page size 和 free pages
             result = subprocess.run(
-                ["vm_stat"], capture_output=True, text=True, timeout=5,
+                ["vm_stat"],
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode != 0:
                 return 64.0  # 无法获取时假设充足
@@ -244,6 +289,7 @@ class MemoryGuard:
             for line in lines:
                 if "page size of" in line:
                     import re
+
                     m = re.search(r"page size of (\d+) bytes", line)
                     if m:
                         page_size = int(m.group(1))
@@ -253,7 +299,7 @@ class MemoryGuard:
                     inactive_pages = int(line.split(":")[-1].strip().rstrip("."))
 
             free_bytes = (free_pages + inactive_pages) * page_size
-            return free_bytes / (1024 ** 3)
+            return free_bytes / (1024**3)
         except Exception:
             return 64.0  # 无法获取时假设充足
 
@@ -459,7 +505,8 @@ class ModelGateway:
             if not self._memory_guard.can_load(size_gb):
                 _log.error(
                     "[ModelGateway] %s 内存不足 (需要 %.1fGB), 跳过加载",
-                    model_name, size_gb * self._config.memory_safety_factor,
+                    model_name,
+                    size_gb * self._config.memory_safety_factor,
                 )
                 return False
 
@@ -474,18 +521,22 @@ class ModelGateway:
             try:
                 # 用 omlxc load
                 proc = await asyncio.create_subprocess_exec(
-                    self._config.omlx_bin, "load", model_name,
+                    self._config.omlx_bin,
+                    "load",
+                    model_name,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
                 _, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=120,
+                    proc.communicate(),
+                    timeout=120,
                 )
 
                 if proc.returncode != 0:
                     _log.warning(
                         "[ModelGateway] omlxc load %s failed: %s",
-                        model_name, stderr.decode()[:200],
+                        model_name,
+                        stderr.decode()[:200],
                     )
                     return False
 
@@ -498,7 +549,7 @@ class ModelGateway:
                     _log.warning("[ModelGateway] %s load timeout", model_name)
                     return False
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _log.warning("[ModelGateway] %s load timed out", model_name)
                 return False
             except Exception as e:
@@ -506,7 +557,11 @@ class ModelGateway:
                 return False
 
     async def _wait_healthy(
-        self, model_name: str, base_url: str, port: int, timeout: float = 30.0,
+        self,
+        model_name: str,
+        base_url: str,
+        port: int,
+        timeout: float = 30.0,
     ) -> bool:
         """等待模型服务健康."""
         import aiohttp
@@ -533,7 +588,9 @@ class ModelGateway:
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                self._config.omlx_bin, "unload", model_name,
+                self._config.omlx_bin,
+                "unload",
+                model_name,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -542,15 +599,14 @@ class ModelGateway:
             _log.info("[ModelGateway] %s unloaded", model_name)
             return True
         except Exception as e:
-            _log.error("[ModelGateway] %s unload error: %s", model_name, e)  # noqa: BLE001
+            _log.error("[ModelGateway] %s unload error: %s", model_name, e)
             return False
 
     async def warm_pool_sweep(self) -> None:
         """清理过期模型 (keep-last-used TTL)."""
         now = time.time()
         expired = [
-            m for m, t in self._last_used.items()
-            if now - t > self._config.warm_pool_ttl and m in self._loaded_models
+            m for m, t in self._last_used.items() if now - t > self._config.warm_pool_ttl and m in self._loaded_models
         ]
         for model_name in expired:
             _log.info("[ModelGateway] warm pool expired: %s", model_name)
@@ -699,6 +755,7 @@ def run_async(coro):
     else:
         # 已有事件循环, 在新线程中运行
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
             future = ex.submit(asyncio.run, coro)
             return future.result()

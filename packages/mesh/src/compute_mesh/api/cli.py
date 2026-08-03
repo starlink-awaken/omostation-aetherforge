@@ -25,7 +25,7 @@ def _get_pool() -> ComputePool:
     if pool is None:
         pool = ComputePool()
         pool.scan()
-        _get_pool._pool = pool
+        _get_pool._pool = pool  # type: ignore[reportFunctionMemberAccess]
     return pool
 
 
@@ -69,7 +69,7 @@ def cmd_topology_scan() -> int:
     """Run topology discovery and show results."""
     _get_pool()
     # Force re-scan
-    _get_pool._pool = ComputePool()
+    _get_pool._pool = ComputePool()  # type: ignore[reportFunctionMemberAccess]
     new_pool = _get_pool()
     nodes = new_pool.scan()
 
@@ -172,9 +172,7 @@ def cmd_generate(prompt: str) -> int:
 
     from llm_gateway.mcp_server import GenerateRequest, llm_generate
 
-    raw = asyncio.run(
-        llm_generate(GenerateRequest(model=best.node_id, messages=[{"role": "user", "content": prompt}]))
-    )
+    raw = asyncio.run(llm_generate(GenerateRequest(model=best.node_id, messages=[{"role": "user", "content": prompt}])))
     data = _json.loads(raw)
     if data.get("error"):
         print(f"❌ {data['error']}")

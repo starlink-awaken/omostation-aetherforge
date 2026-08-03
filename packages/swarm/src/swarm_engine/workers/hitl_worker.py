@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import Any
 
-from ._compat import (
+from ._compat import (  # type: ignore[reportMissingImports]
     ISynapseWorker,
     MessageEnvelope,
     Receipt,

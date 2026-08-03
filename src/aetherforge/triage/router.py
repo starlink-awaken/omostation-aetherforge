@@ -17,7 +17,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 # 补齐 aetherforge / gateway 包路径 (同 rpc.py)
 _af_dir = Path(__file__).resolve().parents[3]
@@ -68,8 +68,8 @@ TRIAGE_CHAIN: list[str] = []
 # Stage 1: 2 个轻量模型并行初筛 (本地, 快)
 # Stage 2: 分歧时调第 3 个复核 (云端, 稍慢)
 CONSENSUS_STAGE1 = [
-    ("mid-local", True),   # Qwen3.6-27B, 100%, 1.13s
-    ("mini-9b", True),     # qwen3.5:9b, 100%, 1.42s
+    ("mid-local", True),  # Qwen3.6-27B, 100%, 1.13s
+    ("mini-9b", True),  # qwen3.5:9b, 100%, 1.42s
 ]
 CONSENSUS_STAGE2 = ("deepseek-chat", False)  # 云端, 95%, 0.66s
 
@@ -77,18 +77,20 @@ CONSENSUS_STAGE2 = ("deepseek-chat", False)  # 云端, 95%, 0.66s
 @dataclass
 class TriageResult:
     """单条分诊结果."""
+
     verdict: str  # 丢弃/沉淀/提醒
     model: str  # 实际使用的模型
     latency: float  # 延迟秒
     tokens_in: int = 0
     tokens_out: int = 0
     cost_usd: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
 class ConsensusResult:
     """共识分诊结果 (多模型投票)."""
+
     verdict: str  # 最终判定
     votes: dict[str, int]  # 各判定票数 {"丢弃": 2, "沉淀": 1}
     agreement: float  # 一致率 (0-1)
@@ -101,9 +103,10 @@ class ConsensusResult:
 @dataclass
 class TriageRouter:
     """分诊路由器 — 通过 ModelGateway 调用, 自动 fallback + 敏感硬拦."""
-    gateway: Optional[ModelGateway] = None
+
+    gateway: ModelGateway | None = None
     model_chain: list = field(default_factory=lambda: list(TRIAGE_CHAIN))
-    tracker: Optional["TriageTracker"] = None
+    tracker: TriageTracker | None = None
 
     def triage_one(self, text: str, title: str = "", url: str = "") -> TriageResult:
         """分诊单条信息, 自动 fallback.
@@ -115,7 +118,9 @@ class TriageRouter:
         """
         if self.gateway is None:
             return TriageResult(
-                verdict="错误", model="", latency=0,
+                verdict="错误",
+                model="",
+                latency=0,
                 error="ModelGateway not initialized",
             )
 
@@ -144,9 +149,12 @@ class TriageRouter:
         return [self.triage_one(t) for t in texts]
 
     def consensus_triage(
-        self, text: str, title: str = "", url: str = "",
-        stage1: Optional[list[tuple[str, bool]]] = None,
-        stage2: Optional[tuple[str, bool]] = None,
+        self,
+        text: str,
+        title: str = "",
+        url: str = "",
+        stage1: list[tuple[str, bool]] | None = None,
+        stage2: tuple[str, bool] | None = None,
     ) -> ConsensusResult:
         """两级共识分诊 — Stage1 双模型并行, 一致直接出, 分歧调 Stage2 复核.
 
@@ -160,18 +168,13 @@ class TriageRouter:
         # Stage 1: 双模型并行
         details: list[TriageResult] = []
         with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = {
-                pool.submit(self._call_model, text, m, title, url): m
-                for m, _ in stage1
-            }
+            futures = {pool.submit(self._call_model, text, m, title, url): m for m, _ in stage1}
             for future in as_completed(futures):
                 try:
                     details.append(future.result())
                 except Exception as e:
                     m = futures[future]
-                    details.append(TriageResult(
-                        verdict="错误", model=m, latency=0, error=str(e)[:30]
-                    ))
+                    details.append(TriageResult(verdict="错误", model=m, latency=0, error=str(e)[:30]))
 
         # 投票
         votes: dict[str, int] = {}
@@ -179,7 +182,7 @@ class TriageRouter:
             if r.verdict in ("丢弃", "沉淀", "提醒"):
                 votes[r.verdict] = votes.get(r.verdict, 0) + 1
 
-        max_verdict = max(votes, key=votes.get) if votes else "未知"
+        max_verdict = max(votes, key=votes.get) if votes else "未知"  # type: ignore[reportArgumentType]
         max_count = max(votes.values()) if votes else 0
 
         # Stage 1 一致 → 直接返回
@@ -195,11 +198,13 @@ class TriageRouter:
                 cost_usd=sum(r.cost_usd for r in details),
             )
             if self.tracker:
-                self.tracker.record(TriageResult(
-                    verdict=max_verdict,
-                    model=f"consensus({','.join(m[0] for m in stage1)})",
-                    latency=max_latency,
-                ))
+                self.tracker.record(
+                    TriageResult(
+                        verdict=max_verdict,
+                        model=f"consensus({','.join(m[0] for m in stage1)})",
+                        latency=max_latency,
+                    )
+                )
             return result
 
         # Stage 1 分歧 → 调 Stage 2 复核
@@ -210,7 +215,7 @@ class TriageRouter:
         if tiebreaker.verdict in ("丢弃", "沉淀", "提醒"):
             votes[tiebreaker.verdict] = votes.get(tiebreaker.verdict, 0) + 1
 
-        max_verdict = max(votes, key=votes.get) if votes else "未知"
+        max_verdict = max(votes, key=votes.get) if votes else "未知"  # type: ignore[reportArgumentType]
         max_count = max(votes.values()) if votes else 0
         total_models = len(stage1) + 1
         agreement = max_count / total_models
@@ -234,12 +239,14 @@ class TriageRouter:
         )
 
         if self.tracker:
-            self.tracker.record(TriageResult(
-                verdict=max_verdict,
-                model=f"consensus({','.join(m[0] for m in stage1)}+{model2})",
-                latency=max_latency,
-                cost_usd=result.cost_usd,
-            ))
+            self.tracker.record(
+                TriageResult(
+                    verdict=max_verdict,
+                    model=f"consensus({','.join(m[0] for m in stage1)}+{model2})",
+                    latency=max_latency,
+                    cost_usd=result.cost_usd,
+                )
+            )
 
         return result
 
@@ -248,7 +255,11 @@ class TriageRouter:
         return self._call_with_gateway(text, title, url, model)
 
     def _call_with_gateway(
-        self, text: str, title: str, url: str, model: str = "",
+        self,
+        text: str,
+        title: str,
+        url: str,
+        model: str = "",
     ) -> TriageResult:
         """通过 ModelGateway 调用."""
         if self.gateway is None:

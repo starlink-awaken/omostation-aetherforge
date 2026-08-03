@@ -65,9 +65,9 @@ class VertexAIProvider(LLMProvider):
             return False
         try:
             if self._use_api_key:
-                import google.generativeai  # noqa: F401
+                import google.generativeai  # noqa: F401  # type: ignore[reportMissingImports]
             else:
-                import vertexai  # noqa: F401
+                import vertexai  # noqa: F401  # type: ignore[reportMissingImports]
             return True
         except ImportError:
             return False
@@ -77,15 +77,15 @@ class VertexAIProvider(LLMProvider):
             return self._client
 
         if self._use_api_key:
-            import google.generativeai as genai
+            import google.generativeai as genai  # type: ignore[reportMissingImports]
 
             genai.configure(api_key=self._api_key)
             self._client = genai.GenerativeModel(self._model_id)
         else:
-            import vertexai
+            import vertexai  # type: ignore[reportMissingImports]
 
             vertexai.init(project=self._project, location=self._location)
-            from vertexai.generative_models import GenerativeModel
+            from vertexai.generative_models import GenerativeModel  # type: ignore[reportMissingImports]
 
             self._client = GenerativeModel(self._model_id)
         return self._client
@@ -121,7 +121,7 @@ class VertexAIProvider(LLMProvider):
         try:
             response = self._generate_content(request)
             return self._parse_response(response, request)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.error("Vertex AI generate failed: %s", e)
             raise
 
@@ -129,7 +129,7 @@ class VertexAIProvider(LLMProvider):
         try:
             response = self._generate_content(request)
             return self._parse_response(response, request)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.error("Vertex AI complete failed: %s", e)
             raise
 

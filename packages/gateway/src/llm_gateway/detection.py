@@ -118,7 +118,7 @@ def create_provider(provider_type: str, **kwargs: Any) -> LLMProvider:
         return NoneProvider()
     try:
         return cls(**kwargs)  # type: ignore[arg-type]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.warning("Failed to instantiate provider %s: %s", provider_type, exc)
         return NoneProvider()
 

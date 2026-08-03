@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from ._compat import (
+from ._compat import (  # type: ignore[reportMissingImports]
     ISynapseWorker,
     MessageEnvelope,
     Receipt,

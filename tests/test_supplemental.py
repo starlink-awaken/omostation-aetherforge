@@ -28,35 +28,52 @@ def test(name):
             except Exception as e:
                 failed += 1
                 import traceback
+
                 print(f"  ❌ {name}: {e}\n{traceback.format_exc()}")
+
         return wrapper
+
     return dec
 
-test.__test__ = False
+
+test.__test__ = False  # type: ignore[reportFunctionMemberAccess]
 
 
 # ══════════════════════════════════════════════════════════════════════════
 # StepCallbacks (vs CrewAI)
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @test("StepCallbacks: 6 hooks + decorator")
 def test_callbacks():
     from compute_mesh.worker.callbacks import StepCallbacks
+
     cb = StepCallbacks()
     events = []
 
     @cb.on_task_start
-    def s(wid, task): events.append(f"start:{wid}")
+    def s(wid, task):
+        events.append(f"start:{wid}")
+
     @cb.on_task_complete
-    def c(wid, res): events.append(f"complete:{wid}")
+    def c(wid, res):
+        events.append(f"complete:{wid}")
+
     @cb.on_task_fail
-    def f(wid, err): events.append(f"fail:{wid}")
+    def f(wid, err):
+        events.append(f"fail:{wid}")
+
     @cb.on_worker_claim
-    def cl(wid): events.append(f"claim:{wid}")
+    def cl(wid):
+        events.append(f"claim:{wid}")
+
     @cb.on_worker_release
-    def rl(wid): events.append(f"release:{wid}")
+    def rl(wid):
+        events.append(f"release:{wid}")
+
     @cb.on_retry
-    def rt(wid, n, err): events.append(f"retry:{wid}:{n}")
+    def rt(wid, n, err):
+        events.append(f"retry:{wid}:{n}")
 
     cb.fire_task_start("w1", "task")
     cb.fire_task_complete("w1", {"ok": True})
@@ -74,10 +91,14 @@ def test_callbacks():
 @test("StepCallbacks: add/remove/clear")
 def test_callbacks_management():
     from compute_mesh.worker.callbacks import StepCallbacks
+
     cb = StepCallbacks()
 
-    def h1(wid, task): pass
-    def h2(wid, task): pass
+    def h1(wid, task):
+        pass
+
+    def h2(wid, task):
+        pass
 
     cb.on_task_start.add(h1)
     cb.on_task_start.add(h2)
@@ -94,27 +115,30 @@ def test_callbacks_management():
 # GroupChat (vs AutoGen)
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @test("GroupChat: round-robin speaker selection")
 def test_groupchat_round_robin():
     from swarm_engine.group_chat import GroupChat, GroupChatAgent
+
     a1 = GroupChatAgent(name="A", system_prompt="You are A.", role="worker")
     a2 = GroupChatAgent(name="B", system_prompt="You are B.", role="worker")
     a3 = GroupChatAgent(name="C", system_prompt="You are C.", role="worker")
     chat = GroupChat(agents=[a1, a2, a3], max_turns=3)
 
     speaker = chat._round_robin_select(1)
-    assert speaker.name == "A"
+    assert speaker.name == "A"  # type: ignore[reportOptionalMemberAccess]
     speaker = chat._round_robin_select(2)
-    assert speaker.name == "B"
+    assert speaker.name == "B"  # type: ignore[reportOptionalMemberAccess]
     speaker = chat._round_robin_select(3)
-    assert speaker.name == "C"
+    assert speaker.name == "C"  # type: ignore[reportOptionalMemberAccess]
     speaker = chat._round_robin_select(4)
-    assert speaker.name == "A"  # wraps around
+    assert speaker.name == "A"  # wraps around  # type: ignore[reportOptionalMemberAccess]
 
 
 @test("GroupChat: termination check")
 def test_groupchat_termination():
     from swarm_engine.group_chat import GroupChat, GroupChatAgent
+
     a1 = GroupChatAgent(name="A", system_prompt="You are A.", role="worker")
     chat = GroupChat(agents=[a1], max_turns=10)
     assert chat._check_termination("A", "we should TERMINATE now") is True
@@ -124,6 +148,7 @@ def test_groupchat_termination():
 @test("GroupChat: message model")
 def test_groupchat_message():
     from swarm_engine.group_chat import GroupChatMessage
+
     msg = GroupChatMessage(sender="test", content="hello", turn=1, agent_role="worker")
     assert msg.sender == "test"
     assert msg.content == "hello"
@@ -135,9 +160,11 @@ def test_groupchat_message():
 # GraphWorkflow (vs LangGraph)
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @test("GraphWorkflow: linear DAG")
 def test_graph_linear():
     from swarm_engine.graph_workflow import GraphWorkflow
+
     wf = GraphWorkflow()
 
     @wf.node("input")
@@ -158,6 +185,7 @@ def test_graph_linear():
 @test("GraphWorkflow: conditional branching")
 def test_graph_conditional():
     from swarm_engine.graph_workflow import GraphWorkflow
+
     wf = GraphWorkflow()
 
     @wf.node("decide")
@@ -189,6 +217,7 @@ def test_graph_conditional():
 @test("GraphWorkflow: cycle detection")
 def test_graph_cycle():
     from swarm_engine.graph_workflow import GraphWorkflow
+
     wf = GraphWorkflow()
 
     @wf.node("a")
@@ -210,13 +239,16 @@ def test_graph_cycle():
 @test("GraphWorkflow: node/edge listing")
 def test_graph_listing():
     from swarm_engine.graph_workflow import GraphWorkflow
+
     wf = GraphWorkflow()
 
     @wf.node("a")
-    def a(s): return {}
+    def a(s):
+        return {}
 
     @wf.node("b")
-    def b(s): return {}
+    def b(s):
+        return {}
 
     wf.add_edge("a", "b")
     assert wf.get_nodes() == ["a", "b"]
@@ -227,14 +259,16 @@ def test_graph_listing():
 # ObjectStore (vs Ray)
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @test("ObjectStore: put/get/delete")
 def test_objectstore_basic():
     from compute_mesh.worker.object_store import ObjectStore
+
     store = ObjectStore(db_path=None)
     oid = store.put({"msg": "hello", "num": 42})
     data = store.get(oid)
-    assert data["msg"] == "hello"
-    assert data["num"] == 42
+    assert data["msg"] == "hello"  # type: ignore[reportOptionalSubscript]
+    assert data["num"] == 42  # type: ignore[reportOptionalSubscript]
     assert store.exists(oid) is True
     store.delete(oid)
     assert store.exists(oid) is False
@@ -246,6 +280,7 @@ def test_objectstore_ttl():
     import time
 
     from compute_mesh.worker.object_store import ObjectStore
+
     store = ObjectStore(db_path=None)
     oid = store.put({"temp": True}, ttl=0.05)
     assert store.get(oid) is not None
@@ -259,15 +294,16 @@ def test_objectstore_persist():
     import tempfile
 
     from compute_mesh.worker.object_store import ObjectStore
+
     tmp = tempfile.mkdtemp()
     db_path = os.path.join(tmp, "test_objs.db")
     store = ObjectStore(db_path=db_path)
     oid = store.put({"persistent": True})
-    assert store.get(oid)["persistent"] is True
+    assert store.get(oid)["persistent"] is True  # type: ignore[reportOptionalSubscript]
 
     # New instance should load from DB
     store2 = ObjectStore(db_path=db_path)
-    assert store2.get(oid)["persistent"] is True
+    assert store2.get(oid)["persistent"] is True  # type: ignore[reportOptionalSubscript]
 
     store2.delete(oid)
     assert store2.get(oid) is None
@@ -276,6 +312,7 @@ def test_objectstore_persist():
 @test("ObjectStore: put_many/get_many")
 def test_objectstore_bulk():
     from compute_mesh.worker.object_store import ObjectStore
+
     store = ObjectStore(db_path=None)
     refs = store.put_many({"a": 1, "b": 2, "c": 3})
     assert len(refs) == 3
@@ -287,6 +324,7 @@ def test_objectstore_bulk():
 @test("ObjectStore: stats")
 def test_objectstore_stats():
     from compute_mesh.worker.object_store import ObjectStore
+
     store = ObjectStore(db_path=None)
     store.put({"x": "y"})
     stats = store.get_stats()
@@ -298,9 +336,11 @@ def test_objectstore_stats():
 # New Providers
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @test("Providers: 9 registered in detection")
 def test_providers_9():
     from llm_gateway.detection import _PROVIDER_REGISTRY
+
     assert len(_PROVIDER_REGISTRY) == 9
     assert "azure" in _PROVIDER_REGISTRY
     assert "bedrock" in _PROVIDER_REGISTRY
@@ -314,6 +354,7 @@ def test_providers_import():
         BedrockProvider,
         VertexAIProvider,
     )
+
     assert AzureOpenAIProvider
     assert BedrockProvider
     assert VertexAIProvider
@@ -322,6 +363,7 @@ def test_providers_import():
 @test("Providers: detection priority includes new")
 def test_providers_priority():
     from llm_gateway.detection import detect_backends
+
     # Should not crash, returns available (hitl/ollama)
     available = detect_backends()
     assert isinstance(available, list)
@@ -330,6 +372,7 @@ def test_providers_priority():
 @test("Providers: L0 M1 includes new engines")
 def test_providers_l0():
     from aetherforge._paths import M1_COMPUTE_ENGINE_DIR
+
     m1_dir = M1_COMPUTE_ENGINE_DIR
     if m1_dir.exists():
         files = list(m1_dir.glob("*.yaml"))
@@ -346,6 +389,7 @@ def test_providers_l0():
 # Runner
 # ══════════════════════════════════════════════════════════════════════════
 
+
 def run_all():
     global passed, failed
     print("=" * 60)
@@ -353,6 +397,7 @@ def run_all():
     print("=" * 60)
 
     import inspect
+
     test_fns = []
     for name, fn in inspect.getmembers(sys.modules[__name__]):
         if name.startswith("test_") and callable(fn):

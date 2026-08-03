@@ -332,7 +332,7 @@ def load_config(path: str | Path | None = None) -> AetherForgeConfig:
         try:
             with open(config_file) as f:
                 file_data = yaml.safe_load(f) or {}
-        except Exception as exc:  # defensive fallback  # noqa: BLE001
+        except Exception as exc:  # defensive fallback
             import logging
 
             logging.getLogger(__name__).warning("Failed to load config %s: %s", config_file, exc)

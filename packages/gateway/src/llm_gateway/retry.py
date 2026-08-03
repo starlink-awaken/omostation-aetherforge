@@ -84,7 +84,7 @@ async def with_retry(
             else:
                 result = await fn()
             return result
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             last_error = exc
 
             # Try to extract HTTP status code from various exception types

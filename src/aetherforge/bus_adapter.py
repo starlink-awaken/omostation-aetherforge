@@ -29,8 +29,10 @@ def _try_import_bus():
     """Lazy import: agora may not be on the path during isolated aetherforge tests."""
     try:
         from bus_foundation import BusEnvelope, publish  # type: ignore
+
         try:
             from bus_foundation.observability import get_current_trace_id
+
             return BusEnvelope, publish, get_current_trace_id
         except ImportError:
             return BusEnvelope, publish, None
@@ -51,14 +53,14 @@ def emit_event(
     if trace_id is None and get_tid is not None:
         trace_id = get_tid()
     envelope = bus_envelope_cls(
-        type=event_type,
-        source=source,
+        type=event_type,  # type: ignore[reportCallIssue]
+        source=source,  # type: ignore[reportCallIssue]
         payload=payload or {},
         trace_id=trace_id,
     )
     try:
         return publish(envelope)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("aetherforge_bus_emit_failed type=%s err=%s", event_type, e)
         return None
 

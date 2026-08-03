@@ -40,7 +40,7 @@ def get_remaining_budget() -> float | None:
         # In the new engine, it might be named differently or aggregated
         # Fallback to a high value if unlimited
         return summary.get("effective_remaining_budget_usd")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _log.debug("failed_to_get_remaining_budget: %s", e)
         return None
 
@@ -72,8 +72,8 @@ def _register_budget_debt(task_id: str, model_id: str, budget_usd: float, estima
         sys.path.insert(0, str(omo_src))
 
     try:
-        from omo.omo_ingress import upsert_debt_item
-    except Exception as exc:  # noqa: BLE001
+        from omo.omo_ingress import upsert_debt_item  # type: ignore[reportMissingImports]
+    except Exception as exc:
         _log.debug("failed_to_import_omo_ingress: %s", exc)
         return ""
 
@@ -111,7 +111,7 @@ def _register_budget_debt(task_id: str, model_id: str, budget_usd: float, estima
             now=now_iso,
         )
         return str(ws_root / ".omo" / "debt" / "items" / f"{debt_id}.yaml")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.debug("failed_to_register_budget_debt: %s", exc)
         return ""
 

@@ -86,7 +86,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     try:
         with open(path) as f:
             return yaml.safe_load(f) or {}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.debug("Failed to load YAML %s: %s", path, exc)
         return {}
 
@@ -166,7 +166,7 @@ def _check_tcp_port(host: str, port: int, timeout: float = 2.0) -> bool:
         result = sock.connect_ex((host, port))
         sock.close()
         return result == 0
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 

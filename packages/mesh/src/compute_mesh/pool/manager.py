@@ -10,8 +10,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from ..topology import ComputeNode, NodeRegistry, NodeStatus, TopologyScanner
@@ -50,7 +50,7 @@ def _bus_publish_node_state(node: ComputeNode) -> None:
         _log.debug("bus:mesh:node:status_changed published: node=%s status=%s", node.node_id, node.status)
     except ImportError:
         _log.debug("bus-foundation not available, skipping mesh event publish")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.warning("Failed to publish mesh node state event: %s", exc)
 
 
@@ -145,7 +145,7 @@ class ComputePool:
                 node_id = future_to_node[future]
                 try:
                     results[node_id] = future.result()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     _log.exception("Health check failed for node %s", node_id)
                     results[node_id] = False
 
@@ -165,6 +165,7 @@ class ComputePool:
             return False
 
         import yaml
+
         try:
             # 动态查找 workspace root
             cur = Path(__file__).resolve()
@@ -173,7 +174,7 @@ class ComputePool:
                 if (parent / "docs" / "project-registry.yaml").is_file():
                     workspace_root = parent
                     break
-            
+
             if not workspace_root:
                 _log.error("Could not locate workspace root for project-registry.yaml")
                 return False
@@ -190,12 +191,13 @@ class ComputePool:
             lan_ip = cfg.get("lan_ip", "255.255.255.255")
 
             _log.info("Sending Magic Packet to wake up %s (MAC=%s, LAN_IP=%s)", node_id, mac, lan_ip)
-            
+
             import socket
+
             clean_mac = mac.replace(":", "").replace("-", "").replace(".", "")
             mac_bytes = bytes.fromhex(clean_mac)
-            packet = b'\xff' * 6 + mac_bytes * 16
-            
+            packet = b"\xff" * 6 + mac_bytes * 16
+
             for port in [9, 7]:
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -225,7 +227,7 @@ class ComputePool:
             result = sock.connect_ex((host, port))
             sock.close()
             return result == 0
-        except Exception:  # noqa: BLE001
+        except Exception:
             return False
 
     def _record_health(self, node_id: str, is_alive: bool) -> None:
@@ -315,7 +317,7 @@ class ComputePool:
         for listener in self._listeners:
             try:
                 listener(event, node)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _log.exception("Pool listener failed for event %s", event)
 
         # ── 2. 向 bus-foundation 发布 mesh 状态变更事件（R3 闭环） ──

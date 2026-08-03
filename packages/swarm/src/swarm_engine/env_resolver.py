@@ -129,7 +129,7 @@ class EnvResolver:
 
                 with open(yaml_path, encoding="utf-8") as f:
                     self.config = yaml.safe_load(f)
-            except (yaml.YAMLError, OSError) as e:
+            except (yaml.YAMLError, OSError) as e:  # type: ignore[reportPossiblyUnboundVariable]
                 _log.error("%s: %s", type(e).__name__, e)
                 # YAML 解析失败，尝试 JSON 或回退到空配置
                 if json_path.exists():

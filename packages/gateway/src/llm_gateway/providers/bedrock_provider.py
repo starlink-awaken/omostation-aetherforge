@@ -67,7 +67,7 @@ class BedrockProvider(LLMProvider):
         if not self._aws_key or not self._aws_secret:
             return False
         try:
-            import boto3  # noqa: F401
+            import boto3  # noqa: F401  # type: ignore[reportMissingImports]
 
             return True
         except ImportError:
@@ -75,7 +75,7 @@ class BedrockProvider(LLMProvider):
 
     def _get_runtime(self) -> Any:
         if self._runtime is None:
-            import boto3
+            import boto3  # type: ignore[reportMissingImports]
 
             session = boto3.Session(
                 aws_access_key_id=self._aws_key,
@@ -149,7 +149,7 @@ class BedrockProvider(LLMProvider):
         client = self._get_runtime()
 
         try:
-            import boto3  # noqa: F401
+            import boto3  # noqa: F401  # type: ignore[reportMissingImports]
 
             response = client.invoke_model(
                 modelId=model,
@@ -158,7 +158,7 @@ class BedrockProvider(LLMProvider):
                 body=body,
             )
             return self._parse_response(response, model)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.error("Bedrock generate failed: %s", e)
             raise
 
@@ -178,6 +178,6 @@ class BedrockProvider(LLMProvider):
                 body=body,
             )
             return self._parse_response(response, model)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.error("Bedrock complete failed: %s", e)
             raise

@@ -238,7 +238,7 @@ class NKSTaskPlanner:
                 "organs.D_Memory.organs.nks.impact_analyzer", fromlist=["ImpactReport"]
             ).ImpactReport
         except (ImportError, AttributeError):
-            return type("_IR", (), {"risk_score": 0.0, "suggested_tests": []})()
+            return type("_IR", (), {"risk_score": 0.0, "suggested_tests": []})()  # type: ignore[reportReturnType]
         if self.impact_analyzer is None:
             return ImpactReport(risk_score=0.0)
         try:
@@ -251,7 +251,7 @@ class NKSTaskPlanner:
             try:
                 return ImpactReport(risk_score=risk)
             except (ValueError, TypeError):
-                return type("_IR", (), {"risk_score": risk, "suggested_tests": []})()
+                return type("_IR", (), {"risk_score": risk, "suggested_tests": []})()  # type: ignore[reportReturnType]
 
     @staticmethod
     def _extract_component(file_path: str) -> str:

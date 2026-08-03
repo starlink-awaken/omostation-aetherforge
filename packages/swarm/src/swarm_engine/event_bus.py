@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 from uuid import uuid4
 
+
 # kairon_events L0 shared event bus was removed in P30.5 (M3); aetherforge
 # retains local stub classes here so the in-process EventBus keeps working
 # without depending on the (orphan) shared primitive.
@@ -263,7 +264,7 @@ class EventBus:
             module = importlib.import_module("organs.D_Monitoring.organs.topology_graph")
             TopologyGraph = module.TopologyGraph  # noqa: N806
             PulseEventBridge = module.PulseEventBridge  # noqa: N806
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log.debug("⚠️ [EventBus] TopologyGraph bridge unavailable: %s", exc)
             return
 

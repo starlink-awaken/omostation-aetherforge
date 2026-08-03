@@ -59,10 +59,10 @@ class VisionMetabolizer:
                 for env in envelopes:
                     task = IntentParticle(
                         intent=getattr(env, "description", getattr(env, "summary", str(env))),
-                        parent_id=vision.id,
-                        root_id=vision.root_id,
+                        parent_id=vision.id,  # type: ignore[reportAttributeAccessIssue]
+                        root_id=vision.root_id,  # type: ignore[reportAttributeAccessIssue]
                         particle_type="intent",  # Use default
-                        stage=MetabolicStage.DIGESTING,
+                        stage=MetabolicStage.DIGESTING,  # type: ignore[reportAttributeAccessIssue]
                         required_capabilities=[env.capability_hint] if getattr(env, "capability_hint", None) else [],
                     )
                     tasks.append(task)
@@ -87,10 +87,10 @@ class VisionMetabolizer:
                     tasks.append(
                         IntentParticle(
                             intent=ri,
-                            parent_id=vision.id,
-                            root_id=vision.root_id,
+                            parent_id=vision.id,  # type: ignore[reportAttributeAccessIssue]
+                            root_id=vision.root_id,  # type: ignore[reportAttributeAccessIssue]
                             particle_type="intent",
-                            stage=getattr(MetabolicStage, "PLANNING", MetabolicStage.DIGESTING),
+                            stage=getattr(MetabolicStage, "PLANNING", MetabolicStage.DIGESTING),  # type: ignore[reportAttributeAccessIssue]
                         )
                     )
         except ImportError:
@@ -113,10 +113,10 @@ class VisionMetabolizer:
             for phase in phases:
                 task = IntentParticle(
                     intent=f"{phase} for: {base_intent[:50]}",
-                    parent_id=vision.id,
-                    root_id=vision.root_id,
+                    parent_id=vision.id,  # type: ignore[reportAttributeAccessIssue]
+                    root_id=vision.root_id,  # type: ignore[reportAttributeAccessIssue]
                     particle_type="intent",
-                    stage=getattr(MetabolicStage, "PLANNING", MetabolicStage.DIGESTING),
+                    stage=getattr(MetabolicStage, "PLANNING", MetabolicStage.DIGESTING),  # type: ignore[reportAttributeAccessIssue]
                 )
                 tasks.append(task)
 

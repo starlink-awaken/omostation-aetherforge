@@ -12,12 +12,9 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -90,7 +87,7 @@ class TestStripThinking:
         from llm_gateway.gateway import _strip_thinking
 
         assert _strip_thinking("") == ""
-        assert _strip_thinking(None) is None
+        assert _strip_thinking(None) is None  # type: ignore[reportArgumentType]
 
     def test_no_thinking_unchanged(self):
         from llm_gateway.gateway import _strip_thinking
@@ -271,9 +268,12 @@ class TestGenerateWithKI:
         from llm_gateway.types import ChatResult
 
         # Mock chat result
-        mock_registry.chat = AsyncMock(return_value=ChatResult(
-            content="本地回答", model="coding-fast",
-        ))
+        mock_registry.chat = AsyncMock(
+            return_value=ChatResult(
+                content="本地回答",
+                model="coding-fast",
+            )
+        )
         mock_registry.get_provider.return_value = MagicMock(name="ENG-OMLX-LOCAL")
         mock_registry.get.return_value = MagicMock(id="ENG-OMLX-LOCAL/coding-fast")
 
@@ -304,10 +304,12 @@ class TestGenerateWithKI:
         from llm_gateway.gateway import GatewayRequest, ModelGateway
         from llm_gateway.types import ChatResult
 
-        mock_registry.chat = AsyncMock(return_value=ChatResult(
-            content="<think>思考中...</think>最终回答",
-            model="coding-fast",
-        ))
+        mock_registry.chat = AsyncMock(
+            return_value=ChatResult(
+                content="<think>思考中...</think>最终回答",
+                model="coding-fast",
+            )
+        )
         mock_registry.get_provider.return_value = MagicMock(name="test")
         mock_registry.get.return_value = MagicMock(id="coding-fast")
 
@@ -365,9 +367,9 @@ class TestEmbedFallback:
         mock_session = AsyncMock()
         mock_session.post = mock_post
 
-        with patch("aiohttp.ClientSession") as MockSession:
-            MockSession.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-            MockSession.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch("aiohttp.ClientSession") as mock_client_session:
+            mock_client_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_client_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
             result = asyncio.run(gw.embed(["test text"]))
 
@@ -390,14 +392,16 @@ class TestHealthCheck:
         mock_response.status = 200
 
         mock_session = AsyncMock()
-        mock_session.get = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=mock_response),
-            __aexit__=AsyncMock(return_value=False),
-        ))
+        mock_session.get = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_response),
+                __aexit__=AsyncMock(return_value=False),
+            )
+        )
 
-        with patch("aiohttp.ClientSession") as MockSession:
-            MockSession.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-            MockSession.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch("aiohttp.ClientSession") as mock_client_session:
+            mock_client_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_client_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
             result = asyncio.run(gw.health())
 
@@ -443,7 +447,7 @@ class TestSingleton:
     """gateway 单例."""
 
     def test_get_gateway_returns_same_instance(self):
-        from llm_gateway.gateway import get_gateway, reset_gateway, GatewayConfig
+        from llm_gateway.gateway import GatewayConfig, get_gateway, reset_gateway
 
         reset_gateway()
         config = GatewayConfig(background_tasks_enabled=False)
@@ -453,7 +457,7 @@ class TestSingleton:
         reset_gateway()
 
     def test_reset_gateway_creates_new(self):
-        from llm_gateway.gateway import get_gateway, reset_gateway, GatewayConfig
+        from llm_gateway.gateway import GatewayConfig, get_gateway, reset_gateway
 
         reset_gateway()
         config = GatewayConfig(background_tasks_enabled=False)
@@ -504,7 +508,7 @@ class TestMemoryGuardIntegration:
             proc_mock.returncode = 0
             mock_proc.return_value = proc_mock
 
-            result = asyncio.run(gw._ensure_model("coding-fast"))
+            assert asyncio.run(gw._ensure_model("coding-fast")) is not None
 
         # 内存检查被跳过, can_load 不应被调用
         gw._memory_guard.can_load.assert_not_called()
@@ -515,7 +519,6 @@ class TestMemoryGuardIntegration:
 
 def run_all():
     """Run all tests without pytest (fallback)."""
-    import sys
 
     test_classes = [
         TestStripThinking,

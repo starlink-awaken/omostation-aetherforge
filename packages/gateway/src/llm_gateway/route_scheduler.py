@@ -17,7 +17,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from aetherforge._paths import M1_MODEL_DIR as _M1_MODEL_DIR, M1_ROUTING_POLICY_DIR
+from aetherforge._paths import M1_MODEL_DIR as _M1_MODEL_DIR
+from aetherforge._paths import M1_ROUTING_POLICY_DIR
 
 from .pricing import PricingRegistry
 from .quota_engine import QuotaEngine
@@ -55,10 +56,17 @@ class RouteStrategies:
 
 # 已知 Provider 的参考延迟 (ms)
 _REF_LATENCY: dict[str, float] = {
-    "deepseek": 800, "openai": 500, "anthropic": 600,
-    "gemini": 900, "minimax": 1200, "kimi": 700,
-    "openrouter": 1500, "siliconflow": 1000, "nvidia": 2000,
-    "ollama": 200, "hitl": 5000,
+    "deepseek": 800,
+    "openai": 500,
+    "anthropic": 600,
+    "gemini": 900,
+    "minimax": 1200,
+    "kimi": 700,
+    "openrouter": 1500,
+    "siliconflow": 1000,
+    "nvidia": 2000,
+    "ollama": 200,
+    "hitl": 5000,
 }
 
 # Quota provider → compute_engine name mapping
@@ -103,7 +111,7 @@ def _load_model_provider_map() -> dict[str, list[str]]:
                         short = "-".join(parts[:i])
                         if len(short) > 5:
                             mapping.setdefault(short, []).append(engine_ref)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.debug("Failed to load model map from %s: %s", yaml_file, e)
 
     return mapping
@@ -137,6 +145,7 @@ class RouteScheduler:
             return
         try:
             import yaml
+
             for yaml_file in M1_ROUTING_POLICY_DIR.glob("RP-*.yaml"):
                 try:
                     with open(yaml_file, encoding="utf-8") as f:
@@ -144,11 +153,11 @@ class RouteScheduler:
                     if data and "strategy" in data:
                         strategy_name = data["strategy"].lower()
                         self._policies[strategy_name] = data
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     _log.debug("Failed to load routing policy from %s: %s", yaml_file, e)
             if self._policies:
                 _log.info("RouteScheduler loaded %d dynamic routing policies from M1", len(self._policies))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.warning("Failed to initialize routing policies: %s", e)
 
     # ── Public API ─────────────────────────────────────────────────────────
@@ -245,7 +254,7 @@ class RouteScheduler:
                 best_score = total
                 best_route = Route(
                     provider=provider,
-                    model=model or self._pricing.get_price("", provider) or "",
+                    model=model or self._pricing.get_price("", provider) or "",  # type: ignore[reportArgumentType]
                     cost_per_1k_input=cost_p.get("input", 0),
                     cost_per_1k_output=cost_p.get("output", 0),
                     score=round(total, 3),
@@ -324,13 +333,18 @@ class RouteScheduler:
             speed_score = max(0, 1.0 - (latency / 10000))
             total = cost_score * weights["cost"] + quota_score * weights["quota"] + speed_score * weights["speed"]
 
-            routes.append(Route(
-                provider=provider, model=model or "",
-                cost_per_1k_input=cost_p.get("input", 0),
-                cost_per_1k_output=cost_p.get("output", 0),
-                score=round(total, 3), strategy=strategy,
-                quota_pct=status.quota_pct, quota_source=status.quota_source,
-            ))
+            routes.append(
+                Route(
+                    provider=provider,
+                    model=model or "",
+                    cost_per_1k_input=cost_p.get("input", 0),
+                    cost_per_1k_output=cost_p.get("output", 0),
+                    score=round(total, 3),
+                    strategy=strategy,
+                    quota_pct=status.quota_pct,
+                    quota_source=status.quota_source,
+                )
+            )
 
         return sorted(routes, key=lambda r: r.score, reverse=True)
 

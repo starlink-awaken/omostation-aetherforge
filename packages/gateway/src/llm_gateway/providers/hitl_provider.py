@@ -41,7 +41,7 @@ class HitlLLMProvider(LLMProvider):
                 provider="hitl",
                 metadata={"hitl_triggered": True},
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.error(f"[HITL] Failed to trigger human intervention: {e}")
             return LLMResponse(
                 content=f"[ERROR] HITL failed: {e}",
@@ -60,7 +60,7 @@ class HitlLLMProvider(LLMProvider):
                 provider="hitl",
                 metadata={"hitl_triggered": True},
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.error(f"[HITL] Failed to trigger human intervention: {e}")
             return LLMResponse(
                 content=f"[ERROR] HITL failed: {e}",

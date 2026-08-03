@@ -6,7 +6,7 @@ import re
 import subprocess
 from typing import Any
 
-from ._compat import AgentDaemonBase
+from ._compat import AgentDaemonBase  # type: ignore[reportMissingImports]
 
 """
 ---

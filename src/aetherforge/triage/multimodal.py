@@ -11,9 +11,8 @@ from __future__ import annotations
 import json
 import urllib.request
 from dataclasses import dataclass
-from typing import Optional
 
-from .router import TriageRouter, TriageResult
+from .router import TriageResult, TriageRouter
 
 
 @dataclass
@@ -35,18 +34,22 @@ class MultiModalTriage:
             # 提取标题
             if not title:
                 import re
+
                 title_match = re.search(r"<title>(.*?)</title>", content, re.IGNORECASE | re.DOTALL)
                 title = title_match.group(1).strip() if title_match else url
 
             # 提取文本
             import re
+
             text = re.sub(r"<[^>]+>", " ", content)
             text = re.sub(r"\s+", " ", text).strip()[:500]
 
             return self.router.triage_one(text, title=title, url=url)
         except Exception as e:
             return TriageResult(
-                verdict="错误", model="", latency=0,
+                verdict="错误",
+                model="",
+                latency=0,
                 error=f"URL 抓取失败: {str(e)[:50]}",
             )
 
@@ -58,25 +61,27 @@ class MultiModalTriage:
 - 沉淀: 技术图表/架构图/知识图谱/有价值截图
 - 提醒: 包含时间/日期/待办/告警的截图
 
-图片描述: {description if description else '无'}
+图片描述: {description if description else "无"}
 URL: {image_url}
 
 只输出一个词 (丢弃/沉淀/提醒):"""
 
-        payload = json.dumps({
-            "model": "vision",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_url}},
-                    ],
-                }
-            ],
-            "max_tokens": 20,
-            "temperature": 0,
-        }).encode()
+        payload = json.dumps(
+            {
+                "model": "vision",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_url}},
+                        ],
+                    }
+                ],
+                "max_tokens": 20,
+                "temperature": 0,
+            }
+        ).encode()
 
         req = urllib.request.Request(
             self.gateway_url,
@@ -88,6 +93,7 @@ URL: {image_url}
         )
 
         import time
+
         t0 = time.time()
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
@@ -108,7 +114,8 @@ URL: {image_url}
             )
         except Exception as e:
             return TriageResult(
-                verdict="错误", model="vision",
+                verdict="错误",
+                model="vision",
                 latency=time.time() - t0,
                 error=str(e)[:50],
             )

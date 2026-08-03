@@ -24,7 +24,7 @@ class TestDeepSeekProviderConfig:
     def test_default_base_url(self) -> None:
         """默认 base_url 应指向 deepseek API。"""
         provider = DeepSeekProvider(api_key="test-key")
-        assert "deepseek.com" in provider.base_url
+        assert "deepseek.com" in provider.base_url  # type: ignore[reportOperatorIssue]
 
     def test_default_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """默认 model 来自 BOS_DEEPSEEK_MODEL env 或 hard-coded 'deepseek-chat'。"""

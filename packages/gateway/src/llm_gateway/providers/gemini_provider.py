@@ -77,7 +77,7 @@ class GeminiProvider(LLMProvider):
                 output_tokens=getattr(getattr(response, "usage_metadata", None), "candidates_token_count", 0) or 0,
                 finish_reason="stop",
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log.error("GeminiProvider.generate failed: %s", exc)
             raise
 
@@ -100,6 +100,6 @@ class GeminiProvider(LLMProvider):
                 text = getattr(chunk, "text", None)
                 if text:
                     yield text
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log.warning("GeminiProvider.stream_generate failed: %s", exc)
             raise

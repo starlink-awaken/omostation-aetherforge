@@ -48,7 +48,7 @@ def main():
         # run_batch(args.batch, router, tracker)
         print("batch: 使用 --consensus 模式")
     elif args.text:
-        result = router.triage_one(args.text)
+        result = router.triage_one(args.text)  # type: ignore[reportUndefinedVariable]
         print(json.dumps({
             "verdict": result.verdict,
             "model": result.model,
@@ -107,7 +107,7 @@ def run_consensus(text: str, gateway: str, key: str):
         if r["verdict"] in ("丢弃", "沉淀", "提醒"):
             votes[r["verdict"]] = votes.get(r["verdict"], 0) + 1
 
-    max_v = max(votes, key=votes.get) if votes else "未知"
+    max_v = max(votes, key=votes.get) if votes else "未知"  # type: ignore[reportArgumentType]
     max_c = max(votes.values()) if votes else 0
     agreement = max_c / 3
     status = "共识" if agreement == 1.0 else ("多数" if agreement >= 2/3 else "分歧")

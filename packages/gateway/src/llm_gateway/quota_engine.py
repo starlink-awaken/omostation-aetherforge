@@ -32,6 +32,7 @@ from enum import Enum
 from typing import Any
 
 from aetherforge._paths import M1_QUOTA_DIR
+
 from .credentials import CredentialsManager
 
 _log = logging.getLogger(__name__)
@@ -148,6 +149,7 @@ class QuotaEngine:
             return
         try:
             import yaml
+
             for yaml_file in M1_QUOTA_DIR.glob("QD-*.yaml"):
                 try:
                     with open(yaml_file, encoding="utf-8") as f:
@@ -160,10 +162,10 @@ class QuotaEngine:
                             self._check_commands[provider] = data["check_command"]
                         if data.get("source") == "codexbar":
                             self._codexbar_providers[provider] = provider
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     _log.debug("Failed to load quota definition from %s: %s", yaml_file, e)
             _log.info("QuotaEngine: loaded dynamic quota definitions from M1")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.warning("Failed to initialize quota definitions: %s", e)
 
     # ── Lifecycle ───────────────────────────────────────────────────────
@@ -209,7 +211,7 @@ class QuotaEngine:
                 if self._first_batch:
                     _log.info("QuotaEngine: first batch complete (%d providers)", len(self._cache))
                     self._first_batch = False
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 _log.warning("QuotaEngine refresh failed: %s", e)
 
             for _ in range(self._interval):
@@ -226,7 +228,7 @@ class QuotaEngine:
         try:
             for k in self._creds.list_keys():
                 all_providers.add(k["provider"])
-        except Exception:  # noqa: BLE001
+        except Exception:
             _log.warning("Suppressed exception in %s", __name__)
         for p in ["deepseek", "openai", "anthropic", "gemini", "ollama"]:
             all_providers.add(p)
@@ -270,6 +272,7 @@ class QuotaEngine:
         custom_cmd = self._check_commands.get(provider)
         if custom_cmd:
             import shlex
+
             cmd_args = shlex.split(custom_cmd)
         else:
             cmd_args = ["codexbar", "usage", "--format", "json", "--provider", mapped]
@@ -309,7 +312,7 @@ class QuotaEngine:
                             pd.balance = float(nums[0])
                             pd.balance_unit = "CNY"
                     elif "$" in reset_desc:
-                        nums = re.findall(r"[\d.]+", reset_desc)
+                        nums = re.findall(r"[\d.]+", reset_desc)  # type: ignore[reportAttributeAccessIssue]
                         if nums:
                             pd.balance = float(nums[0])
                             pd.balance_unit = "USD"

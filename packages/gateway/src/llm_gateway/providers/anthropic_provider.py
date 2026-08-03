@@ -71,14 +71,14 @@ class AnthropicProvider(LLMProvider):
 
     def _get_client(self) -> Any:
         if self._client is None:
-            import anthropic
+            import anthropic  # type: ignore[reportMissingImports]
 
             self._client = anthropic.Anthropic(api_key=self._api_key)
         return self._client
 
     def _get_async_client(self) -> Any:
         if self._async_client is None:
-            import anthropic
+            import anthropic  # type: ignore[reportMissingImports]
 
             self._async_client = anthropic.AsyncAnthropic(api_key=self._api_key)
         return self._async_client
@@ -107,7 +107,7 @@ class AnthropicProvider(LLMProvider):
                 output_tokens=response.usage.output_tokens,
                 finish_reason=response.stop_reason or "stop",
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log.error("AnthropicProvider.generate failed: %s", exc)
             raise
 
@@ -135,7 +135,7 @@ class AnthropicProvider(LLMProvider):
                 output_tokens=response.usage.output_tokens,
                 finish_reason=response.stop_reason or "stop",
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log.error("AnthropicProvider.complete failed: %s", exc)
             raise
 
@@ -152,6 +152,6 @@ class AnthropicProvider(LLMProvider):
             ) as stream:
                 async for text in stream.text_stream:
                     yield text
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log.error("AnthropicProvider.stream_generate failed: %s", exc)
             raise

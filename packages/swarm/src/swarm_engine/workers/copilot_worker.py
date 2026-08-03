@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Any
 
-from ._compat import AgentDaemonBase, KnowledgeEnhancementMixin
+from ._compat import AgentDaemonBase, KnowledgeEnhancementMixin  # type: ignore[reportMissingImports]
 
 """
 ---

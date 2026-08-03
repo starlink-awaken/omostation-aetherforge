@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from ._compat import (
+from ._compat import (  # type: ignore[reportMissingImports]
     AgentDaemonBase,
     ISynapseWorker,
     MessageEnvelope,

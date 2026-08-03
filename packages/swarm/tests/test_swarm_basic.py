@@ -6,6 +6,6 @@ class TestSwarm:
 
     def test_initialization(self):
         """测试初始化"""
-        from aetherforge.swarm import __init__
+        from aetherforge.swarm import __init__  # type: ignore[reportAttributeAccessIssue]
 
         assert __init__ is not None

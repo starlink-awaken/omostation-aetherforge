@@ -67,6 +67,7 @@ class SwarmEventEmitter:
 
         try:
             from .event_bus import EventBus
+
             bus = EventBus.get_instance()
             if bus is None:
                 return

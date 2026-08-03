@@ -171,7 +171,7 @@ class MetricsCollector:
                 os.write(fd, line)
             finally:
                 os.close(fd)
-        except Exception:  # noqa: BLE001
+        except Exception:
             _log.exception("Failed to export metrics")
         return self._export_path
 

@@ -18,7 +18,9 @@ class TestProviderData:
     def test_to_dict(self):
         from llm_gateway.quota_engine import ProviderData
 
-        pd = ProviderData(provider="openai", available=True, status="available", quota_pct=80.0, quota_source="codexbar")
+        pd = ProviderData(
+            provider="openai", available=True, status="available", quota_pct=80.0, quota_source="codexbar"
+        )
         d = pd.to_dict()
         assert d["provider"] == "openai"
         assert d["available"] is True
@@ -107,6 +109,7 @@ refresh_interval: 100
 
         # 2. Mock M1_QUOTA_DIR
         from llm_gateway import quota_engine
+
         monkeypatch.setattr(quota_engine, "M1_QUOTA_DIR", quota_dir)
 
         # 3. 实例化并验证加载

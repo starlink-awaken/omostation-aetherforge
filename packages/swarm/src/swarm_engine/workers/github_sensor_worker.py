@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from ._compat import ISynapseWorker, MessageEnvelope, Receipt, SynapseAgentCard
+from ._compat import ISynapseWorker, MessageEnvelope, Receipt, SynapseAgentCard  # type: ignore[reportMissingImports]
 from .agent_daemon_base import AgentDaemonBase  # type: ignore[import-not-found]
 
 """
@@ -96,7 +96,7 @@ class GitHubSensorWorker(AgentDaemonBase, ISynapseWorker):
         if self.token:
             headers["Authorization"] = f"token {self.token}"
 
-        req = urllib.request.Request(url, headers=headers)  # noqa: S310
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=10) as response:  # noqa: S310
                 if response.status == 200:

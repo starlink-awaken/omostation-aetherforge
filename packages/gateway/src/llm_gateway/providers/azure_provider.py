@@ -113,7 +113,7 @@ class AzureOpenAIProvider(LLMProvider):
                 output_tokens=resp.usage.completion_tokens if resp.usage else 0,
                 finish_reason=choice.finish_reason or "stop",
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.error("Azure OpenAI generate failed: %s", e)
             raise
 
@@ -141,7 +141,7 @@ class AzureOpenAIProvider(LLMProvider):
                 output_tokens=resp.usage.completion_tokens if resp.usage else 0,
                 finish_reason=choice.finish_reason or "stop",
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.error("Azure OpenAI complete failed: %s", e)
             raise
 
@@ -163,6 +163,6 @@ class AzureOpenAIProvider(LLMProvider):
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _log.error("Azure OpenAI stream failed: %s", e)
             raise

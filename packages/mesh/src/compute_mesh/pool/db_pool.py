@@ -92,7 +92,7 @@ def get_connection(db_path: str | Path) -> Generator[sqlite3.Connection]:
     try:
         yield conn
         conn.commit()
-    except Exception:  # noqa: BLE001
+    except Exception:
         try:
             conn.rollback()
         except sqlite3.Error as rb_err:

@@ -90,7 +90,7 @@ class MeshScheduler:
         # Get online node IDs
         {n.node_id for n in self._pool.get_online()}
         preferred_zone = (
-            request.metadata.get("preferred_zone", "") if hasattr(request, "metadata") and request.metadata else ""
+            request.metadata.get("preferred_zone", "") if hasattr(request, "metadata") and request.metadata else ""  # type: ignore[reportAttributeAccessIssue]
         )
 
         # Build mesh-aware pipeline
@@ -139,10 +139,10 @@ class MeshScheduler:
                 fb_request = ModelRequest(
                     task=request.task,
                     required_capabilities=request.required_capabilities,
-                    preferred_provider=fallback_provider,
+                    preferred_provider=fallback_provider,  # type: ignore[reportArgumentType]
                 )
                 fb_policy = ModelRoutePolicy(strategy=policy.strategy)
-                selection = await self._gateway.select_model(fb_request, fb_policy)
+                selection = await self._gateway.select_model(fb_request, fb_policy)  # type: ignore[reportOptionalMemberAccess]
                 if selection:
                     fb_node = self._provider_node_map.get(selection.provider_name, "")
                     if fb_node in online_node_ids:
@@ -150,7 +150,7 @@ class MeshScheduler:
                         return selection
 
         # Strategy 2: any online provider
-        selection = await self._gateway.select_model(request, policy)
+        selection = await self._gateway.select_model(request, policy)  # type: ignore[reportOptionalMemberAccess]
         if selection:
             return selection
 

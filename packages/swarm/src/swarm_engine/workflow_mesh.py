@@ -30,8 +30,7 @@ def new_workflow_event(
         "occurred_at": datetime.now(UTC).isoformat(),
         "producer": "aetherforge.swarm",
         "schema_version": "workflow-mesh/v1",
-        "idempotency_key": idempotency_key
-        or f"{workflow_run_id}:{event_type}:{step_run_id}",
+        "idempotency_key": idempotency_key or f"{workflow_run_id}:{event_type}:{step_run_id}",
         "payload": payload,
     }
 

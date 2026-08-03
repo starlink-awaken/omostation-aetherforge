@@ -28,26 +28,22 @@ class TestTaskAuctioneer:
     def test_min_bid_threshold_filters_low_bids(self):
         from swarm_engine.auctioneer import MarketConfig, TaskAuctioneer
 
-        auctioneer = TaskAuctioneer(
-            MarketConfig(strategy="highest_bid", min_bid_threshold=6.0)
-        )
+        auctioneer = TaskAuctioneer(MarketConfig(strategy="highest_bid", min_bid_threshold=6.0))
         bids = [
             {"node_id": "n1", "bid_price": 5.0, "task_id": "t1"},  # filtered
             {"node_id": "n2", "bid_price": 6.5, "task_id": "t1"},
             {"node_id": "n3", "bid_price": 8.0, "task_id": "t1"},
         ]
         winner = auctioneer.conduct_auction("t1", bids)
-        assert winner["node_id"] == "n3"
-        assert winner["bid_price"] == 8.0
+        assert winner["node_id"] == "n3"  # type: ignore[reportOptionalSubscript]
+        assert winner["bid_price"] == 8.0  # type: ignore[reportOptionalSubscript]
 
     def test_empty_or_all_filtered_returns_none(self):
         from swarm_engine.auctioneer import MarketConfig, TaskAuctioneer
 
         auctioneer = TaskAuctioneer(MarketConfig(min_bid_threshold=10.0))
         assert auctioneer.conduct_auction("t1", []) is None
-        assert auctioneer.conduct_auction(
-            "t1", [{"node_id": "n1", "bid_price": 1.0, "task_id": "t1"}]
-        ) is None
+        assert auctioneer.conduct_auction("t1", [{"node_id": "n1", "bid_price": 1.0, "task_id": "t1"}]) is None
 
 
 class TestTaskBidder:
@@ -59,9 +55,7 @@ class TestTaskBidder:
         bidder.add_capability("async")
         bidder.add_capability("sql")
         # Required: python + sql + rust → match 2/3 ≈ 0.667
-        match = bidder.evaluate_capability_match(
-            {"capabilities": ["python", "sql", "rust"]}
-        )
+        match = bidder.evaluate_capability_match({"capabilities": ["python", "sql", "rust"]})
         assert abs(match - (2 / 3)) < 0.001
 
     def test_no_required_capabilities_returns_full_match(self):

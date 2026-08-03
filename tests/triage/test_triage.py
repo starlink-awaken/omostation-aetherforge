@@ -1,28 +1,29 @@
 """Triage module tests — 覆盖 router/tracker/monitor/hotswap/multimodal."""
 
 import json
-import pytest
-import time
-from unittest.mock import patch, MagicMock
-from dataclasses import dataclass
 
 # 被测模块
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
+from aetherforge.triage.hotswap import HotSwapConfig, ModelHealth, ModelHotSwap
+from aetherforge.triage.monitor import BENCHMARK_SAMPLES, MonitorConfig, MonitorResult, TriageMonitor
 from aetherforge.triage.router import (
-    TriageRouter, TriageResult, ConsensusResult,
-    TRIAGE_PROMPT, CONSENSUS_STAGE1, CONSENSUS_STAGE2,
+    CONSENSUS_STAGE1,
+    CONSENSUS_STAGE2,
+    TRIAGE_PROMPT,
+    ConsensusResult,
+    TriageResult,
+    TriageRouter,
 )
-from aetherforge.triage.tracker import TriageTracker, TriageRecord
-from aetherforge.triage.monitor import TriageMonitor, MonitorConfig, MonitorResult, BENCHMARK_SAMPLES
-from aetherforge.triage.hotswap import ModelHotSwap, HotSwapConfig, ModelHealth
-
+from aetherforge.triage.tracker import TriageTracker
 
 # ============================================================
 # router tests
 # ============================================================
+
 
 class TestTriageResult:
     def test_fields(self):
@@ -43,8 +44,12 @@ class TestTriageResult:
 class TestConsensusResult:
     def test_fields(self):
         r = ConsensusResult(
-            verdict="沉淀", votes={"沉淀": 3}, agreement=1.0,
-            status="共识", latency=1.5, details=[],
+            verdict="沉淀",
+            votes={"沉淀": 3},
+            agreement=1.0,
+            status="共识",
+            latency=1.5,
+            details=[],
         )
         assert r.verdict == "沉淀"
         assert r.agreement == 1.0
@@ -52,8 +57,12 @@ class TestConsensusResult:
 
     def test_majority(self):
         r = ConsensusResult(
-            verdict="丢弃", votes={"丢弃": 2, "提醒": 1}, agreement=2/3,
-            status="多数", latency=2.0, details=[],
+            verdict="丢弃",
+            votes={"丢弃": 2, "提醒": 1},
+            agreement=2 / 3,
+            status="多数",
+            latency=2.0,
+            details=[],
         )
         assert r.status == "多数"
         assert r.votes["丢弃"] == 2
@@ -90,12 +99,13 @@ class TestTriageRouter:
         router = TriageRouter()
         result = router.triage_one("test")
         assert result.verdict == "错误"
-        assert "not initialized" in result.error
+        assert "not initialized" in result.error  # type: ignore[reportOperatorIssue]
 
 
 # ============================================================
 # tracker tests
 # ============================================================
+
 
 class TestTriageTracker:
     def test_init(self):
@@ -139,6 +149,7 @@ class TestTriageTracker:
 # monitor tests
 # ============================================================
 
+
 class TestMonitorConfig:
     def test_defaults(self):
         c = MonitorConfig()
@@ -157,6 +168,7 @@ class TestBenchmarkSamples:
 
     def test_balanced(self):
         from collections import Counter
+
         counts = Counter(s[1] for s in BENCHMARK_SAMPLES)
         assert counts["丢弃"] == 6
         assert counts["沉淀"] == 8
@@ -166,25 +178,43 @@ class TestBenchmarkSamples:
 class TestMonitorResult:
     def test_fields(self):
         r = MonitorResult(
-            timestamp="2026-07-31T00:00:00Z", accuracy=0.95, avg_latency=1.0,
-            p95_latency=1.5, total_samples=20, correct=19, errors=0, alert=False,
+            timestamp="2026-07-31T00:00:00Z",
+            accuracy=0.95,
+            avg_latency=1.0,
+            p95_latency=1.5,
+            total_samples=20,
+            correct=19,
+            errors=0,
+            alert=False,
         )
         assert r.accuracy == 0.95
         assert r.alert is False
 
     def test_alert_on_low_accuracy(self):
         r = MonitorResult(
-            timestamp="2026-07-31T00:00:00Z", accuracy=0.7, avg_latency=1.0,
-            p95_latency=1.5, total_samples=20, correct=14, errors=0,
-            alert=True, alert_reason="准确率 70% < 80%",
+            timestamp="2026-07-31T00:00:00Z",
+            accuracy=0.7,
+            avg_latency=1.0,
+            p95_latency=1.5,
+            total_samples=20,
+            correct=14,
+            errors=0,
+            alert=True,
+            alert_reason="准确率 70% < 80%",
         )
         assert r.alert is True
 
     def test_alert_on_high_latency(self):
         r = MonitorResult(
-            timestamp="2026-07-31T00:00:00Z", accuracy=0.9, avg_latency=3.0,
-            p95_latency=4.0, total_samples=20, correct=18, errors=0,
-            alert=True, alert_reason="延迟 3.00s > 2.0s",
+            timestamp="2026-07-31T00:00:00Z",
+            accuracy=0.9,
+            avg_latency=3.0,
+            p95_latency=4.0,
+            total_samples=20,
+            correct=18,
+            errors=0,
+            alert=True,
+            alert_reason="延迟 3.00s > 2.0s",
         )
         assert r.alert is True
 
@@ -205,6 +235,7 @@ class TestTriageMonitor:
 # ============================================================
 # hotswap tests
 # ============================================================
+
 
 class TestModelHealth:
     def test_defaults(self):
@@ -252,6 +283,7 @@ class TestModelHotSwap:
 # ============================================================
 # integration smoke (mock gateway)
 # ============================================================
+
 
 class TestIntegrationSmoke:
     """Mock gateway 的集成测试."""

@@ -80,9 +80,14 @@ class RoutingPolicy:
 
     id: str
     strategy: str  # balanced / cost-first / speed-first / quota-first
-    weights: dict[str, float] = field(default_factory=lambda: {
-        "cost": 0.35, "speed": 0.25, "quota": 0.25, "affinity": 0.15,
-    })
+    weights: dict[str, float] = field(
+        default_factory=lambda: {
+            "cost": 0.35,
+            "speed": 0.25,
+            "quota": 0.25,
+            "affinity": 0.15,
+        }
+    )
     constraints: dict[str, object] = field(default_factory=dict)
 
     @classmethod
@@ -259,9 +264,13 @@ class FallbackManager:
             try:
                 route = self.scheduler.select(r1)
                 return Route(
-                    provider=route.provider, model=route.model, node=route.node,
-                    cost_per_1k=route.cost_per_1k, score=route.score,
-                    degraded=True, reason="fallback: 放宽配额门槛",
+                    provider=route.provider,
+                    model=route.model,
+                    node=route.node,
+                    cost_per_1k=route.cost_per_1k,
+                    score=route.score,
+                    degraded=True,
+                    reason="fallback: 放宽配额门槛",
                 )
             except LookupError:
                 pass
@@ -272,9 +281,13 @@ class FallbackManager:
             try:
                 route = self.scheduler.select(r2)
                 return Route(
-                    provider=route.provider, model=route.model, node=route.node,
-                    cost_per_1k=route.cost_per_1k, score=route.score,
-                    degraded=True, reason="fallback: 放宽成本上限",
+                    provider=route.provider,
+                    model=route.model,
+                    node=route.node,
+                    cost_per_1k=route.cost_per_1k,
+                    score=route.score,
+                    degraded=True,
+                    reason="fallback: 放宽成本上限",
                 )
             except LookupError:
                 pass

@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import os
 from unittest.mock import MagicMock
-
-import pytest
 
 
 def test_get_langfuse_client_not_configured(monkeypatch):
@@ -18,6 +15,7 @@ def test_get_langfuse_client_not_configured(monkeypatch):
 
     # Global client cache reset
     import llm_gateway.tracing as tracing
+
     tracing._client = None
 
     client = get_langfuse_client()
@@ -28,6 +26,7 @@ def test_get_langfuse_client_configured(monkeypatch):
     # Mock Langfuse constructor
     mock_langfuse = MagicMock()
     import llm_gateway.tracing as tracing
+
     monkeypatch.setattr(tracing, "Langfuse", mock_langfuse)
     monkeypatch.setattr(tracing, "_LANGFUSE_AVAILABLE", True)
     tracing._client = None
@@ -49,6 +48,7 @@ def test_trace_llm_call_context_manager(monkeypatch):
     mock_client.trace.return_value = mock_trace
 
     import llm_gateway.tracing as tracing
+
     tracing._client = mock_client
     monkeypatch.setattr(tracing, "_LANGFUSE_AVAILABLE", True)
 
@@ -56,12 +56,8 @@ def test_trace_llm_call_context_manager(monkeypatch):
     with tracing.trace_llm_call("engine/model-name", messages) as gen:
         assert gen is mock_generation
         mock_client.trace.assert_called_once_with(
-            name="aetherforge-gateway-call",
-            metadata={"model_id": "engine/model-name", "strategy": "balanced"}
+            name="aetherforge-gateway-call", metadata={"model_id": "engine/model-name", "strategy": "balanced"}
         )
         mock_trace.generation.assert_called_once_with(
-            name="chat-completion",
-            model="model-name",
-            input="user: hello",
-            metadata={"messages": messages}
+            name="chat-completion", model="model-name", input="user: hello", metadata={"messages": messages}
         )

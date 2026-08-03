@@ -158,7 +158,7 @@ class ObjectStore:
                 try:
                     with get_connection(self._db_path) as conn:
                         conn.execute("DELETE FROM objects WHERE oid = ?", (oid,))
-                except Exception as e:  # noqa: BLE001
+                except Exception:
                     _log.exception("Failed to delete object %s from db", oid)
         return existed
 
@@ -194,7 +194,7 @@ class ObjectStore:
                             "DELETE FROM objects WHERE expires_at > 0 AND expires_at < ?",
                             (now,),
                         )
-                except Exception as e:  # noqa: BLE001
+                except Exception:
                     _log.exception("Failed to evict expired objects from db")
         return len(expired)
 
@@ -218,7 +218,7 @@ class ObjectStore:
                         entry["expires_at"],
                     ),
                 )
-        except Exception:  # noqa: BLE001
+        except Exception:
             _log.exception("Failed to persist object %s", entry["oid"])
 
     def _load_from_db(self, oid: str) -> dict[str, Any] | None:
@@ -232,7 +232,7 @@ class ObjectStore:
                 row = c.fetchone()
                 if row:
                     return dict(row)
-        except Exception as e:  # noqa: BLE001
+        except Exception:
             _log.exception("Failed to load object %s from db", oid)
         return None
 
@@ -262,7 +262,7 @@ class ObjectStore:
                 try:
                     with get_connection(self._db_path) as conn:
                         conn.execute("DELETE FROM objects")
-                except Exception as e:  # noqa: BLE001
+                except Exception:
                     _log.exception("Failed to clear objects from db")
 
 

@@ -232,7 +232,7 @@ class SwarmWatchdog:
         if self._watchdog_factory is not None:
             return self._watchdog_factory()
         try:
-            from nucleus.Z_Microkernel.organs.metabolic_watchdog import (
+            from nucleus.Z_Microkernel.organs.metabolic_watchdog import (  # type: ignore[reportMissingImports]
                 MetabolicWatchdog,
             )
 

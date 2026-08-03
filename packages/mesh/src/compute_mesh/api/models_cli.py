@@ -74,7 +74,7 @@ def cmd_cost(model_id: str) -> int:
         if model_id in p.available_models():
             cost_in = cost_out = "unknown"
             if hasattr(p, "get_model_cost"):
-                cost = p.get_model_cost(model_id)
+                cost = p.get_model_cost(model_id)  # type: ignore[reportAttributeAccessIssue]
                 if cost:
                     cost_in = f"${cost.get('input', 0):.4f}"
                     cost_out = f"${cost.get('output', 0):.4f}"

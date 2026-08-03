@@ -16,6 +16,6 @@ class TestGateway:
 
     def test_initialization(self):
         """测试初始化"""
-        from aetherforge.gateway import __init__
+        from aetherforge.gateway import __init__  # type: ignore[reportAttributeAccessIssue]
 
         assert __init__ is not None

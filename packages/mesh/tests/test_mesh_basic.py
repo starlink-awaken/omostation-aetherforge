@@ -16,6 +16,6 @@ class TestMesh:
 
     def test_initialization(self):
         """测试初始化"""
-        from aetherforge.mesh import __init__
+        from aetherforge.mesh import __init__  # type: ignore[reportAttributeAccessIssue]
 
         assert __init__ is not None

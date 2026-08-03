@@ -37,7 +37,7 @@ def _try_get_bus_publish():
         from bus_foundation.envelope import BusEnvelope, EventType  # type: ignore[import]
 
         return publish, BusEnvelope, EventType
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None, None, None
 
 
@@ -48,14 +48,14 @@ def _bus_publish(topic: str, payload: dict, source: str = "swarm_engine._compat"
         _log.debug("bus-foundation unavailable, skipping publish: %s", topic)
         return
     try:
-        env = bus_env_cls(
-            event_type=event_type_cls.INFO,
+        env = bus_env_cls(  # type: ignore[reportOptionalCall]
+            event_type=event_type_cls.INFO,  # type: ignore[reportOptionalMemberAccess]
             topic=topic,
-            source=source,
+            source=source,  # type: ignore[reportCallIssue]
             payload=payload,
         )
         publish_fn(env)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.warning("bus_publish failed topic=%s: %s", topic, exc)
 
 

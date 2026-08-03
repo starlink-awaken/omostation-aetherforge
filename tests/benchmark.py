@@ -60,6 +60,7 @@ def bench(name: str, iterations: int = 1000, warmup: int = 100):
     The decorated function receives ``(n: int)`` and should perform
     *n* iterations, returning a list of per-call latencies in ms.
     """
+
     def decorator(fn):
         def wrapper(*args, **kwargs):
             result = BenchResult(name=name, ops=iterations)
@@ -75,14 +76,18 @@ def bench(name: str, iterations: int = 1000, warmup: int = 100):
 
             result.total_ms = elapsed
             result.ops_per_sec = iterations / (elapsed / 1000)
-            result.avg_ms = elapsed / iterations if latencies is None else (sum(latencies) / len(latencies)) if latencies else 0
+            result.avg_ms = (
+                elapsed / iterations if latencies is None else (sum(latencies) / len(latencies)) if latencies else 0
+            )
 
             if latencies:
                 result.p50_ms = _percentile(latencies, 50)
                 result.p99_ms = _percentile(latencies, 99)
 
             return result
+
         return wrapper
+
     return decorator
 
 
@@ -90,9 +95,11 @@ def bench(name: str, iterations: int = 1000, warmup: int = 100):
 # 1. RateLimiter
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @bench("RateLimiter.acquire (hot path)", iterations=10_000, warmup=500)
 def bench_rate_limiter(n: int):
     from llm_gateway.rate_limiter import RateLimiter
+
     rl = RateLimiter()
     rl.set_limit("test-model", tpm=1_000_000, rpm=100_000)
 
@@ -107,6 +114,7 @@ def bench_rate_limiter(n: int):
 @bench("RateLimiter.throttle (limit hit)", iterations=5_000, warmup=200)
 def bench_rate_limiter_throttle(n: int):
     from llm_gateway.rate_limiter import RateLimiter
+
     rl = RateLimiter()
     rl.set_limit("tight-model", tpm=10, rpm=1)
 
@@ -121,6 +129,7 @@ def bench_rate_limiter_throttle(n: int):
 # ══════════════════════════════════════════════════════════════════════════
 # 2. RouterPipeline
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @bench("RouterPipeline.select (10 models)", iterations=5_000, warmup=500)
 def bench_pipeline_select(n: int):
@@ -138,10 +147,14 @@ def bench_pipeline_select(n: int):
     # Create test models
     models = [
         ModelDescriptor(
-            id=f"model-{i}", provider=f"p{i % 5}", capabilities=["chat"],
-            is_available=True, cost_per_1k_tokens={"input": 0.01 * (i % 3), "output": 0.02 * (i % 3)},
+            id=f"model-{i}",
+            provider=f"p{i % 5}",
+            capabilities=["chat"],
+            is_available=True,
+            cost_per_1k_tokens={"input": 0.01 * (i % 3), "output": 0.02 * (i % 3)},
             context_window=4096 * (1 + i % 4),
-        ) for i in range(10)
+        )
+        for i in range(10)
     ]
     req = ModelRequest(task="bench", required_capabilities=["chat"])
 
@@ -175,11 +188,14 @@ def bench_pipeline_select_100(n: int):
 
     models = [
         ModelDescriptor(
-            id=f"model-{i}", provider=f"p{i % 10}", capabilities=["chat"],
+            id=f"model-{i}",
+            provider=f"p{i % 10}",
+            capabilities=["chat"],
             is_available=i % 20 != 0,  # 5% offline
             cost_per_1k_tokens={"input": 0.01 * (i % 5), "output": 0.02 * (i % 5)},
             context_window=4096 * (1 + i % 8),
-        ) for i in range(100)
+        )
+        for i in range(100)
     ]
     req = ModelRequest(task="bench", required_capabilities=["chat"])
 
@@ -202,9 +218,11 @@ def bench_pipeline_select_100(n: int):
 # 3. MetricsCollector
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @bench("MetricsCollector.record (4 fields)", iterations=20_000, warmup=500)
 def bench_metrics_record(n: int):
     from llm_gateway.metrics import MetricsCollector
+
     mc = MetricsCollector()
 
     latencies = []
@@ -222,9 +240,11 @@ def bench_metrics_record(n: int):
 # 4. WorkerMessageBus
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @bench("WorkerMessageBus.send+receive", iterations=5_000, warmup=200)
 def bench_message_bus(n: int):
     from compute_mesh.worker.message_bus import WorkerMessageBus
+
     bus = WorkerMessageBus()
 
     latencies = []
@@ -239,9 +259,11 @@ def bench_message_bus(n: int):
 # 5. Config loading
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @bench("Config.load (defaults)", iterations=1_000, warmup=100)
 def bench_config_load(n: int):
     from aetherforge.config import load_config
+
     latencies = []
     for _ in range(n):
         t0 = time.perf_counter()
@@ -253,6 +275,7 @@ def bench_config_load(n: int):
 # ══════════════════════════════════════════════════════════════════════════
 # Runner
 # ══════════════════════════════════════════════════════════════════════════
+
 
 def run_all(json_output: bool = False) -> list[BenchResult]:
     """Run all benchmarks.
@@ -275,7 +298,7 @@ def run_all(json_output: bool = False) -> list[BenchResult]:
 
     results: list[BenchResult] = []
     for bm in benchmarks:
-        r = bm()
+        r = bm()  # type: ignore[reportCallIssue]
         results.append(r)
 
     return results
@@ -310,11 +333,20 @@ if __name__ == "__main__":
     results = run_all()
 
     if json_output:
-        print(json.dumps(
-            [{"name": r.name, "ops_per_sec": round(r.ops_per_sec, 1),
-              "avg_ms": round(r.avg_ms, 3), "p50_ms": round(r.p50_ms, 3),
-              "p99_ms": round(r.p99_ms, 3)} for r in results],
-            indent=2,
-        ))
+        print(
+            json.dumps(
+                [
+                    {
+                        "name": r.name,
+                        "ops_per_sec": round(r.ops_per_sec, 1),
+                        "avg_ms": round(r.avg_ms, 3),
+                        "p50_ms": round(r.p50_ms, 3),
+                        "p99_ms": round(r.p99_ms, 3),
+                    }
+                    for r in results
+                ],
+                indent=2,
+            )
+        )
     else:
         print_results(results)
