@@ -184,7 +184,7 @@ def create_server(
     TriageHandler.tracker = tracker
     TriageHandler.monitor = monitor
 
-    return HTTPServer(("0.0.0.0", port), TriageHandler)
+    return HTTPServer(("0.0.0.0", port), TriageHandler)  # noqa: S104  (server binds all interfaces by design)
 
 
 def main():

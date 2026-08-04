@@ -77,7 +77,7 @@ class ModelHotSwap:
             }
         ).encode()
 
-        req = urllib.request.Request(
+        req = urllib.request.Request(  # noqa: S310  (internal gateway call)
             self.config.gateway_url,
             data=payload,
             headers={
@@ -88,7 +88,7 @@ class ModelHotSwap:
 
         t0 = time.time()
         try:
-            with urllib.request.urlopen(req, timeout=self.config.health_check_timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self.config.health_check_timeout) as resp:  # noqa: S310  (internal gateway call)
                 d = json.loads(resp.read())
             latency = time.time() - t0
             content = d["choices"][0]["message"]["content"].strip()

@@ -195,14 +195,14 @@ def cmd_triage(argv: list[str]) -> int:
                     "extra_body": {"reasoning_effort": "none"},
                 }
                 data = _json.dumps(payload).encode()
-                req = urllib.request.Request(
+                req = urllib.request.Request(  # noqa: S310  (internal gateway call)
                     self.url,
                     data=data,
                     headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.key}"},
                 )
                 t0 = time.time()
                 try:
-                    with urllib.request.urlopen(req, timeout=20) as resp:
+                    with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310  (internal gateway call)
                         d = _json.loads(resp.read())
 
                     class _R:  # type: ignore[reportRedeclaration]
@@ -306,7 +306,7 @@ def cmd_triage(argv: list[str]) -> int:
             )
             t0 = time.time()
             try:
-                with urllib.request.urlopen(req, timeout=20) as resp:
+                with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310  (internal gateway call)
                     d = _json.loads(resp.read())
                 content = d["choices"][0]["message"]["content"].strip()
                 for v in ("丢弃", "沉淀", "提醒"):

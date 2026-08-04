@@ -72,13 +72,13 @@ class _DirectHTTPGateway:
             payload["extra_body"] = {"reasoning_effort": "none"}
 
         data = json.dumps(payload).encode()
-        req = urllib.request.Request(
+        req = urllib.request.Request(  # noqa: S310  (internal gateway call)
             self.url, data=data, headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.key}"}
         )
 
         t0 = time.time()
         try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
+            with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310  (internal gateway call)
                 d = json.loads(resp.read())
             latency = (time.time() - t0) * 1000
             content = d["choices"][0]["message"]["content"].strip()
@@ -223,8 +223,8 @@ def forge_triage_status() -> dict:
 
     # 检查网关
     try:
-        req = urllib.request.Request(f"{gateway}/v1/models", headers={"Authorization": "Bearer sk-omlx-admin"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        req = urllib.request.Request(f"{gateway}/v1/models", headers={"Authorization": "Bearer sk-omlx-admin"})  # noqa: S310  (internal gateway call)
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310  (internal gateway call)
             import json
 
             data = json.loads(resp.read())
@@ -252,7 +252,7 @@ def main() -> None:
 
     mcp.run(
         transport=transport,  # type: ignore[reportArgumentType]
-        host=os.getenv("AETHERFORGE_MCP_HOST", "0.0.0.0"),
+        host=os.getenv("AETHERFORGE_MCP_HOST", "0.0.0.0"),  # noqa: S104  (MCP server binds all interfaces by design)
         port=port,
     )
 
