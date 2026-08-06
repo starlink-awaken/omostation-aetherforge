@@ -172,12 +172,13 @@ def create_server(
     port: int | None = None,
     gateway_url: str = "http://100.96.126.35:4000/v1/chat/completions",
     api_key: str = "sk-omlx-admin",
+    gateway=None,
 ) -> HTTPServer:
-    """创建 HTTP 服务器."""
+    """创建 HTTP 服务器 (v10 α.1 续: gateway 传 TriageRouter, 修 create_server 未传 bug)."""
     if port is None:
         port = int(os.environ.get("TRIAGE_PORT", "8095"))
     tracker = TriageTracker()
-    router = TriageRouter(tracker=tracker)
+    router = TriageRouter(gateway=gateway, tracker=tracker)
     monitor = TriageMonitor(router)
 
     TriageHandler.router = router
@@ -194,7 +195,16 @@ def main():
     parser.add_argument("--key", default="sk-omlx-admin")
     args = parser.parse_args()
 
-    server = create_server(args.port, args.gateway, args.key)
+    # v10 α.1 续: 初始化 ModelGateway 传 TriageRouter (修 create_server 未传 gateway bug)
+    gateway = None
+    try:
+        from llm_gateway.gateway import get_gateway
+
+        gateway = get_gateway()  # 默认 config (omlx fabric 红线, 失败 fallback None)
+    except Exception:
+        pass
+
+    server = create_server(args.port, args.gateway, args.key, gateway=gateway)
     print(f"分诊服务启动: http://0.0.0.0:{args.port}")
     print("  POST /triage — 单条分诊")
     print("  POST /triage/batch — 批量分诊")
