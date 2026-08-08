@@ -31,6 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from .complexity import TaskComplexityScorer
 from .metrics import MetricsCollector
 from .paths import M1_COMPUTE_ENGINE_DIR, M1_MODEL_DIR
 from .registry import ModelRegistry
@@ -263,6 +264,11 @@ class GatewayConfig:
     model_sizes: dict[str, float] = field(default_factory=_load_omlx_sizes)
     # fallback 链 (按优先级)
     fallback_chain: list[str] = field(default_factory=lambda: ["coding", "reasoning", "mythos-fast"])
+    # 按复杂度分流: level → 定制 fallback 链 (未配置的 level 回退 fallback_chain)
+    complexity_chains: dict[str, list[str]] = field(default_factory=lambda: {
+        "simple": ["mythos-fast", "coding-fast", "coding"],
+        "complex": ["reasoning", "coding", "mythos-fast"],
+    })
     # MemoryGuard: 预留内存倍数
     memory_safety_factor: float = 1.2
     # 是否启用内存检查
@@ -364,6 +370,7 @@ class ModelGateway:
         self._config = config or GatewayConfig()
         self._metrics = metrics or MetricsCollector()
         self._memory_guard = MemoryGuard(self._config.memory_safety_factor)
+        self._complexity_scorer = TaskComplexityScorer()
 
         # 已加载模型集合 (model_name → load_time)
         self._loaded_models: dict[str, float] = {}
@@ -415,7 +422,7 @@ class ModelGateway:
 
         流程:
           1. K1 敏感检查 (硬拦)
-          2. 模型选择 + fallback
+          2. 复杂度评估 → 选择 fallback 链 (小任务用小模型, 大任务用大模型)
           3. ensure_model (load + MemoryGuard)
           4. 推理 + 超时
           5. strip_thinking (兜底)
@@ -432,12 +439,26 @@ class ModelGateway:
                 # 敏感流: 只允许本地模型, 禁止云端
                 return await self._generate_local_only(request)
 
-        # 2. 尝试 fallback 链
-        chain = [request.model] if request.model else []
-        chain.extend(self._config.fallback_chain)
+        # 2. 复杂度评估 → 选择 fallback 链
+        prompt = self._extract_prompt(request.messages)
+        complexity = self._complexity_scorer.estimate(
+            prompt=prompt,
+            task=request.task,
+        )
+        chain = self._config.complexity_chains.get(
+            complexity.level, self._config.fallback_chain,
+        )
+        _log.debug(
+            "[ModelGateway] complexity=%s (%.3f) signals=%s chain=%s",
+            complexity.level, complexity.score, complexity.signals, chain,
+        )
+
+        # 3. 尝试 fallback 链
+        full_chain = [request.model] if request.model else []
+        full_chain.extend(chain)
 
         last_error = ""
-        for model_name in chain:
+        for model_name in full_chain:
             if self._health_failures.get(model_name, 0) >= 3:
                 continue  # 跳过已标记不健康的模型
 
@@ -758,6 +779,15 @@ class ModelGateway:
     # ==========================================================
     # 内部工具
     # ==========================================================
+    @staticmethod
+    def _extract_prompt(messages: list[dict[str, Any]]) -> str:
+        """提取最后一条 user 消息作为复杂度评估输入."""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                return content if isinstance(content, str) else str(content)
+        return ""
+
     def _resolve_model_id(self, model_name: str) -> str | None:
         """解析模型名到 registry ID."""
         reg = self._registry

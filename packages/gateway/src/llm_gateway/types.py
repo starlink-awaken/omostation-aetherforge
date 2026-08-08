@@ -90,6 +90,8 @@ class ModelRequest:
     required_capabilities: list[str] = field(default_factory=list)
     preferred_provider: str | None = None
     policy: ModelRoutePolicy | None = None
+    complexity_hint: str | None = None
+    """Complexity level from TaskComplexityScorer: 'simple', 'medium', or 'complex'."""
 
 
 @dataclass
