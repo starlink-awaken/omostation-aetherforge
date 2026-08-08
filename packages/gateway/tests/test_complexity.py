@@ -38,7 +38,7 @@ class TestTaskComplexityScorer:
         assert result.level == "complex"
 
     def test_medium_code_gen(self):
-        prompt = "def fibonacci(n):\n" * 30  # ~150 tokens
+        prompt = "def fibonacci(n):\n" * 60  # ~300 tokens
         result = self.scorer.estimate(prompt=prompt, task="code-gen")
         assert result.level == "medium"
 
@@ -73,3 +73,16 @@ class TestTaskComplexityScorer:
             for task in ["", "chat", "analyze"]:
                 result = self.scorer.estimate(prompt=prompt, task=task)
                 assert 0.0 <= result.score <= 1.0
+
+    def test_production_triage_is_simple(self):
+        result = self.scorer.estimate(prompt="route this to the right handler", task="triage")
+        assert result.level == "simple"
+
+    def test_production_rpc_is_simple(self):
+        result = self.scorer.estimate(prompt="ping", task="rpc")
+        assert result.level == "simple"
+
+    def test_production_mcp_is_medium(self):
+        prompt = "use the search tool to find information about the project status and recent changes. " * 15
+        result = self.scorer.estimate(prompt=prompt, task="mcp")
+        assert result.level == "medium"

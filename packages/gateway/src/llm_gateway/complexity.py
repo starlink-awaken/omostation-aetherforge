@@ -19,11 +19,13 @@ COMPLEX_TOKEN_THRESHOLD = 2000
 _SIMPLE_TASKS = frozenset({
     "chat", "greeting", "format", "translate", "complete",
     "classify", "label", "echo", "ping", "list",
+    "triage", "rpc",
 })
 
 _MEDIUM_TASKS = frozenset({
     "code-gen", "summarize", "extract", "rewrite", "explain",
     "convert", "parse", "generate", "compose", "draft",
+    "mcp", "embed",
 })
 
 _COMPLEX_TASKS = frozenset({
@@ -53,20 +55,14 @@ class TaskComplexityScorer:
         required_capabilities: list[str] | None = None,
     ) -> TaskComplexity:
         signals: list[str] = []
-        sub_scores: list[float] = []
 
         length_score = self._length_score(prompt, signals)
-        sub_scores.append(length_score)
-
         task_score = self._task_score(task, signals)
-        sub_scores.append(task_score)
-
         cap_score = self._capability_score(
             required_capabilities or [], signals,
         )
-        sub_scores.append(cap_score)
 
-        raw = sum(sub_scores) / len(sub_scores) if sub_scores else 0.5
+        raw = length_score * 0.5 + task_score * 0.35 + cap_score * 0.15
         score = max(0.0, min(1.0, raw))
 
         if score < 0.34:
