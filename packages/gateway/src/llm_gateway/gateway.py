@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -196,6 +197,57 @@ class GatewayResponse:
     stripped_thinking: bool = False  # 是否剥离了 thinking 段
 
 
+
+# ============================================================
+# omlx 动态对接 (SSOT: /Volumes/Model/omlx/conf/models.json)
+# 避免硬编码端口漂移 —— omlx 改端口/加模型后自动同步
+# ============================================================
+OMLX_CONF = "/Volumes/Model/omlx/conf/models.json"
+
+# 网关别名 → omlx 本地 key(上层习惯用别名, omlx 后端用 key)
+OMLX_ALIAS_MAP: dict[str, str] = {
+    "coder": "coding",
+    "coder-fast": "coding-fast",
+    "reasoner": "reasoning",
+    "reasoner-lite": "reasoning-lite",
+    "embed": "embedding",
+}
+
+
+def _load_omlx_ports() -> dict[str, int]:
+    """从 omlx models.json 读 model_name → port(含别名)。失败则回退硬编码。"""
+    fallback = {
+        "coding-fast": 8081, "coding": 8082, "reasoning": 8083,
+        "reasoning-lite": 8085, "mythos-fast": 8185,
+    }
+    try:
+        with open(OMLX_CONF) as f:
+            conf = json.load(f)
+        ports = {k: m["port"] for k, m in conf.get("models", {}).items() if m.get("port")}
+        # 别名也指向同一端口, 这样 model="coder" 也能解析
+        for alias, key in OMLX_ALIAS_MAP.items():
+            if key in ports:
+                ports[alias] = ports[key]
+        return ports or fallback
+    except Exception:
+        return fallback
+
+
+def _load_omlx_sizes() -> dict[str, float]:
+    """粗略模型大小(GB) — MemoryGuard 用。按 alias 名启发式, 未知则不设(跳过检查)。"""
+    hints = {
+        "coding-fast": 18.0, "coding": 13.0, "reasoning": 10.0,
+        "reasoning-lite": 18.0, "mid-local": 15.0, "coder-precise": 28.0,
+        "mythos-fast": 5.0, "mythos": 18.0, "mistral-medium-128b": 64.0,
+        "deepseek-v4-pro": 40.0, "deepseek-v4-flash": 20.0,
+    }
+    out = dict(hints)
+    for alias, key in OMLX_ALIAS_MAP.items():
+        if key in hints:
+            out[alias] = hints[key]
+    return out
+
+
 @dataclass
 class GatewayConfig:
     """网关配置."""
@@ -203,33 +255,14 @@ class GatewayConfig:
     # omlx CLI 路径
     omlx_bin: str = "/Volumes/Model/omlx/bin/omlx"
     # 本地模型基础 URL
-    local_base_url: str = "http://100.96.126.35"
+    # omlx 后端只绑 loopback(:4000 网关才绑 tailscale IP), 直连必须用 127.0.0.1
+    local_base_url: str = "http://127.0.0.1"
     # 模型端口映射 (model_name → port)
-    model_ports: dict[str, int] = field(
-        default_factory=lambda: {
-            "coding-fast": 8081,
-            "coding": 8082,
-            "reasoning": 8083,
-            "reasoning-lite": 8085,
-            "mid-local": 8092,
-            "coder-precise": 8091,
-            "mythos-fast": 8185,
-        }
-    )
+    model_ports: dict[str, int] = field(default_factory=_load_omlx_ports)
     # 模型大小 (GB) — MemoryGuard 用 (未知大小的模型跳过检查)
-    model_sizes: dict[str, float] = field(
-        default_factory=lambda: {
-            "coding-fast": 18.0,  # Qwen3.6-35B-A3B MoE ~18GB
-            "coding": 13.0,  # devstral-24B ~13GB
-            "reasoning": 10.0,  # GLM-4.7-Flash ~10GB
-            "reasoning-lite": 18.0,  # Nemotron-Cascade 30B-A3B ~18GB
-            "mid-local": 15.0,  # Qwen3.6-27B 4bit ~15GB
-            "coder-precise": 28.0,  # Qwopus3.6-27B-Coder 8bit ~28GB
-            "mythos-fast": 5.0,  # Qwythos-9B ~5GB
-        }
-    )
+    model_sizes: dict[str, float] = field(default_factory=_load_omlx_sizes)
     # fallback 链 (按优先级)
-    fallback_chain: list[str] = field(default_factory=lambda: ["coding-fast", "mid-local", "deepseek-chat"])
+    fallback_chain: list[str] = field(default_factory=lambda: ["coding", "reasoning", "mythos-fast"])
     # MemoryGuard: 预留内存倍数
     memory_safety_factor: float = 1.2
     # 是否启用内存检查
@@ -366,6 +399,17 @@ class ModelGateway:
     # ==========================================================
     # 核心: generate
     # ==========================================================
+    async def _ensure_registry_ready(self) -> None:
+        """registry 尚未发现模型时补一次 discover(幂等, 只跑一次)。"""
+        if getattr(self, "_registry_ready", False):
+            return
+        try:
+            if not self._registry.list_models():
+                await self._registry.refresh()
+        except Exception as e:
+            _log.warning("[ModelGateway] registry refresh failed: %s", e)
+        self._registry_ready = True
+
     async def generate(self, request: GatewayRequest) -> GatewayResponse:
         """统一生成入口.
 
@@ -378,6 +422,9 @@ class ModelGateway:
           6. 记账
         """
         t0 = time.time()
+
+        # 0. 惰性发现: registry 为空时先 discover(SSOT model_defs 不走网络, 很快)
+        await self._ensure_registry_ready()
 
         # 1. K1 敏感硬拦
         if request.content_title or request.content_url:
@@ -523,7 +570,7 @@ class ModelGateway:
                 proc = await asyncio.create_subprocess_exec(
                     self._config.omlx_bin,
                     "load",
-                    model_name,
+                    OMLX_ALIAS_MAP.get(model_name, model_name),   # 别名→omlx本地key
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )

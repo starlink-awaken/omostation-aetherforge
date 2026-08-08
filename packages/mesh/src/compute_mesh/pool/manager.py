@@ -283,6 +283,14 @@ class ComputePool:
         return self._registry.get_online()
 
     def get_best_node(self, preferred_zone: str = "") -> ComputeNode | None:
+        """按 load_factor + zone 选节点。
+
+        定位(2026-08):**当前不在 LLM 生成路径上**。生成走
+        ``aetherforge.gateway`` → SSOT(ENG-OMLX-LOCAL)→ LiteLLM 网关 :4000,
+        由 LiteLLM 的 latency-based routing + fallback 负责选路。
+        本方法服务于 mesh CLI / MCP 的**可观测与准入**场景(大盘、健康门控)。
+        如需 mesh 接管调度,须先与网关路由二选一,避免双重调度。
+        """
         """Pick the best available node (lowest load, online, highest priority).
 
         Args:
