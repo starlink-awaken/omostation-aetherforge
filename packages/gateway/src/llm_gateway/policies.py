@@ -235,6 +235,59 @@ class BalancedScore(RouterScore):
         )
 
 
+# ── Complexity-aware plugins ────────────────────────────────────────────────
+
+_SIMPLE_COST_CEIL = 0.01
+
+
+class ComplexityFilter(RouterFilter):
+    """Filter: block expensive models for simple tasks (no cannon-for-mosquito)."""
+
+    def __init__(self, cost_ceil: float = _SIMPLE_COST_CEIL) -> None:
+        self._cost_ceil = cost_ceil
+
+    def filter(
+        self,
+        models: list[ModelDescriptor],
+        request: ModelRequest,
+    ) -> list[ModelDescriptor]:
+        if request.complexity_hint != "simple":
+            return models
+        return [
+            m
+            for m in models
+            if not m.cost_per_1k_tokens
+            or (
+                m.cost_per_1k_tokens.get("input", 0)
+                + m.cost_per_1k_tokens.get("output", 0)
+            )
+            <= self._cost_ceil
+        ]
+
+
+class ComplexityScore(RouterScore):
+    """Score: shift weights by complexity (simple→cost, complex→capability)."""
+
+    def __init__(self) -> None:
+        self._cost = CostScore()
+        self._speed = SpeedScore()
+        self._cap = CapabilityScore()
+
+    def score(self, model: ModelDescriptor, request: ModelRequest) -> float:
+        hint = request.complexity_hint
+        if hint == "simple":
+            w_cost, w_speed, w_cap = 0.6, 0.3, 0.1
+        elif hint == "complex":
+            w_cost, w_speed, w_cap = 0.1, 0.2, 0.7
+        else:
+            w_cost, w_speed, w_cap = 0.3, 0.3, 0.4
+        return (
+            self._cost.score(model, request) * w_cost
+            + self._speed.score(model, request) * w_speed
+            + self._cap.score(model, request) * w_cap
+        )
+
+
 class ZoneAffinityScore(RouterScore):
     """Score: prefer models in the same network zone or topology.
 
@@ -287,6 +340,10 @@ _plugin_registry: dict[str, tuple[list[RouterFilter], list[RouterScore]]] = {
     "speed-first": ([OnlineFilter(), CapabilityFilter()], [SpeedScore()]),
     "capability-first": ([OnlineFilter()], [CapabilityScore()]),
     "balanced": ([OnlineFilter(), CapabilityFilter()], [BalancedScore()]),
+    "complexity-aware": (
+        [OnlineFilter(), CapabilityFilter(), ComplexityFilter()],
+        [ComplexityScore()],
+    ),
 }
 
 
