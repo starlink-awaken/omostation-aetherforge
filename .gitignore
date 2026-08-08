@@ -58,3 +58,4 @@ coverage.xml
 packages/gateway/gateway.log
 .omc/
 *.tmp
+gateway.py.bak-*
