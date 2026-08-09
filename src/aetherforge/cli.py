@@ -76,7 +76,8 @@ def cmd_swarm(argv: list[str]) -> int:
             print("❌ Error: --goal is required or must be provided via stdin JSON.", file=sys.stderr)
             return 1
 
-        from aetherforge.swarm import GraphWorkflow
+        from swarm_engine import GraphWorkflow
+        from swarm_engine.intelligent_agent import IntelligentAgent
 
         admission = None
         if args.admission_json:
@@ -86,44 +87,30 @@ def cmd_swarm(argv: list[str]) -> int:
                 print(f"Invalid --admission-json: {exc}", file=sys.stderr)
                 return 1
 
-        # 1. 初始化工作流
+        # 1. 初始化工作流 — nodes powered by IntelligentAgent
         wf = GraphWorkflow()
 
         @wf.node("任务规划", description="分析并分解任务目标")
         def plan_task(state):
             goal = state.get("goal", "")
-            # 经统一网关 (SSOT registry → omlx/本地/云) 真实拆解, 失败则回退占位串
-            analysis = f"分析目标: {goal}"
-            try:
-                import asyncio
-                import json as _json
-
-                from llm_gateway.mcp_server import GenerateRequest, llm_generate
-
-                raw = asyncio.run(
-                    llm_generate(
-                        GenerateRequest(
-                            model=state.get("model", "coder"),
-                            messages=[
-                                {
-                                    "role": "user",
-                                    "content": f"将以下任务目标拆解为3步，仅输出简短文本：{goal}",
-                                }
-                            ],
-                        )
-                    )
-                )
-                data = _json.loads(raw)
-                if data.get("content"):
-                    analysis = data["content"]
-            except Exception:  # defensive fallback
-                pass
-            return {"plan": analysis}
+            agent = IntelligentAgent("planner", "work")
+            result = agent.decide(
+                question=f"将以下任务目标拆解为3步，仅输出简短文本：{goal}",
+                context={"goal": goal},
+                action={"type": "classify", "target": "self", "domain": "work"},
+            )
+            return {"plan": result.get("response") or f"分析目标: {goal}"}
 
         @wf.node("任务执行", description="协同智能体执行具体计划")
         def execute_task(state):
             plan = state.get("plan", "")
-            return {"output": f"成功执行计划:\n{plan}"}
+            agent = IntelligentAgent("executor", "work")
+            result = agent.decide(
+                question=f"根据计划执行任务，简洁回答：{plan[:200]}",
+                context={"plan": plan[:500]},
+                action={"type": "generate", "target": "self", "domain": "work"},
+            )
+            return {"output": result.get("response") or f"成功执行计划:\n{plan}"}
 
         wf.add_edge("任务规划", "任务执行")
         wf.set_entry("任务规划")
@@ -179,7 +166,7 @@ def cmd_triage(argv: list[str]) -> int:
         from aetherforge.triage.router import TriageRouter
 
         class _DirectHTTPGateway:
-            def __init__(self, url="http://100.96.126.35:4000/v1/chat/completions", key="sk-omlx-admin"):
+            def __init__(self, url="http://127.0.0.1:9000/v1/chat/completions", key="sk-omlx-admin"):
                 self.url = url
                 self.key = key
 
@@ -280,7 +267,7 @@ def cmd_triage(argv: list[str]) -> int:
 
         from aetherforge.triage.monitor import BENCHMARK_SAMPLES
 
-        gateway = "http://100.96.126.35:4000/v1/chat/completions"
+        gateway = "http://127.0.0.1:9000/v1/chat/completions"
         key = "sk-omlx-admin"
 
         prompt_tpl = """你是信息分诊助手。判断: 丢弃 / 沉淀 / 提醒 三选一。

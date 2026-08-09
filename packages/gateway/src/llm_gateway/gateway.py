@@ -198,7 +198,6 @@ class GatewayResponse:
     stripped_thinking: bool = False  # 是否剥离了 thinking 段
 
 
-
 # ============================================================
 # omlx 动态对接 (SSOT: /Volumes/Model/omlx/conf/models.json)
 # 避免硬编码端口漂移 —— omlx 改端口/加模型后自动同步
@@ -218,8 +217,11 @@ OMLX_ALIAS_MAP: dict[str, str] = {
 def _load_omlx_ports() -> dict[str, int]:
     """从 omlx models.json 读 model_name → port(含别名)。失败则回退硬编码。"""
     fallback = {
-        "coding-fast": 8081, "coding": 8082, "reasoning": 8083,
-        "reasoning-lite": 8085, "mythos-fast": 8185,
+        "coding-fast": 8081,
+        "coding": 8082,
+        "reasoning": 8083,
+        "reasoning-lite": 8085,
+        "mythos-fast": 8185,
     }
     try:
         with open(OMLX_CONF) as f:
@@ -237,10 +239,17 @@ def _load_omlx_ports() -> dict[str, int]:
 def _load_omlx_sizes() -> dict[str, float]:
     """粗略模型大小(GB) — MemoryGuard 用。按 alias 名启发式, 未知则不设(跳过检查)。"""
     hints = {
-        "coding-fast": 18.0, "coding": 13.0, "reasoning": 10.0,
-        "reasoning-lite": 18.0, "mid-local": 15.0, "coder-precise": 28.0,
-        "mythos-fast": 5.0, "mythos": 18.0, "mistral-medium-128b": 64.0,
-        "deepseek-v4-pro": 40.0, "deepseek-v4-flash": 20.0,
+        "coding-fast": 18.0,
+        "coding": 13.0,
+        "reasoning": 10.0,
+        "reasoning-lite": 18.0,
+        "mid-local": 15.0,
+        "coder-precise": 28.0,
+        "mythos-fast": 5.0,
+        "mythos": 18.0,
+        "mistral-medium-128b": 64.0,
+        "deepseek-v4-pro": 40.0,
+        "deepseek-v4-flash": 20.0,
     }
     out = dict(hints)
     for alias, key in OMLX_ALIAS_MAP.items():
@@ -265,10 +274,12 @@ class GatewayConfig:
     # fallback 链 (按优先级)
     fallback_chain: list[str] = field(default_factory=lambda: ["coding", "reasoning", "mythos-fast"])
     # 按复杂度分流: level → 定制 fallback 链 (未配置的 level 回退 fallback_chain)
-    complexity_chains: dict[str, list[str]] = field(default_factory=lambda: {
-        "simple": ["mythos-fast", "coding-fast", "coding"],
-        "complex": ["reasoning", "coding", "mythos-fast"],
-    })
+    complexity_chains: dict[str, list[str]] = field(
+        default_factory=lambda: {
+            "simple": ["mythos-fast", "coding-fast", "coding"],
+            "complex": ["reasoning", "coding", "mythos-fast"],
+        }
+    )
     # MemoryGuard: 预留内存倍数
     memory_safety_factor: float = 1.2
     # 是否启用内存检查
@@ -413,9 +424,10 @@ class ModelGateway:
         try:
             if not self._registry.list_models():
                 await self._registry.refresh()
+            self._registry_ready = True  # only set on success
         except Exception as e:
             _log.warning("[ModelGateway] registry refresh failed: %s", e)
-        self._registry_ready = True
+            # Do NOT set _registry_ready — allow retry on next call
 
     async def generate(self, request: GatewayRequest) -> GatewayResponse:
         """统一生成入口.
@@ -439,22 +451,47 @@ class ModelGateway:
                 # 敏感流: 只允许本地模型, 禁止云端
                 return await self._generate_local_only(request)
 
-        # 2. 复杂度评估 → 选择 fallback 链
+        # 2. 复杂度评估 → 选择 fallback 链 (小任务用小模型, 大任务用大模型)
         prompt = self._extract_prompt(request.messages)
         complexity = self._complexity_scorer.estimate(
             prompt=prompt,
             task=request.task,
         )
         chain = self._config.complexity_chains.get(
-            complexity.level, self._config.fallback_chain,
+            complexity.level,
+            self._config.fallback_chain,
         )
         _log.debug(
             "[ModelGateway] complexity=%s (%.3f) signals=%s chain=%s",
-            complexity.level, complexity.score, complexity.signals, chain,
+            complexity.level,
+            complexity.score,
+            complexity.signals,
+            chain,
         )
 
-        # 3. 尝试 fallback 链
+        # 3. Scheduler 选路 — 与复杂度链是互补的两层:
+        #    复杂度决定"用哪条链"(该配多大的模型), scheduler 决定"链里先试谁"
+        #    (当下哪个节点最健康/最省)。两者都失效时仍回落到复杂度链本身。
         full_chain = [request.model] if request.model else []
+        try:
+            from .types import ModelRequest
+
+            sched_req = ModelRequest(task=request.task or "chat")
+            selection = await self._scheduler.select_model(sched_req)
+            if selection and selection.model.name:
+                sched_model = selection.model.name
+                if sched_model not in full_chain:
+                    full_chain.append(sched_model)
+                _log.info(
+                    "[ModelGateway] scheduler selected: %s (%.2f) — %s",
+                    sched_model,
+                    selection.confidence,
+                    selection.reasoning[:60],
+                )
+        except Exception as e:
+            _log.debug("[ModelGateway] scheduler selection skipped: %s", e)
+
+        # 4. 尝试 fallback 链
         full_chain.extend(chain)
 
         last_error = ""
@@ -512,38 +549,116 @@ class ModelGateway:
         )
 
     async def _try_generate(self, model_name: str, request: GatewayRequest) -> GatewayResponse:
-        """尝试用指定模型生成."""
+        """尝试用指定模型生成.
+
+        Strategy:
+          - Local omlx models (in model_ports): try direct port first, fall back to registry
+          - Cloud models: registry + provider chain only
+        """
         t0 = time.time()
 
-        # ensure_model
+        # Local omlx models: try direct port routing (quick check first)
+        if model_name in self._config.model_ports:
+            port = self._config.model_ports[model_name]
+            if await self._port_reachable(port):
+                try:
+                    return await self._generate_via_omlx_router(model_name, request, t0)
+                except Exception as e:
+                    _log.debug("[ModelGateway] direct port %s failed, trying registry: %s", model_name, e)
+
+        # Registry + provider chain (cloud models + fallback for local)
+        model_id = self._resolve_model_id(model_name)
+        if model_id:
+            result = await asyncio.wait_for(
+                self._registry.chat(model_id, request.messages, ChatOptions()),
+                timeout=request.timeout,
+            )
+            if not result:
+                raise RuntimeError(f"No response from {model_name}")
+
+            content = result.content or ""
+            stripped = _strip_thinking(content)
+            was_stripped = stripped != content
+            usage = result.usage or {}
+            provider = self._registry.get_provider(model_id)
+            provider_name = provider.name if provider else ""
+
+            return GatewayResponse(
+                content=stripped,
+                model=model_name,
+                latency_ms=(time.time() - t0) * 1000,
+                tokens_in=usage.get("prompt_tokens", 0),
+                tokens_out=usage.get("completion_tokens", 0),
+                provider=provider_name,
+                stripped_thinking=was_stripped,
+            )
+
+        # Registry can't resolve — try omlx :9000 router for local models
+        if model_name in self._config.model_ports:
+            return await self._generate_via_omlx_router(model_name, request, t0)
+
+        raise RuntimeError(f"Model {model_name} not in registry")
+
+    async def _generate_via_omlx_router(self, model_name: str, request: GatewayRequest, t0: float) -> GatewayResponse:
+        """Generate via direct omlx port — bypasses dead :4000 proxy.
+
+        Connects directly to the model's port (from model_ports config).
+        omlx servers require the full model path in the 'model' field,
+        so we fetch it from GET /v1/models first (cached per model).
+        """
+        import aiohttp
+
+        # Ensure model is loaded on its port
         ready = await self._ensure_model(model_name)
         if not ready:
             raise RuntimeError(f"Model {model_name} not loadable")
 
-        # 解析模型 ID
-        model_id = self._resolve_model_id(model_name)
-        if not model_id:
-            raise RuntimeError(f"Model {model_name} not in registry")
+        port = self._config.model_ports[model_name]
+        base = self._config.local_base_url
 
-        # 推理
-        result = await asyncio.wait_for(
-            self._registry.chat(model_id, request.messages, ChatOptions()),
-            timeout=request.timeout,
-        )
+        # Cache the real model ID (omlx needs full HF path, not friendly name)
+        cache_key = f"_omlx_mid_{model_name}"
+        real_model_id = getattr(self, cache_key, None)
+        if not real_model_id:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        f"{base}:{port}/v1/models",
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        models_data = await resp.json()
+                        real_model_id = models_data.get("data", [{}])[0].get("id", model_name)
+                        setattr(self, cache_key, real_model_id)
+            except Exception:
+                real_model_id = model_name  # best-effort
 
-        if not result:
-            raise RuntimeError(f"No response from {model_name}")
+        url = f"{base}:{port}/v1/chat/completions"
 
-        # strip_thinking (网关层兜底)
-        content = result.content or ""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    json={
+                        "model": real_model_id,
+                        "messages": request.messages,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=request.timeout),
+                ) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        raise RuntimeError(f"omlx :{port} {model_name} HTTP {resp.status}: {body[:100]}")
+                    data = await resp.json()
+        except TimeoutError:
+            raise RuntimeError(f"omlx :{port} {model_name} timeout ({request.timeout}s)")
+        except aiohttp.ClientError as e:
+            raise RuntimeError(f"omlx :{port} {model_name} connection error: {e}")
+
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         stripped = _strip_thinking(content)
         was_stripped = stripped != content
 
+        usage = data.get("usage", {})
         latency_ms = (time.time() - t0) * 1000
-        usage = result.usage or {}
-
-        provider = self._registry.get_provider(model_id)
-        provider_name = provider.name if provider else ""
 
         return GatewayResponse(
             content=stripped,
@@ -551,9 +666,23 @@ class ModelGateway:
             latency_ms=latency_ms,
             tokens_in=usage.get("prompt_tokens", 0),
             tokens_out=usage.get("completion_tokens", 0),
-            provider=provider_name,
+            provider="ENG-OMLX-LOCAL",
             stripped_thinking=was_stripped,
         )
+
+    async def _port_reachable(self, port: int, timeout: float = 0.5) -> bool:
+        """Quick TCP reachability check — avoids slow timeouts on unreachable ports."""
+        import aiohttp
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self._config.local_base_url}:{port}/v1/models",
+                    timeout=aiohttp.ClientTimeout(total=timeout),
+                ) as resp:
+                    return resp.status == 200
+        except Exception:
+            return False
 
     # ==========================================================
     # 模型管理
@@ -591,7 +720,7 @@ class ModelGateway:
                 proc = await asyncio.create_subprocess_exec(
                     self._config.omlx_bin,
                     "load",
-                    OMLX_ALIAS_MAP.get(model_name, model_name),   # 别名→omlx本地key
+                    OMLX_ALIAS_MAP.get(model_name, model_name),  # 别名→omlx本地key
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )

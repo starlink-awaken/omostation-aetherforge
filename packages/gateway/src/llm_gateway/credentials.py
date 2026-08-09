@@ -196,6 +196,24 @@ def fetch_codexbar_quota(provider: str) -> dict[str, Any]:
 _DEFAULT_CC_SWITCH_DB = str(Path.home() / "SharedConf" / "CC_Switch" / "cc-switch.db")
 
 
+def _find_cc_switch_db() -> str | None:
+    """Find cc-switch DB across possible locations — prefer largest (most complete)."""
+    candidates = [
+        Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "SharedConf" / "CC_Switch" / "cc-switch.db",
+        Path.home() / ".cc-switch" / "cc-switch.db",
+        Path(_DEFAULT_CC_SWITCH_DB),
+    ]
+    env_path = os.environ.get("BOS_CC_SWITCH_DB", "")
+    if env_path:
+        candidates.insert(0, Path(env_path))
+    # Prefer the largest file (iCloud sync > local copy)
+    found = [(str(p), p.stat().st_size) for p in candidates if p.exists() and p.stat().st_size > 0]
+    if not found:
+        return None
+    found.sort(key=lambda x: -x[1])  # largest first
+    return found[0][0]
+
+
 def import_from_cc_switch(db_path: str | None = None) -> int:
     """Import credentials from cc-switch SQLite database.
 
@@ -227,36 +245,74 @@ def import_from_cc_switch(db_path: str | None = None) -> int:
 
 
 def _import_cc_switch_impl(db_path: str | None = None) -> int:
-    """Internal implementation of cc-switch import."""
-    path = db_path or os.environ.get("BOS_CC_SWITCH_DB", "")
+    """Internal implementation of cc-switch import.
+
+    Extracts ALL credential types from cc-switch providers (not just ANTHROPIC/OPENAI),
+    imports model_pricing data, and handles iCloud-synced DBs.
+    """
+    path = db_path or _find_cc_switch_db()
     if not path:
-        path = _DEFAULT_CC_SWITCH_DB
-    if not path or not os.path.exists(path):
-        _log.info("cc-switch DB not found at %s", path)
+        _log.info("cc-switch DB not found in any known location")
         return 0
 
     count = 0
     try:
         with _get_connection(path) as conn:
-            rows = conn.execute("SELECT name, settings_config, website_url FROM providers").fetchall()
+            rows = conn.execute(
+                "SELECT name, settings_config, website_url FROM providers"
+            ).fetchall()
 
         cm = CredentialsManager()
-        for name, settings_json, website_url in rows:
+        for name, settings_json, _website_url in rows:
             if not settings_json:
                 continue
             try:
                 settings = json.loads(settings_json)
                 env = settings.get("env", {})
-                # Extract API key from env config
-                auth_token = env.get("ANTHROPIC_AUTH_TOKEN", "") or env.get("OPENAI_API_KEY", "")
-                base_url = env.get("ANTHROPIC_BASE_URL", "") or env.get("OPENAI_BASE_URL", "")
+
+                # Extract API key from any env var matching key patterns
+                auth_token = ""
+                base_url = ""
+                for k, v in env.items():
+                    ku = k.upper()
+                    if not auth_token and ("KEY" in ku or "TOKEN" in ku or "AUTH" in ku) and "TIMEOUT" not in ku:
+                        auth_token = v
+                    if not base_url and ("BASE_URL" in ku or "API_BASE" in ku):
+                        base_url = v
+
+                # Also check non-env credential fields
+                if not auth_token and "apiKey" in settings:
+                    auth_token = settings["apiKey"]
+                if not base_url and "apiBaseUrl" in settings:
+                    base_url = settings["apiBaseUrl"]
+
                 if auth_token:
-                    provider_key = name.lower().replace(" ", "_").split("/")[0]
+                    provider_key = name.lower().replace(" ", "_").replace("-", "_").split("/")[0]
                     cm.add_key(provider_key, auth_token, base_url=base_url, note=f"from cc-switch: {name}")
                     count += 1
             except (json.JSONDecodeError, Exception) as exc:
-                _log.debug(f"cc-switch import error: {exc}")
+                _log.debug("cc-switch import error for %s: %s", name, exc)
                 continue
+
+        # Import model pricing data
+        try:
+            from .pricing import ModelPrice
+            with _get_connection(path) as conn:
+                pricing_rows = conn.execute(
+                    "SELECT model_id, display_name, input_cost_per_million, output_cost_per_million "
+                    "FROM model_pricing"
+                ).fetchall()
+            pr = PricingRegistry()
+            for model_id, _display_name, in_cost, out_cost in pricing_rows:
+                pr.register(ModelPrice(
+                    model_id=model_id,
+                    display_name=_display_name or model_id,
+                    cost_per_1k_input=float(in_cost or 0) / 1000.0,
+                    cost_per_1k_output=float(out_cost or 0) / 1000.0,
+                ))
+            _log.info("cc-switch import: %d model prices synced", len(pricing_rows))
+        except (sqlite3.Error, Exception) as exc:
+            _log.debug("cc-switch pricing import skipped: %s", exc)
 
         _log.info("cc-switch import: %d credentials from %s", count, path)
     except (sqlite3.Error, OSError) as e:

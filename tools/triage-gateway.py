@@ -28,7 +28,7 @@ def main():
     parser.add_argument("--benchmark", action="store_true", help="跑标准 benchmark")
     parser.add_argument("--consensus", action="store_true", help="共识模式 (3模型并行投票)")
     parser.add_argument("--log", help="记账日志路径 (JSONL)")
-    parser.add_argument("--gateway", default="http://100.96.126.35:4000/v1/chat/completions")
+    parser.add_argument("--gateway", default="http://127.0.0.1:9000/v1/chat/completions")
     parser.add_argument("--key", default="sk-omlx-admin")
     args = parser.parse_args()
 

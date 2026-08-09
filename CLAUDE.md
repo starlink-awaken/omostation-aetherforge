@@ -24,6 +24,16 @@ uv run pytest
 uv run ruff check "packages/" "src/"
 ```
 
+## Architecture (2026-08-09 Refactoring)
+
+- **omlx models.json is the naming SSOT** — model keys flow unchanged through ssot-sync → MODEL-BREW → registry
+- **Direct port routing for local omlx** — `_generate_via_omlx_router()` connects to model ports (8081-8194) directly
+- **LiteLLM :4000 deprecated** — omlx :9000 router + direct ports replace the dead proxy
+- **cc-switch integration** — `import_from_cc_switch()` syncs 15 cloud providers from iCloud DB
+- **IntelligentAgent middleware** — unified decision chain: Risk → MOS → LLM → Record → Trust
+- **ModelScheduler in generate()** — Filter→Score pipeline replaces hardcoded fallback chain
+- **Migrated modules** — risk_engine, trust_adjuster, pi_adapter, a2a_adapter, rule_adapt, evolution_agent, workers/* moved from bin/ssot/ to swarm_engine/
+
 ## Safe Editing Rules
 
 - 归档能力合并关系以 docs/project-registry.yaml 的 archived 段为准。
