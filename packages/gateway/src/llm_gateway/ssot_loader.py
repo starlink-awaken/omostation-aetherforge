@@ -88,6 +88,11 @@ _PROVIDER_ALIASES: dict[str, str] = {
     "minimax": "minimax",
     "gemini": "gemini",
     "openrouter": "openrouter",
+    "zhipu": "zhipu_glm",
+    "siliconflow": "siliconflow",
+    "nvidia": "nvidia",
+    "longcat": "longcat",
+    "kimi": "kimi_for_coding",
 }
 
 
@@ -179,7 +184,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
         ]
 
     def _build_request(self, model: str, messages: list[dict[str, Any]], options: ChatOptions | None) -> LLMRequest:
-        real_model = model.split("/")[-1] if "/" in model else model
+        real_model = model.split("/", 1)[-1] if "/" in model else model
 
         context = list(messages)
         prompt = ""

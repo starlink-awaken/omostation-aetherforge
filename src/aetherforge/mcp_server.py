@@ -50,7 +50,7 @@ mcp.tool(name="forge_generate_mesh")(mesh_generate)
 class _DirectHTTPGateway:
     """轻量级网关包装 — 直接 HTTP 调用, 不依赖 ModelGateway."""
 
-    def __init__(self, url: str = "http://100.96.126.35:4000/v1/chat/completions", key: str = "sk-omlx-admin"):
+    def __init__(self, url: str = "http://127.0.0.1:9000/coding/v1/chat/completions", key: str = "sk-omlx-admin"):
         self.url = url
         self.key = key
 
@@ -218,7 +218,7 @@ def forge_triage_status() -> dict:
     """
     import urllib.request
 
-    gateway = "http://100.96.126.35:4000"
+    gateway = "http://127.0.0.1:9000"
     status = {"gateway": "unknown", "models": []}
 
     # 检查网关

@@ -29,7 +29,7 @@ class ModelHealth:
 class HotSwapConfig:
     """热切换配置."""
 
-    gateway_url: str = "http://100.96.126.35:4000/v1/chat/completions"
+    gateway_url: str = "http://127.0.0.1:9000/v1/chat/completions"
     api_key: str = "sk-omlx-admin"
     health_check_interval: int = 60  # 健康检查间隔 (秒)
     health_check_timeout: int = 10  # 健康检查超时 (秒)

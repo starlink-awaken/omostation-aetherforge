@@ -285,6 +285,7 @@ class TestGenerateWithKI:
             return True
 
         gw._ensure_model = fake_ensure  # type: ignore[method-assign]
+        gw._port_reachable = AsyncMock(return_value=False)  # skip direct port in tests
 
         req = GatewayRequest(
             messages=[{"role": "user", "content": "hello"}],
@@ -320,6 +321,7 @@ class TestGenerateWithKI:
             return True
 
         gw._ensure_model = fake_ensure  # type: ignore[method-assign]
+        gw._port_reachable = AsyncMock(return_value=False)  # skip direct port in tests
 
         req = GatewayRequest(
             messages=[{"role": "user", "content": "hi"}],

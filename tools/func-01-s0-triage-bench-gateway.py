@@ -18,7 +18,7 @@ import time
 import urllib.request
 import urllib.error
 
-GATEWAY_URL = "http://100.96.126.35:4000/v1/chat/completions"
+GATEWAY_URL = "http://127.0.0.1:9000/v1/chat/completions"
 GATEWAY_KEY = os.environ.get("OMLX_GATEWAY_KEY", "sk-omlx-admin")
 
 # 20 条真实分诊样本 (覆盖三档: 丢弃6/沉淀8/提醒6)
@@ -97,7 +97,7 @@ def list_gateway_models() -> list[str]:
     """列出网关所有模型别名."""
     try:
         req = urllib.request.Request(
-            "http://100.96.126.35:4000/v1/models",
+            "http://127.0.0.1:9000/v1/models",
             headers={"Authorization": f"Bearer {GATEWAY_KEY}"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:

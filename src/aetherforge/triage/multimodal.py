@@ -20,7 +20,7 @@ class MultiModalTriage:
     """多模态分诊器."""
 
     router: TriageRouter
-    gateway_url: str = "http://100.96.126.35:4000/v1/chat/completions"
+    gateway_url: str = "http://127.0.0.1:9000/v1/chat/completions"
     api_key: str = "sk-omlx-admin"
 
     def triage_url(self, url: str, title: str = "") -> TriageResult:

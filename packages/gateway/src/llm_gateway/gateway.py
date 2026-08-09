@@ -406,9 +406,10 @@ class ModelGateway:
         try:
             if not self._registry.list_models():
                 await self._registry.refresh()
+            self._registry_ready = True  # only set on success
         except Exception as e:
             _log.warning("[ModelGateway] registry refresh failed: %s", e)
-        self._registry_ready = True
+            # Do NOT set _registry_ready — allow retry on next call
 
     async def generate(self, request: GatewayRequest) -> GatewayResponse:
         """统一生成入口.
@@ -432,8 +433,23 @@ class ModelGateway:
                 # 敏感流: 只允许本地模型, 禁止云端
                 return await self._generate_local_only(request)
 
-        # 2. 尝试 fallback 链
+        # 2. Scheduler 选路 + fallback 链
         chain = [request.model] if request.model else []
+
+        # Ask scheduler for the best model (uses Filter→Score pipeline)
+        try:
+            from .types import ModelRequest
+            sched_req = ModelRequest(task=request.task or "chat")
+            selection = await self._scheduler.select_model(sched_req)
+            if selection and selection.model.name:
+                sched_model = selection.model.name
+                if sched_model not in chain:
+                    chain.append(sched_model)
+                _log.info("[ModelGateway] scheduler selected: %s (%.2f) — %s",
+                          sched_model, selection.confidence, selection.reasoning[:60])
+        except Exception as e:
+            _log.debug("[ModelGateway] scheduler selection skipped: %s", e)
+
         chain.extend(self._config.fallback_chain)
 
         last_error = ""
@@ -491,38 +507,118 @@ class ModelGateway:
         )
 
     async def _try_generate(self, model_name: str, request: GatewayRequest) -> GatewayResponse:
-        """尝试用指定模型生成."""
+        """尝试用指定模型生成.
+
+        Strategy:
+          - Local omlx models (in model_ports): try direct port first, fall back to registry
+          - Cloud models: registry + provider chain only
+        """
         t0 = time.time()
 
-        # ensure_model
+        # Local omlx models: try direct port routing (quick check first)
+        if model_name in self._config.model_ports:
+            port = self._config.model_ports[model_name]
+            if await self._port_reachable(port):
+                try:
+                    return await self._generate_via_omlx_router(model_name, request, t0)
+                except Exception as e:
+                    _log.debug("[ModelGateway] direct port %s failed, trying registry: %s", model_name, e)
+
+        # Registry + provider chain (cloud models + fallback for local)
+        model_id = self._resolve_model_id(model_name)
+        if model_id:
+            result = await asyncio.wait_for(
+                self._registry.chat(model_id, request.messages, ChatOptions()),
+                timeout=request.timeout,
+            )
+            if not result:
+                raise RuntimeError(f"No response from {model_name}")
+
+            content = result.content or ""
+            stripped = _strip_thinking(content)
+            was_stripped = stripped != content
+            usage = result.usage or {}
+            provider = self._registry.get_provider(model_id)
+            provider_name = provider.name if provider else ""
+
+            return GatewayResponse(
+                content=stripped,
+                model=model_name,
+                latency_ms=(time.time() - t0) * 1000,
+                tokens_in=usage.get("prompt_tokens", 0),
+                tokens_out=usage.get("completion_tokens", 0),
+                provider=provider_name,
+                stripped_thinking=was_stripped,
+            )
+
+        # Registry can't resolve — try omlx :9000 router for local models
+        if model_name in self._config.model_ports:
+            return await self._generate_via_omlx_router(model_name, request, t0)
+
+        raise RuntimeError(f"Model {model_name} not in registry")
+
+    async def _generate_via_omlx_router(
+        self, model_name: str, request: GatewayRequest, t0: float
+    ) -> GatewayResponse:
+        """Generate via direct omlx port — bypasses dead :4000 proxy.
+
+        Connects directly to the model's port (from model_ports config).
+        omlx servers require the full model path in the 'model' field,
+        so we fetch it from GET /v1/models first (cached per model).
+        """
+        import aiohttp
+
+        # Ensure model is loaded on its port
         ready = await self._ensure_model(model_name)
         if not ready:
             raise RuntimeError(f"Model {model_name} not loadable")
 
-        # 解析模型 ID
-        model_id = self._resolve_model_id(model_name)
-        if not model_id:
-            raise RuntimeError(f"Model {model_name} not in registry")
+        port = self._config.model_ports[model_name]
+        base = self._config.local_base_url
 
-        # 推理
-        result = await asyncio.wait_for(
-            self._registry.chat(model_id, request.messages, ChatOptions()),
-            timeout=request.timeout,
-        )
+        # Cache the real model ID (omlx needs full HF path, not friendly name)
+        cache_key = f"_omlx_mid_{model_name}"
+        real_model_id = getattr(self, cache_key, None)
+        if not real_model_id:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        f"{base}:{port}/v1/models",
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        models_data = await resp.json()
+                        real_model_id = models_data.get("data", [{}])[0].get("id", model_name)
+                        setattr(self, cache_key, real_model_id)
+            except Exception:
+                real_model_id = model_name  # best-effort
 
-        if not result:
-            raise RuntimeError(f"No response from {model_name}")
+        url = f"{base}:{port}/v1/chat/completions"
 
-        # strip_thinking (网关层兜底)
-        content = result.content or ""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    json={
+                        "model": real_model_id,
+                        "messages": request.messages,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=request.timeout),
+                ) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        raise RuntimeError(f"omlx :{port} {model_name} HTTP {resp.status}: {body[:100]}")
+                    data = await resp.json()
+        except TimeoutError:
+            raise RuntimeError(f"omlx :{port} {model_name} timeout ({request.timeout}s)")
+        except aiohttp.ClientError as e:
+            raise RuntimeError(f"omlx :{port} {model_name} connection error: {e}")
+
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         stripped = _strip_thinking(content)
         was_stripped = stripped != content
 
+        usage = data.get("usage", {})
         latency_ms = (time.time() - t0) * 1000
-        usage = result.usage or {}
-
-        provider = self._registry.get_provider(model_id)
-        provider_name = provider.name if provider else ""
 
         return GatewayResponse(
             content=stripped,
@@ -530,9 +626,22 @@ class ModelGateway:
             latency_ms=latency_ms,
             tokens_in=usage.get("prompt_tokens", 0),
             tokens_out=usage.get("completion_tokens", 0),
-            provider=provider_name,
+            provider="ENG-OMLX-LOCAL",
             stripped_thinking=was_stripped,
         )
+
+    async def _port_reachable(self, port: int, timeout: float = 0.5) -> bool:
+        """Quick TCP reachability check — avoids slow timeouts on unreachable ports."""
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self._config.local_base_url}:{port}/v1/models",
+                    timeout=aiohttp.ClientTimeout(total=timeout),
+                ) as resp:
+                    return resp.status == 200
+        except Exception:
+            return False
 
     # ==========================================================
     # 模型管理

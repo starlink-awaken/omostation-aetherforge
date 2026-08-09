@@ -8,10 +8,29 @@ AetherForge is part of the eCOS v6 workspace. See [`../README.md`](../README.md)
 
 ## Key Surfaces
 
-- `packages/gateway/` — capability gateway
-- `packages/mesh/` — compute mesh
-- `packages/swarm/` — swarm orchestration
-- `src/aetherforge/` — core library
+- `packages/gateway/` — LLM Gateway (ModelGateway, ModelScheduler, CredentialsManager, cc-switch sync, SSOT loader)
+- `packages/mesh/` — Compute Mesh (topology discovery, node scheduler, worker pool)
+- `packages/swarm/` — Swarm Engine (GraphWorkflow, Hatcher, IntelligentAgent, risk/trust/pi, digital brain workers)
+- `src/aetherforge/` — Core (CLI, MCP server, triage router, route scheduler)
+
+## Architecture (2026-08-09 Refactoring)
+
+### Model Routing (3-tier)
+
+| Tier | Source | Models | Routing |
+|------|--------|--------|---------|
+| Local | omlx (MLX on Apple Silicon) | 23 | Direct port (8081-8194) via `_generate_via_omlx_router` |
+| Cloud Paid | DeepSeek, OpenRouter, Anthropic | 74 | Registry → SSOTProviderAdapter → direct API |
+| Cloud Free/Forward | GLM, Kimi, MiniMax, Nvidia, etc. | 47 | cc-switch → CredentialsManager → SSOTProviderAdapter |
+
+### Key Components
+
+- **ModelGateway** — Unified LLM entry point with K1 sensitive flow detection, direct port routing for local omlx, and registry-based routing for cloud providers
+- **IntelligentAgent** — 5-layer decision chain: Risk Gate → MOS Memory → LLM → Decision Record → Trust Feedback
+- **GraphWorkflow** — DAG-based workflow engine with checkpoint/resume, admission grants, retry policy
+- **Hatcher** — Agent factory spawning CLI subprocesses, internal threads, or external agent CLIs
+- **RiskEngine** — 5-level dynamic safety gate (L0 auto → L4 forbidden) with trust accumulation
+- **cc-switch Adapter** — Syncs 15 cloud providers + 57 model prices from cc-switch iCloud DB
 
 ## Design Notes
 
