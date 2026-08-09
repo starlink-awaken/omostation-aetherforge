@@ -63,6 +63,10 @@ dev = [
     "pytest>=9.0",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
+    # ruff 此前只有 [tool.ruff] 配置段而从未被声明为依赖 —— CI 的
+    # `uv run ruff check` 在干净环境里必然 "Failed to spawn: ruff"。
+    # 之前 CI 在装依赖阶段就挂了, 从没走到 Lint, 所以这个问题一直被掩盖。
+    "ruff>=0.14",
 ]
 
 [project.scripts]

@@ -40,24 +40,26 @@ _log = logging.getLogger(__name__)
 # ── Path injection (same pattern as _llm_helper.py, proven working) ────────
 
 _FILE_DIR = Path(__file__).resolve().parent  # .../swarm_engine/
-_SRC_DIR = _FILE_DIR.parent                   # .../src/
-_PACKAGE_DIR = _SRC_DIR.parent                 # .../swarm/
-_PACKAGES_DIR = _PACKAGE_DIR.parent            # .../packages/
-_AETHERFORGE_ROOT = _PACKAGES_DIR.parent       # .../aetherforge/
+_SRC_DIR = _FILE_DIR.parent  # .../src/
+_PACKAGE_DIR = _SRC_DIR.parent  # .../swarm/
+_PACKAGES_DIR = _PACKAGE_DIR.parent  # .../packages/
+_AETHERFORGE_ROOT = _PACKAGES_DIR.parent  # .../aetherforge/
 
 # Workspace root: aetherforge is at workspace/projects/aetherforge
-_WORKSPACE_ROOT = Path(os.environ.get(
-    "WORKSPACE_ROOT",
-    str(_AETHERFORGE_ROOT.parent.parent),  # aetherforge → projects → workspace
-))
+_WORKSPACE_ROOT = Path(
+    os.environ.get(
+        "WORKSPACE_ROOT",
+        str(_AETHERFORGE_ROOT.parent.parent),  # aetherforge → projects → workspace
+    )
+)
 
 
 def _ensure_paths() -> None:
     """Inject sys.path entries for gateway, swarm, aetherforge, omo, and workspace."""
     candidates = [
-        str(_PACKAGES_DIR / "gateway" / "src"),    # aetherforge gateway
-        str(_SRC_DIR),                               # this swarm package
-        str(_AETHERFORGE_ROOT / "src"),             # aetherforge top-level
+        str(_PACKAGES_DIR / "gateway" / "src"),  # aetherforge gateway
+        str(_SRC_DIR),  # this swarm package
+        str(_AETHERFORGE_ROOT / "src"),  # aetherforge top-level
         str(_WORKSPACE_ROOT / "projects" / "omo" / "src"),
         str(_WORKSPACE_ROOT),
     ]
@@ -83,6 +85,7 @@ def _get_gateway():
         return _gateway
     try:
         from llm_gateway import get_gateway
+
         _gateway = get_gateway()
         return _gateway
     except Exception as e:
@@ -97,6 +100,7 @@ def _get_mos():
         return _mos_manager
     try:
         from omo.omo_belief import MOSBeliefManager
+
         _mos_manager = MOSBeliefManager(root=_WORKSPACE_ROOT)
         return _mos_manager
     except Exception as e:
@@ -119,6 +123,7 @@ def _get_risk_engine():
             if sd not in sys.path and Path(sd).exists():
                 sys.path.insert(0, sd)
         from risk_engine import RiskEngine
+
         _risk_engine = RiskEngine()
         return _risk_engine
     except Exception as e:
@@ -134,11 +139,13 @@ _GLM_API_KEY = "db6c1d03aadf4853b361448ee235fd14.aWijxBcAyAO7i1ct"
 def _glm_fallback(prompt: str, timeout: int = 30) -> str | None:
     """GLM cloud direct call — used when ModelGateway has no available model."""
     try:
-        body = json.dumps({
-            "model": "glm-4.7-flash",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 300,
-        }).encode()
+        body = json.dumps(
+            {
+                "model": "glm-4.7-flash",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 300,
+            }
+        ).encode()
         req = urllib.request.Request(
             "https://open.bigmodel.cn/api/paas/v4/chat/completions",
             data=body,
@@ -233,6 +240,7 @@ class IntelligentAgent:
 
         try:
             from risk_engine import Action
+
             act = Action(
                 type=action.get("type", "read"),
                 target=action.get("target", "self"),
@@ -263,10 +271,12 @@ class IntelligentAgent:
         try:
             beliefs = mos.query_beliefs(keyword=question[:50])
             state = mos._load_state()
-            skills = [s for s in state.get("agent_skills", [])
-                      if s.get("agent_id") == self.agent_id and s.get("reusable", True)]
-            experiences = [e for e in state.get("agent_experiences", [])
-                           if e.get("agent_id") == self.agent_id]
+            skills = [
+                s
+                for s in state.get("agent_skills", [])
+                if s.get("agent_id") == self.agent_id and s.get("reusable", True)
+            ]
+            experiences = [e for e in state.get("agent_experiences", []) if e.get("agent_id") == self.agent_id]
             return {
                 "beliefs": beliefs[:3],
                 "skills": skills[:2],
@@ -294,10 +304,14 @@ class IntelligentAgent:
                 from llm_gateway import GatewayRequest
                 from llm_gateway.gateway import run_async
 
-                resp = run_async(gw.generate(GatewayRequest(
-                    messages=[{"role": "user", "content": prompt}],
-                    timeout=60.0,
-                )))
+                resp = run_async(
+                    gw.generate(
+                        GatewayRequest(
+                            messages=[{"role": "user", "content": prompt}],
+                            timeout=60.0,
+                        )
+                    )
+                )
                 if resp and resp.content:
                     return resp.content.strip()
             except Exception as e:
@@ -320,26 +334,17 @@ class IntelligentAgent:
 
         beliefs = memory.get("beliefs", [])
         if beliefs:
-            belief_text = "; ".join(
-                f"[{b.get('topic', '?')}] {b.get('belief', '')[:80]}"
-                for b in beliefs
-            )
+            belief_text = "; ".join(f"[{b.get('topic', '?')}] {b.get('belief', '')[:80]}" for b in beliefs)
             parts.append(f"\nRelevant beliefs: {belief_text}")
 
         skills = memory.get("skills", [])
         if skills:
-            skill_text = "; ".join(
-                f"{s.get('skill_name', '?')}: {s.get('code_or_pattern', '')[:60]}"
-                for s in skills
-            )
+            skill_text = "; ".join(f"{s.get('skill_name', '?')}: {s.get('code_or_pattern', '')[:60]}" for s in skills)
             parts.append(f"\nApplicable skills: {skill_text}")
 
         experiences = memory.get("experiences", [])
         if experiences:
-            exp_text = "; ".join(
-                f"({e.get('outcome', '?')}) {e.get('experience', '')[:60]}"
-                for e in experiences
-            )
+            exp_text = "; ".join(f"({e.get('outcome', '?')}) {e.get('experience', '')[:60]}" for e in experiences)
             parts.append(f"\nPast experiences: {exp_text}")
 
         return "\n".join(parts)
@@ -379,7 +384,8 @@ class IntelligentAgent:
         """
         try:
             # Find pi_adapter in the ssot dirs
-            from pathlib import Path as _P
+            from pathlib import Path as _P  # noqa: N814 — 函数内局部别名
+
             ssot_dirs = [
                 _P.home() / "agents" / "claude" / "ws" / "bin" / "ssot",
                 _WORKSPACE_ROOT / "bin" / "ssot",
@@ -391,6 +397,7 @@ class IntelligentAgent:
                     if sd_str not in sys.path:
                         sys.path.insert(0, sd_str)
                     from pi_adapter import deep_evaluate
+
                     return deep_evaluate(question, context)
         except Exception as e:
             _log.debug("[IntelligentAgent] PI deep eval skipped: %s", e)
@@ -410,6 +417,7 @@ class IntelligentAgent:
         if engine is not None:
             try:
                 from risk_engine import Action
+
                 act = Action(
                     type=action.get("type", "read"),
                     target=action.get("target", "self"),

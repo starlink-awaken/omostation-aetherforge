@@ -17,15 +17,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import asyncio
-import json
 import logging
 import time
-from typing import Any
 
 from aiohttp import web
 
-from .gateway import GatewayRequest, get_gateway, run_async, strip_thinking
+from .gateway import GatewayRequest, get_gateway
 
 _log = logging.getLogger(__name__)
 
@@ -39,8 +36,8 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
 
     messages = body.get("messages", [])
     model = body.get("model", "")
-    temperature = body.get("temperature", 0.7)
-    max_tokens = body.get("max_tokens", 2048)
+    temperature = body.get("temperature")  # None = 不指定, 用下游默认
+    max_tokens = body.get("max_tokens")  # 同上
 
     gw = get_gateway()
 
@@ -52,11 +49,18 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         messages=messages,
         model=model,
         timeout=float(body.get("timeout", 120)),
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
 
     t0 = time.time()
     resp = await gw.generate(req)
     latency = (time.time() - t0) * 1000
+    _log.info(
+        "chat.completions model=%s latency=%.0fms",
+        getattr(resp, "model", "") or model or "?",
+        latency,
+    )
 
     # Build OpenAI-compatible response
     response_body = {
@@ -93,18 +97,20 @@ async def handle_list_models(request: web.Request) -> web.Response:
         await gw._registry.refresh()
 
     models = gw._registry.list_models()
-    return web.json_response({
-        "object": "list",
-        "data": [
-            {
-                "id": m.id,
-                "object": "model",
-                "created": int(time.time()),
-                "owned_by": m.provider,
-            }
-            for m in models
-        ],
-    })
+    return web.json_response(
+        {
+            "object": "list",
+            "data": [
+                {
+                    "id": m.id,
+                    "object": "model",
+                    "created": int(time.time()),
+                    "owned_by": m.provider,
+                }
+                for m in models
+            ],
+        }
+    )
 
 
 async def handle_embeddings(request: web.Request) -> web.Response:
@@ -121,14 +127,13 @@ async def handle_embeddings(request: web.Request) -> web.Response:
     gw = get_gateway()
     try:
         embeddings = await gw.embed(texts)
-        return web.json_response({
-            "object": "list",
-            "data": [
-                {"object": "embedding", "index": i, "embedding": emb}
-                for i, emb in enumerate(embeddings)
-            ],
-            "model": body.get("model", "embedding"),
-        })
+        return web.json_response(
+            {
+                "object": "list",
+                "data": [{"object": "embedding", "index": i, "embedding": emb} for i, emb in enumerate(embeddings)],
+                "model": body.get("model", "embedding"),
+            }
+        )
     except Exception as e:
         return web.json_response({"error": {"message": str(e)[:100]}}, status=502)
 
