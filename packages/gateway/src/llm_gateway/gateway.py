@@ -31,6 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from .complexity import TaskComplexityScorer
 from .metrics import MetricsCollector
 from .paths import M1_COMPUTE_ENGINE_DIR, M1_MODEL_DIR
 from .registry import ModelRegistry
@@ -197,7 +198,6 @@ class GatewayResponse:
     stripped_thinking: bool = False  # 是否剥离了 thinking 段
 
 
-
 # ============================================================
 # omlx 动态对接 (SSOT: /Volumes/Model/omlx/conf/models.json)
 # 避免硬编码端口漂移 —— omlx 改端口/加模型后自动同步
@@ -217,8 +217,11 @@ OMLX_ALIAS_MAP: dict[str, str] = {
 def _load_omlx_ports() -> dict[str, int]:
     """从 omlx models.json 读 model_name → port(含别名)。失败则回退硬编码。"""
     fallback = {
-        "coding-fast": 8081, "coding": 8082, "reasoning": 8083,
-        "reasoning-lite": 8085, "mythos-fast": 8185,
+        "coding-fast": 8081,
+        "coding": 8082,
+        "reasoning": 8083,
+        "reasoning-lite": 8085,
+        "mythos-fast": 8185,
     }
     try:
         with open(OMLX_CONF) as f:
@@ -236,10 +239,17 @@ def _load_omlx_ports() -> dict[str, int]:
 def _load_omlx_sizes() -> dict[str, float]:
     """粗略模型大小(GB) — MemoryGuard 用。按 alias 名启发式, 未知则不设(跳过检查)。"""
     hints = {
-        "coding-fast": 18.0, "coding": 13.0, "reasoning": 10.0,
-        "reasoning-lite": 18.0, "mid-local": 15.0, "coder-precise": 28.0,
-        "mythos-fast": 5.0, "mythos": 18.0, "mistral-medium-128b": 64.0,
-        "deepseek-v4-pro": 40.0, "deepseek-v4-flash": 20.0,
+        "coding-fast": 18.0,
+        "coding": 13.0,
+        "reasoning": 10.0,
+        "reasoning-lite": 18.0,
+        "mid-local": 15.0,
+        "coder-precise": 28.0,
+        "mythos-fast": 5.0,
+        "mythos": 18.0,
+        "mistral-medium-128b": 64.0,
+        "deepseek-v4-pro": 40.0,
+        "deepseek-v4-flash": 20.0,
     }
     out = dict(hints)
     for alias, key in OMLX_ALIAS_MAP.items():
@@ -263,6 +273,13 @@ class GatewayConfig:
     model_sizes: dict[str, float] = field(default_factory=_load_omlx_sizes)
     # fallback 链 (按优先级)
     fallback_chain: list[str] = field(default_factory=lambda: ["coding", "reasoning", "mythos-fast"])
+    # 按复杂度分流: level → 定制 fallback 链 (未配置的 level 回退 fallback_chain)
+    complexity_chains: dict[str, list[str]] = field(
+        default_factory=lambda: {
+            "simple": ["mythos-fast", "coding-fast", "coding"],
+            "complex": ["reasoning", "coding", "mythos-fast"],
+        }
+    )
     # MemoryGuard: 预留内存倍数
     memory_safety_factor: float = 1.2
     # 是否启用内存检查
@@ -364,6 +381,7 @@ class ModelGateway:
         self._config = config or GatewayConfig()
         self._metrics = metrics or MetricsCollector()
         self._memory_guard = MemoryGuard(self._config.memory_safety_factor)
+        self._complexity_scorer = TaskComplexityScorer()
 
         # 已加载模型集合 (model_name → load_time)
         self._loaded_models: dict[str, float] = {}
@@ -416,7 +434,7 @@ class ModelGateway:
 
         流程:
           1. K1 敏感检查 (硬拦)
-          2. 模型选择 + fallback
+          2. 复杂度评估 → 选择 fallback 链 (小任务用小模型, 大任务用大模型)
           3. ensure_model (load + MemoryGuard)
           4. 推理 + 超时
           5. strip_thinking (兜底)
@@ -433,27 +451,51 @@ class ModelGateway:
                 # 敏感流: 只允许本地模型, 禁止云端
                 return await self._generate_local_only(request)
 
-        # 2. Scheduler 选路 + fallback 链
-        chain = [request.model] if request.model else []
+        # 2. 复杂度评估 → 选择 fallback 链 (小任务用小模型, 大任务用大模型)
+        prompt = self._extract_prompt(request.messages)
+        complexity = self._complexity_scorer.estimate(
+            prompt=prompt,
+            task=request.task,
+        )
+        chain = self._config.complexity_chains.get(
+            complexity.level,
+            self._config.fallback_chain,
+        )
+        _log.debug(
+            "[ModelGateway] complexity=%s (%.3f) signals=%s chain=%s",
+            complexity.level,
+            complexity.score,
+            complexity.signals,
+            chain,
+        )
 
-        # Ask scheduler for the best model (uses Filter→Score pipeline)
+        # 3. Scheduler 选路 — 与复杂度链是互补的两层:
+        #    复杂度决定"用哪条链"(该配多大的模型), scheduler 决定"链里先试谁"
+        #    (当下哪个节点最健康/最省)。两者都失效时仍回落到复杂度链本身。
+        full_chain = [request.model] if request.model else []
         try:
             from .types import ModelRequest
+
             sched_req = ModelRequest(task=request.task or "chat")
             selection = await self._scheduler.select_model(sched_req)
             if selection and selection.model.name:
                 sched_model = selection.model.name
-                if sched_model not in chain:
-                    chain.append(sched_model)
-                _log.info("[ModelGateway] scheduler selected: %s (%.2f) — %s",
-                          sched_model, selection.confidence, selection.reasoning[:60])
+                if sched_model not in full_chain:
+                    full_chain.append(sched_model)
+                _log.info(
+                    "[ModelGateway] scheduler selected: %s (%.2f) — %s",
+                    sched_model,
+                    selection.confidence,
+                    selection.reasoning[:60],
+                )
         except Exception as e:
             _log.debug("[ModelGateway] scheduler selection skipped: %s", e)
 
-        chain.extend(self._config.fallback_chain)
+        # 4. 尝试 fallback 链
+        full_chain.extend(chain)
 
         last_error = ""
-        for model_name in chain:
+        for model_name in full_chain:
             if self._health_failures.get(model_name, 0) >= 3:
                 continue  # 跳过已标记不健康的模型
 
@@ -557,9 +599,7 @@ class ModelGateway:
 
         raise RuntimeError(f"Model {model_name} not in registry")
 
-    async def _generate_via_omlx_router(
-        self, model_name: str, request: GatewayRequest, t0: float
-    ) -> GatewayResponse:
+    async def _generate_via_omlx_router(self, model_name: str, request: GatewayRequest, t0: float) -> GatewayResponse:
         """Generate via direct omlx port — bypasses dead :4000 proxy.
 
         Connects directly to the model's port (from model_ports config).
@@ -633,6 +673,7 @@ class ModelGateway:
     async def _port_reachable(self, port: int, timeout: float = 0.5) -> bool:
         """Quick TCP reachability check — avoids slow timeouts on unreachable ports."""
         import aiohttp
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
@@ -679,7 +720,7 @@ class ModelGateway:
                 proc = await asyncio.create_subprocess_exec(
                     self._config.omlx_bin,
                     "load",
-                    OMLX_ALIAS_MAP.get(model_name, model_name),   # 别名→omlx本地key
+                    OMLX_ALIAS_MAP.get(model_name, model_name),  # 别名→omlx本地key
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -867,6 +908,15 @@ class ModelGateway:
     # ==========================================================
     # 内部工具
     # ==========================================================
+    @staticmethod
+    def _extract_prompt(messages: list[dict[str, Any]]) -> str:
+        """提取最后一条 user 消息作为复杂度评估输入."""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                return content if isinstance(content, str) else str(content)
+        return ""
+
     def _resolve_model_id(self, model_name: str) -> str | None:
         """解析模型名到 registry ID."""
         reg = self._registry
