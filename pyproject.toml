@@ -29,7 +29,6 @@ dependencies = [
     "aetherforge-gateway",
     "aetherforge-swarm",
     "aetherforge-mesh",
-    "bus-foundation",
     "fastmcp>=3.4.2",
     "openai>=2.41.1",
     "httpx[socks]>=0.28.1",
@@ -37,6 +36,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# bus-foundation 是**可选**的: 所有 import 都在 try 内, 缺失时优雅降级
+# (见 bus_adapter._try_import_bus / compute_mesh...manager / swarm_engine._compat)。
+# 它曾被列为硬依赖, 而其仓库是私有的 —— 独立 clone 的 CI 在 `uv sync` 阶段
+# 就失败, 测试根本跑不到, main CI 自 2026-08-06 起长期红。
+# 代码本就按"它可能不存在"设计, 硬依赖与该设计矛盾。
+# 注: bus-foundation 不在此声明。它在私有仓, 且 uv 会解析所有 extra,
+# 声明成 extra 一样会让独立 clone 的 CI 在 uv sync 阶段失败。
+# 需要 bus 事件镜像时显式安装: uv pip install -e ../bus-foundation
+# 代码侧无需改动 —— 所有 bus_foundation import 都在 try 内, 缺失时优雅降级。
+
 # 保留历史: 旧 build backend (hatchling) 仍读此 section 用于 sdist/wheel 安装
 # 新 uv workspace 走 [dependency-groups] (PEP 735)
 dev = [
@@ -67,7 +76,6 @@ members = ["packages/*"]
 aetherforge-gateway = { workspace = true }
 aetherforge-swarm = { workspace = true }
 aetherforge-mesh = { workspace = true }
-bus-foundation = { path = "../bus-foundation" }
 
 [tool.pytest.ini_options]
 testpaths = ["packages/gateway/tests", "packages/mesh/tests", "packages/swarm/tests"]

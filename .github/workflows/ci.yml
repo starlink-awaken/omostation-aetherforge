@@ -24,18 +24,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # pyproject 用同级路径依赖 bus-foundation = { path = "../bus-foundation" }。
-      # 独立 clone 时同级没有该目录, uv sync 在"装依赖"阶段就失败, 测试根本没跑到
-      # —— main CI 自 2026-08-06 起长期红, 中间的 stopgap 未触及此根因。
-      # 本地开发不受影响: omostation 里两者本就是同级 (projects/*)。
-      - name: Fetch sibling path dependency (bus-foundation)
-        run: |
-          if [ ! -d ../bus-foundation ]; then
-            git clone --depth 1 \
-              https://github.com/starlink-awaken/omostation-bus-foundation.git \
-              ../bus-foundation
-          fi
-
       - name: Install dependencies
         run: uv sync
 
