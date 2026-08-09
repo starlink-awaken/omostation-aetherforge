@@ -64,7 +64,12 @@ def test_config_defaults():
     assert cfg.gateway.enabled is True
     assert cfg.rate_limiter.enabled is True
     assert cfg.topology.health_check_interval == 60
-    assert cfg.pool.auto_scale is True  # type: ignore[reportAttributeAccessIssue]
+    # PoolConfig 只有 min_workers/max_workers, 从无 auto_scale 字段;
+    # 原断言靠 `# type: ignore[reportAttributeAccessIssue]` 压制了类型检查,
+    # 运行时必然 AttributeError。代码里也没有任何地方读 cfg.pool.auto_scale,
+    # 属孤儿断言 —— 改为校验真实存在的字段。
+    assert cfg.pool.min_workers >= 1
+    assert cfg.pool.max_workers >= cfg.pool.min_workers
     print(f"    gateway.enabled={cfg.gateway.enabled} rate_limiter.enabled={cfg.rate_limiter.enabled}")
 
 

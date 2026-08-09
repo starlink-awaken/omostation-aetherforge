@@ -16,11 +16,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -108,10 +111,9 @@ def _fetch_rss(url: str, limit: int = 5) -> list[dict[str, str]]:
     import xml.etree.ElementTree as ET
 
     try:
-        req = urllib.request.Request(
-            url, headers={"User-Agent": "ecos-evolution-agent/1.0"}
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        req = urllib.request.Request(url, headers={"User-Agent": "ecos-evolution-agent/1.0"})  # noqa: S310 — url 来自内部 feed 配置
+
+        with urllib.request.urlopen(req, timeout=8) as resp:  # noqa: S310
             raw = resp.read(200000)  # cap 200KB
         root = ET.fromstring(raw)
         items: list[dict[str, str]] = []
@@ -263,18 +265,15 @@ def _persist_proposals(result: dict[str, Any]) -> str | None:
             try:
                 old = json.loads(f.read_text(encoding="utf-8"))
                 for p in old.get("proposals", []):
-                    h = hashlib.md5(
-                        p.get("proposal", "").encode(), usedforsecurity=False
-                    ).hexdigest()
+                    h = hashlib.md5(p.get("proposal", "").encode(), usedforsecurity=False).hexdigest()
                     existing_hashes.add(h)
-            except Exception:
+            except Exception as exc:
+                _log.debug("skip malformed proposal record: %s", exc)
                 continue
 
         new_proposals = []
         for p in proposals:
-            h = hashlib.md5(
-                p.get("proposal", "").encode(), usedforsecurity=False
-            ).hexdigest()
+            h = hashlib.md5(p.get("proposal", "").encode(), usedforsecurity=False).hexdigest()
             if h not in existing_hashes:
                 p["status"] = "pending_review"
                 new_proposals.append(p)
@@ -294,9 +293,7 @@ def _persist_proposals(result: dict[str, Any]) -> str | None:
             encoding="utf-8",
         )
 
-        all_files = sorted(
-            out_dir.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True
-        )
+        all_files = sorted(out_dir.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
         for f in all_files[20:]:
             f.unlink()
 
@@ -307,9 +304,7 @@ def _persist_proposals(result: dict[str, Any]) -> str | None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--deep", action="store_true", help="include external research scan"
-    )
+    parser.add_argument("--deep", action="store_true", help="include external research scan")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -321,13 +316,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     else:
-        print(
-            f"Evolution Agent: {result['total_proposals']} proposals ({result['by_level']})"
-        )
+        print(f"Evolution Agent: {result['total_proposals']} proposals ({result['by_level']})")
         for p in result["proposals"]:
-            print(
-                f"  [{p.get('level', '?'):3s}] [{p.get('severity', '?'):6s}] {p['proposal']}"
-            )
+            print(f"  [{p.get('level', '?'):3s}] [{p.get('severity', '?'):6s}] {p['proposal']}")
         if persisted:
             print(f"  📄 persisted: {persisted}")
         if not result["proposals"]:

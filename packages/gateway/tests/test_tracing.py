@@ -37,7 +37,11 @@ def test_get_langfuse_client_configured(monkeypatch):
 
     client = tracing.get_langfuse_client()
     assert client is not None
-    mock_langfuse.assert_called_once_with(public_key="test_pub", secret_key="test_sec", host="http://localhost:3050")
+    mock_langfuse.assert_called_once_with(
+        public_key="test_pub",
+        secret_key="test_sec",  # noqa: S106 — 测试断言用的假凭据
+        host="http://localhost:3050",
+    )
 
 
 def test_trace_llm_call_context_manager(monkeypatch):

@@ -178,6 +178,12 @@ class GatewayRequest:
     task: str = ""  # triage / chat / embed
     timeout: float = 30.0
 
+    # OpenAI 兼容参数。此前 openai_proxy 从请求体读了 temperature/max_tokens
+    # 却无处可传(GatewayRequest 无此字段), 结果被静默丢弃 —— 门面要接管
+    # LiteLLM, 丢这两个参数是功能回退。None 表示不指定, 由下游取默认。
+    temperature: float | None = None
+    max_tokens: int | None = None
+
     # K1 敏感检查上下文 (可选, 传了才检查)
     content_title: str = ""
     content_url: str = ""
@@ -570,7 +576,14 @@ class ModelGateway:
         model_id = self._resolve_model_id(model_name)
         if model_id:
             result = await asyncio.wait_for(
-                self._registry.chat(model_id, request.messages, ChatOptions()),
+                self._registry.chat(
+                    model_id,
+                    request.messages,
+                    ChatOptions(
+                        temperature=request.temperature,
+                        max_tokens=request.max_tokens,
+                    ),
+                ),
                 timeout=request.timeout,
             )
             if not result:
@@ -641,6 +654,9 @@ class ModelGateway:
                     json={
                         "model": real_model_id,
                         "messages": request.messages,
+                        # None 时不下发, 保持模型自身默认(而不是硬塞一个值)
+                        **({"temperature": request.temperature} if request.temperature is not None else {}),
+                        **({"max_tokens": request.max_tokens} if request.max_tokens is not None else {}),
                     },
                     timeout=aiohttp.ClientTimeout(total=request.timeout),
                 ) as resp:
