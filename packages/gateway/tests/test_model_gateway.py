@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -32,6 +33,7 @@ def gateway_config():
             "coding-fast": 8081,
             "test-model": 9999,
         },
+        model_sizes={"coding-fast": 28.0},
         # 显式给死, 不读本机 ~/omlx/conf/models.json —— 测试结果不该随
         # 跑测试的这台机器上装了什么模型而变。
         lmstudio_fallback={"coding-fast": "pool/coding-fallback"},
@@ -184,6 +186,47 @@ class TestMemoryGuard:
         guard = MemoryGuard(safety_factor=2.0)
         with patch.object(guard, "_get_free_memory_gb", return_value=15.0):
             assert guard.can_load(10.0) is False  # 10*2=20 > 15
+
+
+class TestOmlxModelSizes:
+    """MemoryGuard must consume omlxc's measured model-size SSOT."""
+
+    def test_loads_all_positive_sizes_and_projects_gateway_aliases(self, tmp_path, monkeypatch):
+        import llm_gateway.gateway as gateway
+
+        config = tmp_path / "models.json"
+        config.write_text(
+            json.dumps(
+                {
+                    "models": {
+                        "coding": {"size_gb": 24},
+                        "coding-next": {"size_gb": 52},
+                        "bad-zero": {"size_gb": 0},
+                        "bad-text": {"size_gb": "huge"},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(gateway, "OMLX_CONF", str(config))
+
+        sizes = gateway._load_omlx_sizes()
+
+        assert sizes["coding"] == 24.0
+        assert sizes["coding-next"] == 52.0
+        assert sizes["coder"] == 24.0
+        assert "bad-zero" not in sizes
+        assert "bad-text" not in sizes
+
+    def test_missing_ssot_uses_safe_fallback(self, tmp_path, monkeypatch):
+        import llm_gateway.gateway as gateway
+
+        monkeypatch.setattr(gateway, "OMLX_CONF", str(tmp_path / "missing.json"))
+
+        sizes = gateway._load_omlx_sizes()
+
+        assert sizes["coding-next"] >= 52.0
+        assert sizes["reasoning"] >= 30.0
 
 
 # ── GatewayRequest / GatewayResponse ─────────────────────────────────────────
@@ -499,10 +542,10 @@ class TestMemoryGuardIntegration:
         gw._memory_guard = MagicMock()
         gw._memory_guard.can_load.return_value = False
 
-        # coding-fast 在 model_sizes 中有 18GB
+        # coding-fast 使用 omlxc 实测后向上取整的 28GB 准入值
         result = asyncio.run(gw._ensure_model("coding-fast"))
         assert result is False
-        gw._memory_guard.can_load.assert_called_once_with(18.0)
+        gw._memory_guard.can_load.assert_called_once_with(28.0)
 
     def test_skip_check_when_disabled(self, gateway_config, mock_registry, mock_scheduler):
         """memory_check_enabled=False 时跳过检查."""

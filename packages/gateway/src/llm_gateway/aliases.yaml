@@ -17,19 +17,22 @@ aliases:
   # ── 本机 omlx 后端 ───────────────────────────────
   coder: coding
   coder-fast: coding-fast
+  coder-next: coding-next
   reasoner: reasoning
   reasoner-lite: reasoning-lite
   embed: embedding
 
-  # ── LM Link 池(原先分散在 mac-mini / Y7000P 的别名) ──
-  # 2026-08-09 决策: 原 triage / mini-9b 指向 mac-mini 上 **ollama** 的
-  # qwen3.5:9b。ollama 不在 LM Link 池内(它是 LM Studio 的功能), 为避免为
-  # 单个模型再引入一条跨机路径, 改用池内等价模型 qwen/qwen3.5-9b 承接。
-  triage: qwen/qwen3.5-9b
-  mini-9b: qwen/qwen3.5-9b
-  fast: qwen/qwen3.5-9b
-  mid: google/gemma-4-12b-qat
-  general: google/gemma-4-12b-qat
+  # 高频意图先走 MBP 的 oMLX App。若 App 不可用，由 omlxc models.json 的
+  # fallback / fallback_ollama 依次落到 LM Link 与 Ollama，别在别名层绕开
+  # 统一内存准入和降级链。原 qwen/qwen3.5-9b 与 gemma-4-12b 当前均不在
+  # LM Link 可见模型清单中，继续硬指会形成“配置上存在、运行时必失败”。
+  triage: mythos-fast
+  mini-9b: mythos-fast
+  fast: mythos-fast
+  mid: mid-local
+  general: mid-local
+
+  # ── 明确直达 LM Link 池的能力别名 ─────────────────────
   mini-chat: gemma-4-e4b-it-mlx
   rerank: baai-bge-reranker-v2-m3-mlx
   embed-bge: bge-m3-mlx
@@ -45,6 +48,6 @@ unsupported:
       `lms link set-preferred-device`, 而不是在别名里编码地址。
   - name: "ollama 上的 qwen3.5:9b"
     reason: >-
-      不在 LM Link 池内。已按上述决策由 qwen/qwen3.5-9b 承接;
-      若将来要恢复 ollama 路径, 应由 compute_mesh 把该 endpoint
-      作为 provider node 纳入, 而不是让网关直连。
+      不在 LM Link 池内。高频意图先由 mythos-fast 承接，App/LM Link
+      都失败后再按 models.json 的 fallback_ollama 路由到 Ollama；
+      别名层不直接编码跨机 endpoint。

@@ -39,12 +39,22 @@ def test_shipped_yaml_loads_and_covers_litellm_names():
         assert name in table, f"缺别名: {name}"
 
 
-def test_ollama_names_route_to_lm_link_equivalent():
-    """triage/mini-9b 原指向 ollama 的 qwen3.5:9b(不在 LM Link 池内),
-    已决策由池内等价模型承接 —— 不应再出现 ollama 风格的 ':' 标签。"""
+def test_ollama_names_route_through_logical_model_chain():
+    """triage/mini-9b 不应绕开统一降级链直指 Ollama 标签。"""
     table = aliases.load_aliases()
     for name in ("triage", "mini-9b"):
         assert ":" not in table[name], f"{name} 仍指向 ollama 风格标签"
+
+
+def test_common_intents_prefer_omlx_app_logical_models():
+    """高频意图应先走 MBP oMLX App，再由 models.json 决定远端兜底。"""
+    table = aliases.load_aliases()
+    assert table["triage"] == "mythos-fast"
+    assert table["mini-9b"] == "mythos-fast"
+    assert table["fast"] == "mythos-fast"
+    assert table["mid"] == "mid-local"
+    assert table["general"] == "mid-local"
+    assert table["coder-next"] == "coding-next"
 
 
 # ── 2. 坏配置只能降级, 不能让网关起不来 ──────────────────

@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -296,24 +297,47 @@ def _load_omlx_ports() -> dict[str, int]:
 
 
 def _load_omlx_sizes() -> dict[str, float]:
-    """粗略模型大小(GB) — MemoryGuard 用。按 alias 名启发式, 未知则不设(跳过检查)。"""
-    hints = {
-        "coding-fast": 18.0,
-        "coding": 13.0,
-        "reasoning": 10.0,
+    """加载 omlxc 实测模型体积(GB)，供 MemoryGuard 做准入判断。
+
+    ``~/omlx/conf/models.json`` 是模型命名和体积的 SSOT。回退值只用于
+    控制面暂不可读时；它们宁可向上取整，也不能低估到放过 OOM 风险。
+    """
+    fallback = {
+        "coding-fast": 28.0,
+        "coding": 24.0,
+        "coding-next": 52.0,
+        "reasoning": 30.0,
         "reasoning-lite": 18.0,
-        "mid-local": 15.0,
+        "embedding": 8.0,
+        "vision": 6.0,
+        "vision-large": 16.0,
+        "mid-local": 16.0,
         "coder-precise": 28.0,
         "mythos-fast": 5.0,
         "mythos": 18.0,
-        "mistral-medium-128b": 64.0,
-        "deepseek-v4-pro": 40.0,
-        "deepseek-v4-flash": 20.0,
+        "mistral-medium-128b": 74.0,
+        "deepseek-v4-pro": 14.0,
+        "deepseek-v4-flash": 4.0,
     }
-    out = dict(hints)
+    out = dict(fallback)
+    try:
+        with open(OMLX_CONF) as f:
+            conf = json.load(f)
+        for key, model in (conf.get("models") or {}).items():
+            raw_size = model.get("size_gb") if isinstance(model, dict) else None
+            if (
+                isinstance(raw_size, (int, float))
+                and not isinstance(raw_size, bool)
+                and math.isfinite(float(raw_size))
+                and float(raw_size) > 0
+            ):
+                out[str(key)] = float(raw_size)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        _log.warning("读取 omlxc 模型体积失败，MemoryGuard 使用安全回退值", exc_info=True)
+
     for alias, key in OMLX_ALIAS_MAP.items():
-        if key in hints:
-            out[alias] = hints[key]
+        if key in out:
+            out[alias] = out[key]
     return out
 
 
