@@ -215,14 +215,41 @@ def resolve_bind_hosts(bind: str) -> list[str]:
     return [h.strip() for h in bind.split(",") if h.strip()]
 
 
-def serve(port: int = 9290, bind: str = "local") -> None:
+def parse_ports(spec: str | int) -> list[int]:
+    """"9290" / "9290,4000" / 9290 → [9290] / [9290, 4000] / [9290]"""
+    if isinstance(spec, int):
+        return [spec]
+    out: list[int] = []
+    for p in str(spec).split(","):
+        p = p.strip()
+        if p:
+            out.append(int(p))
+    return out or [9290]
+
+
+async def _run_sites(app: web.Application, hosts: list[str], ports: list[int]) -> None:
+    """在 hosts × ports 的每个组合上开一个 site, 然后一直挂着。"""
+    import asyncio
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    for h in hosts:
+        for p in ports:
+            await web.TCPSite(runner, h, p).start()
+    await asyncio.Event().wait()   # 交给信号处理去中断
+
+
+def serve(port: int | str = 9290, bind: str = "local") -> None:
     """Start the OpenAI-compatible proxy server."""
     logging.basicConfig(level=logging.INFO, format="%(name)s | %(levelname)s | %(message)s")
-    _log.info("Starting AetherForge OpenAI proxy on :%d", port)
+    _log.info("Starting AetherForge OpenAI proxy on :%s", port)
     _log.info("  POST /v1/chat/completions  — LLM inference")
     _log.info("  GET  /v1/models            — list models")
     _log.info("  POST /v1/embeddings        — embeddings")
+    import asyncio
+
     hosts = resolve_bind_hosts(bind)
+    ports = parse_ports(port)
     api_key = os.environ.get("AETHERFORGE_API_KEY") or None
     non_loopback = [h for h in hosts if h not in ("127.0.0.1", "::1", "localhost")]
     if non_loopback and not api_key:
@@ -233,14 +260,22 @@ def serve(port: int = 9290, bind: str = "local") -> None:
             "  要么设 AETHERFORGE_API_KEY=<key>, 要么用 --bind local。"
         )
     for h in hosts:
-        _log.info("  base_url=http://%s:%d/v1", h, port)
+        for p in ports:
+            _log.info("  base_url=http://%s:%d/v1", h, p)
     _log.info("  鉴权: %s", "Bearer key 已启用" if api_key else "无(仅 loopback)")
-    web.run_app(create_app(api_key), host=hosts, port=port, print=None)
+    try:
+        asyncio.run(_run_sites(create_app(api_key), hosts, ports))
+    except KeyboardInterrupt:
+        pass
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="AetherForge OpenAI-compatible proxy")
-    parser.add_argument("--port", type=int, default=9290)
+    parser.add_argument(
+        "--port",
+        default=os.environ.get("AETHERFORGE_PORTS", "9290"),
+        help="端口, 逗号分隔可多个。过渡期用 9290,4000 接管 LiteLLM 的位置。",
+    )
     parser.add_argument(
         "--bind",
         default=os.environ.get("AETHERFORGE_BIND", "local"),

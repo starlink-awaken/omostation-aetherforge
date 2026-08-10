@@ -712,10 +712,11 @@ class TestRoutingRegressions:
     def test_thinking_budget_exhausted_retries_with_more_tokens(
         self, gateway_config, mock_registry, mock_scheduler
     ):
-        """B7: finish=length 且剥离后无正文 → 补额度重试一次, 而不是直接判失败。
+        """B7: finish=length 且无正文 → 先关 thinking, 关不掉才抬预算。
 
-        实测 2026-08-10: LM Link 池里几乎全是 thinking 模型, max_tokens=32 时
-        qwen/qwen3.5-9b 要 455 token 才吐得出"收到", 之前一律返回空。
+        实测(qwen/qwen3.5-9b, max_tokens=64): 什么都不加 8.2s 空回复,
+        reasoning_effort=none 0.6s/2token 出正文。所以关 thinking 必须排在
+        抬预算前面 —— 后者慢一个数量级还更费。
         """
         import asyncio
 
@@ -724,7 +725,7 @@ class TestRoutingRegressions:
         calls = []
 
         async def chat(model_id, messages, options=None):
-            calls.append(options.max_tokens if options else None)
+            calls.append((options.max_tokens, dict(options.extra or {})))
             if len(calls) == 1:
                 return ChatResult(content="<think>想...</think>", finish_reason="length")
             return ChatResult(content="<think>想...</think>收到", finish_reason="stop")
@@ -746,10 +747,51 @@ class TestRoutingRegressions:
                 )
             )
         )
-        assert calls[:2] == [32, gateway_config.thinking_retry_budget], (
-            f"没有按预算重试 —— B7 回归 (实际调用额度: {calls})"
+        assert calls[0] == (32, {}), f"第一次不该改动调用方的参数: {calls[0]}"
+        assert calls[1] == (32, gateway_config.no_think_param), (
+            f"第二次该是同预算 + 关 thinking, 实际 {calls[1]}"
         )
         assert resp.content == "收到"
+
+    def test_budget_raised_only_when_no_think_fails(
+        self, gateway_config, mock_registry, mock_scheduler
+    ):
+        """关不掉 thinking(下游不认这个参数)时, 才退而求其次抬预算。"""
+        import asyncio
+
+        from llm_gateway.gateway import GatewayRequest, ModelGateway
+
+        calls = []
+
+        async def chat(model_id, messages, options=None):
+            calls.append((options.max_tokens, dict(options.extra or {})))
+            if options.max_tokens == gateway_config.thinking_retry_budget:
+                return ChatResult(content="收到", finish_reason="stop")
+            return ChatResult(content="<think>想...</think>", finish_reason="length")
+
+        mock_registry.chat = chat
+        mock_registry.get.return_value = MagicMock(id="pool/coding-fallback")
+        mock_registry.get_provider.return_value = MagicMock(name="p")
+
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        gw._port_reachable = AsyncMock(return_value=False)
+        gw._ensure_model = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+        resp = asyncio.run(
+            gw.generate(
+                GatewayRequest(
+                    messages=[{"role": "user", "content": "hi"}],
+                    model="coding-fast",
+                    max_tokens=32,
+                )
+            )
+        )
+        budgets = [c[0] for c in calls[:3]]
+        assert budgets == [32, 32, gateway_config.thinking_retry_budget], (
+            f"补救顺序不对: {budgets}"
+        )
+        assert resp.content == "收到"
+
 
     def test_no_retry_when_finish_is_stop(self, gateway_config, mock_registry, mock_scheduler):
         """反向: finish=stop 还是空, 就是真没回答, 不该白重试一次。"""

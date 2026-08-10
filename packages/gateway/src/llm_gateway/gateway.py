@@ -357,6 +357,13 @@ class GatewayConfig:
     # thinking 模型在小 max_tokens 下会把额度全花在思考段, content 留空。
     # 命中时补到这个额度重试一次。设 0 关闭(那就只能拿到空回复的失败)。
     thinking_retry_budget: int = 1024
+    # 关 thinking 的参数。实测只有 reasoning_effort=none 对 LM Studio 生效;
+    # chat_template_kwargs.enable_thinking / thinking、reasoning_effort=low、
+    # 消息里加 /no_think 前缀 —— 四种写法都不管用(2026-08-10, qwen3.5-9b)。
+    # 设成 None 可整体关掉这条补救。
+    no_think_param: dict[str, object] | None = field(
+        default_factory=lambda: {"reasoning_effort": "none"}
+    )
     # 本网关自己的 OpenAI 门面端点。SSOT 的 ENG-OMLX-LOCAL 现指向门面
     # (原先指向 LiteLLM :4000), 于是 registry 回退路径有可能打回自己 ——
     # 一个请求在"直连端口失败 → 回退 registry → 门面 → 本网关"之间成环。
@@ -718,7 +725,7 @@ class ModelGateway:
         t0: float,
     ) -> GatewayResponse:
         """经 registry/provider 链生成。display_name 是消费者原本要的名字。"""
-        async def _call(max_tokens: int | None):
+        async def _call(max_tokens: int | None, extra: dict | None = None):
             return await asyncio.wait_for(
                 self._registry.chat(
                     model_id,
@@ -726,6 +733,7 @@ class ModelGateway:
                     ChatOptions(
                         temperature=request.temperature,
                         max_tokens=max_tokens,
+                        extra=extra,
                     ),
                 ),
                 timeout=request.timeout,
@@ -740,18 +748,30 @@ class ModelGateway:
 
         # 预算耗尽在思考段: finish_reason=length 且剥离后没正文。
         # 这不是模型不行, 是给的额度不够 —— 补足再来一次, 只补一次。
-        if (
-            not stripped.strip()
-            and result.finish_reason == "length"
-            and self._config.thinking_retry_budget
-        ):
-            budget = self._config.thinking_retry_budget
-            if (request.max_tokens or 0) < budget:
+        if not stripped.strip() and result.finish_reason == "length":
+            # 第一手: 直接把 thinking 关掉。实测 qwen/qwen3.5-9b 从
+            # 8.2s/64token 空回复变成 0.6s/2token 正常回答, 比抬预算划算得多。
+            if self._config.no_think_param:
                 _log.info(
-                    "[ModelGateway] %s 预算耗尽在思考段(max_tokens=%s), 提到 %d 重试一次",
+                    "[ModelGateway] %s 预算耗尽在思考段(max_tokens=%s), 关 thinking 重试",
                     display_name,
                     request.max_tokens,
-                    budget,
+                )
+                try:
+                    retry = await _call(request.max_tokens, dict(self._config.no_think_param))
+                except Exception as e:
+                    _log.info("[ModelGateway] %s 不接受关 thinking 参数: %s", display_name, e)
+                    retry = None
+                if retry and _strip_thinking(retry.content or "").strip():
+                    result = retry
+                    content = retry.content or ""
+                    stripped = _strip_thinking(content)
+
+            # 第二手: 下游不认这个参数(或认了仍不出正文)时才抬预算。
+            budget = self._config.thinking_retry_budget
+            if not stripped.strip() and budget and (request.max_tokens or 0) < budget:
+                _log.info(
+                    "[ModelGateway] %s 仍无正文, 预算提到 %d 再试一次", display_name, budget
                 )
                 result = await _call(budget)
                 content = (result.content or "") if result else ""

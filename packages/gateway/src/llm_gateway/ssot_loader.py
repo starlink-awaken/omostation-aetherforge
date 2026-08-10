@@ -206,6 +206,8 @@ class SSOTProviderAdapter(BaseLLMProvider):
                 req.temperature = options.temperature
             if options.max_tokens is not None:
                 req.max_tokens = options.max_tokens
+            if options.extra:
+                req.extra = dict(options.extra)
         return req
 
     async def chat(

@@ -9,31 +9,30 @@ from __future__ import annotations
 
 import pytest
 from aiohttp import web
-
-from llm_gateway import openai_proxy as P
+from llm_gateway import openai_proxy as proxy
 
 
 class TestBindResolution:
     def test_local_is_loopback_only(self):
-        assert P.resolve_bind_hosts("local") == ["127.0.0.1"]
+        assert proxy.resolve_bind_hosts("local") == ["127.0.0.1"]
 
     def test_tailnet_includes_loopback_and_tailnet_ip(self, monkeypatch):
-        monkeypatch.setattr(P, "_tailnet_ip", lambda: "100.96.126.35")
-        assert P.resolve_bind_hosts("tailnet") == ["127.0.0.1", "100.96.126.35"]
+        monkeypatch.setattr(proxy, "_tailnet_ip", lambda: "100.96.126.35")
+        assert proxy.resolve_bind_hosts("tailnet") == ["127.0.0.1", "100.96.126.35"]
 
     def test_tailnet_falls_back_to_local_when_unavailable(self, monkeypatch):
         """拿不到 tailnet 地址时收缩到 loopback, 而不是退成 0.0.0.0。"""
-        monkeypatch.setattr(P, "_tailnet_ip", lambda: None)
-        assert P.resolve_bind_hosts("tailnet") == ["127.0.0.1"]
+        monkeypatch.setattr(proxy, "_tailnet_ip", lambda: None)
+        assert proxy.resolve_bind_hosts("tailnet") == ["127.0.0.1"]
 
     def test_never_defaults_to_all_interfaces(self, monkeypatch):
         """0.0.0.0 会把模型开给同网段任意机器 —— 只能显式指定, 不能是任何默认值。
 
         (omlxc gw start 给 LiteLLM 下的正是 --host 0.0.0.0, 注释却写"绑 tailnet"。)
         """
-        monkeypatch.setattr(P, "_tailnet_ip", lambda: "100.96.126.35")
+        monkeypatch.setattr(proxy, "_tailnet_ip", lambda: "100.96.126.35")
         for spec in ("local", "tailnet"):
-            assert "0.0.0.0" not in P.resolve_bind_hosts(spec)
+            assert "0.0.0.0" not in proxy.resolve_bind_hosts(spec)  # noqa: S104
 
 
 class TestAuth:
@@ -50,7 +49,7 @@ class TestAuth:
         async def handler(_):
             return web.json_response({"ok": True})
 
-        return asyncio.run(P.auth_middleware(req, handler))
+        return asyncio.run(proxy.auth_middleware(req, handler))
 
     def test_no_key_means_open(self):
         assert self._run(None).status == 200
@@ -75,18 +74,37 @@ class TestAuth:
 
 def test_serve_refuses_non_loopback_without_key(monkeypatch):
     """绑到 loopback 之外却没配 key → 拒绝启动, 而不是静默裸奔。"""
-    monkeypatch.setattr(P, "_tailnet_ip", lambda: "100.96.126.35")
+    monkeypatch.setattr(proxy, "_tailnet_ip", lambda: "100.96.126.35")
     monkeypatch.delenv("AETHERFORGE_API_KEY", raising=False)
-    monkeypatch.setattr(web, "run_app", lambda *a, **k: pytest.fail("不该走到 run_app"))
+    monkeypatch.setattr(proxy, "_run_sites", lambda *a: pytest.fail("不该起服务"))
     with pytest.raises(SystemExit) as ei:
-        P.serve(port=59290, bind="tailnet")
+        proxy.serve(port=59290, bind="tailnet")
     assert "AETHERFORGE_API_KEY" in str(ei.value)
 
 
 def test_serve_allows_loopback_without_key(monkeypatch):
-    """只绑 loopback 时不强制 key —— 本机进程本来就能直接打各模型端口。"""
+    """只绑 loopback 时不强制 key —— 本机进程本来就能直接打各模型端口。
+
+    注意拦的是 _run_sites 而不是 web.run_app: serve 改成多端口后走的是
+    AppRunner + 多个 TCPSite。上一版还拦着 run_app, 结果测试真起了服务并
+    永久阻塞 —— 整个测试套跑不完。
+    """
     monkeypatch.delenv("AETHERFORGE_API_KEY", raising=False)
-    called = {}
-    monkeypatch.setattr(web, "run_app", lambda *a, **k: called.update(k))
-    P.serve(port=59290, bind="local")
-    assert called.get("host") == ["127.0.0.1"]
+    seen = {}
+
+    async def fake_sites(app, hosts, ports):
+        seen["hosts"] = hosts
+        seen["ports"] = ports
+
+    monkeypatch.setattr(proxy, "_run_sites", fake_sites)
+    proxy.serve(port="59290,59291", bind="local")
+    assert seen["hosts"] == ["127.0.0.1"]
+    assert seen["ports"] == [59290, 59291]
+
+
+def test_ports_parse():
+    assert proxy.parse_ports(9290) == [9290]
+    assert proxy.parse_ports("9290") == [9290]
+    # 过渡期同时占 LiteLLM 的 4000, 调用方零改动
+    assert proxy.parse_ports("9290,4000") == [9290, 4000]
+    assert proxy.parse_ports(" 9290 , 4000 ") == [9290, 4000]

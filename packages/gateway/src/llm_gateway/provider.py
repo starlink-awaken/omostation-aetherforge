@@ -159,6 +159,8 @@ class LLMRequest:
     stop_sequences: list[str] = field(default_factory=list)
     context: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    # 透传给底层 SDK 的额外 body 字段(如 reasoning_effort)
+    extra: dict[str, Any] | None = None
 
 
 @dataclass
