@@ -152,6 +152,9 @@ class OpenAIProvider(LLMProvider):
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 stop=request.stop_sequences or None,
+                # extra_body 原样进 JSON body —— LM Studio 的 reasoning_effort
+                # 这类非标准字段走这里, SDK 不认识也不会拦。
+                **({"extra_body": request.extra} if request.extra else {}),
             )
             choice = resp.choices[0]
             return LLMResponse(
