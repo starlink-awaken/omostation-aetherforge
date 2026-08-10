@@ -23,6 +23,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+try:
+    from .governed_io import write_json as governed_write_json
+except ImportError:  # pragma: no cover - direct script compatibility
+    from governed_io import write_json as governed_write_json
+
 _log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -249,7 +254,7 @@ def _persist_proposals(result: dict[str, Any]) -> str | None:
     """T-C2/META-03: 落地进化提案到文件 (证据留存).
 
     去重: 按 proposal 文本的 hash 跳过已存在的相同提案.
-    清理: 每次写入后只保留最新 20 个提案文件.
+    Retention is owned by OMO; AetherForge only submits new proposal artifacts.
     """
     import hashlib
 
@@ -258,7 +263,6 @@ def _persist_proposals(result: dict[str, Any]) -> str | None:
         return None
     try:
         out_dir = ROOT / ".omo" / "_knowledge" / "evolution-proposals"
-        out_dir.mkdir(parents=True, exist_ok=True)
 
         existing_hashes: set[str] = set()
         for f in out_dir.glob("*.json"):
@@ -288,14 +292,7 @@ def _persist_proposals(result: dict[str, Any]) -> str | None:
 
         ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         path = out_dir / f"proposal-{ts}.json"
-        path.write_text(
-            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-
-        all_files = sorted(out_dir.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
-        for f in all_files[20:]:
-            f.unlink()
+        governed_write_json(path, result, sort_keys=True)
 
         return str(path.relative_to(ROOT))
     except Exception:

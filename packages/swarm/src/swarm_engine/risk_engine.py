@@ -24,7 +24,12 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _shared import ROOT, utc_now
+try:
+    from ._shared import ROOT, utc_now
+    from .governed_io import write_json as governed_write_json
+except ImportError:  # pragma: no cover - direct script compatibility
+    from _shared import ROOT, utc_now
+    from governed_io import write_json as governed_write_json
 
 # ── 风险因子权重 ──────────────────────────────────────────
 
@@ -107,8 +112,7 @@ def _load_trust() -> dict[str, dict]:
 
 
 def _save_trust(data: dict) -> None:
-    TRUST_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TRUST_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    governed_write_json(TRUST_FILE, data)
 
 
 def _trust_key(action: Action) -> str:
