@@ -54,8 +54,8 @@ class ModelRegistry:
         single slow/hanging endpoint (e.g. an unreachable cloud provider) cannot
         block discovery of the rest.
         """
-        self._models.clear()
         all_models: list[ModelDescriptor] = []
+        discovered: dict[str, tuple[ModelDescriptor, str]] = {}
 
         async def _discover(p: BaseLLMProvider) -> list[ModelDescriptor]:
             return await asyncio.wait_for(p.discover(), timeout=discover_timeout)
@@ -67,8 +67,10 @@ class ModelRegistry:
                 _log.warning("[ModelRegistry] discover failed for %s: %s", name, result)
                 continue
             for m in result:
-                self._models[m.id] = (m, name)
+                discovered[m.id] = (m, name)
                 all_models.append(m)
+        # 原子替换，避免周期 refresh 时并发请求看到“registry 突然清空”。
+        self._models = discovered
         return all_models
 
     # ------------------------------------------------------------------

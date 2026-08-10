@@ -36,6 +36,30 @@ uv run pytest
 uv run ruff check "packages/" "src/"
     ```
 
+## Local Compute Hub
+
+AetherForge exposes one OpenAI-compatible facade over the local compute fleet. The
+default request policy stays local and uses the governed order:
+
+1. oMLX App on the MacBook Pro.
+2. LM Link / LM Studio engines registered in ComputeEngine SSOT.
+3. Ollama engines registered in ComputeEngine SSOT.
+
+Cloud providers are eligible only when the caller explicitly selects
+`routing_mode=hybrid` or `routing_mode=cloud`. Provider request defaults disable
+reasoning/thinking unless the caller supplies a supported override.
+
+The BOS/Agora adapter accepts either a normal JSON request or the Agora
+`{"kwargs": ...}` envelope on stdin:
+
+```bash
+printf '%s\n' '{"model":"mythos-fast","messages":[{"role":"user","content":"Reply OK"}]}' \
+  | uv run python -m aetherforge.cli infer
+```
+
+The executable resolves the running authenticated AetherForge facade; it does not
+start a second gateway or bypass Agora/ComputeEngine SSOT.
+
     ## Key Surfaces
 
     - `packages/gateway/`

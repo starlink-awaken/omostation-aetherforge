@@ -43,7 +43,7 @@ class TestAuth:
         import asyncio
         from types import SimpleNamespace
 
-        app = {"api_key": api_key}
+        app = {proxy.API_KEY: api_key}
         req = SimpleNamespace(app=app, path=path, headers=header or {})
 
         async def handler(_):

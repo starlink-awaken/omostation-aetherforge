@@ -35,6 +35,8 @@ def gateway_config():
         # 显式给死, 不读本机 ~/omlx/conf/models.json —— 测试结果不该随
         # 跑测试的这台机器上装了什么模型而变。
         lmstudio_fallback={"coding-fast": "pool/coding-fallback"},
+        ollama_fallback={"coding-fast": "ollama-coding"},
+        local_backend="legacy",
         fallback_chain=["coding-fast", "test-model"],
         warm_pool_ttl=60,
     )
@@ -877,4 +879,3 @@ class TestRoutingRegressions:
         assert calls == [gateway_config.no_think_param], (
             f"第二次仍白跑了一次带 thinking 的首发: {calls}"
         )
-
