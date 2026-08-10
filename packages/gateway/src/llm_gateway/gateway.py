@@ -183,6 +183,10 @@ class GatewayRequest:
     # LiteLLM, 丢这两个参数是功能回退。None 表示不指定, 由下游取默认。
     temperature: float | None = None
     max_tokens: int | None = None
+    # 下游扩展参数：oMLX App / LM Studio / Ollama 的关 thinking 参数均走这里。
+    extra: dict[str, Any] = field(default_factory=dict)
+    # local(默认): 只用本地三机算力；hybrid: 允许云端参与 fallback；cloud: 只用云端。
+    routing_mode: str = "local"
 
     # K1 敏感检查上下文 (可选, 传了才检查)
     content_title: str = ""
@@ -202,6 +206,7 @@ class GatewayResponse:
     provider: str = ""
     error: str = ""
     stripped_thinking: bool = False  # 是否剥离了 thinking 段
+    finish_reason: str = "stop"
 
 
 # ============================================================
@@ -333,6 +338,21 @@ def _load_lmstudio_fallback() -> dict[str, str]:
     return out
 
 
+def _load_ollama_fallback() -> dict[str, str]:
+    """本机逻辑 key → Ollama 第二兜底模型。"""
+    try:
+        with open(OMLX_CONF) as f:
+            conf = json.load(f)
+    except Exception:
+        return {}
+    fb = conf.get("fallback_ollama") or {}
+    out: dict[str, str] = {k: v for k, v in fb.items() if not k.startswith("_") and isinstance(v, str)}
+    for alias, key in OMLX_ALIAS_MAP.items():
+        if key in out:
+            out.setdefault(alias, out[key])
+    return out
+
+
 @dataclass
 class GatewayConfig:
     """网关配置."""
@@ -348,6 +368,12 @@ class GatewayConfig:
     model_sizes: dict[str, float] = field(default_factory=_load_omlx_sizes)
     # 本机 omlx 后端起不来时改用 LM Studio 池里的哪个模型
     lmstudio_fallback: dict[str, str] = field(default_factory=_load_lmstudio_fallback)
+    # LM Link 也失败时的 Ollama 第二兜底。
+    ollama_fallback: dict[str, str] = field(default_factory=_load_ollama_fallback)
+    # app = oMLX App 单进程承载(默认); legacy = 每模型独立端口, 仅供回滚。
+    local_backend: str = field(
+        default_factory=lambda: os.environ.get("AETHERFORGE_LOCAL_BACKEND", "app")
+    )
     # 冷加载一个几十 GB 的 MLX 模型远不止 30s。原默认值会让"其实在加载中"
     # 被判成失败, 于是回退到别的模型 —— 表现为随机地拿到不是自己要的模型。
     load_ready_timeout: float = 300.0
@@ -390,6 +416,9 @@ class GatewayConfig:
     warm_pool_ttl: int = 300
     # 健康检查间隔 (秒)
     health_check_interval: int = 60
+    # 首次/周期模型发现的单 provider 上限。物理节点都在 loopback/tailnet，
+    # 2 秒足够；云端和离线节点不能拖住本地首 token。
+    registry_discover_timeout: float = 2.0
     # 是否启用后台任务 (warm pool sweep + health check)
     background_tasks_enabled: bool = True
 
@@ -528,13 +557,32 @@ class ModelGateway:
             return
         try:
             if not self._registry.list_models():
-                await self._registry.refresh()
+                await self._registry.refresh(self._config.registry_discover_timeout)
             self._registry_ready = True  # only set on success
         except Exception as e:
             _log.warning("[ModelGateway] registry refresh failed: %s", e)
             # Do NOT set _registry_ready — allow retry on next call
 
     async def generate(self, request: GatewayRequest) -> GatewayResponse:
+        """带端到端 deadline 的统一入口。
+
+        timeout 覆盖发现、选路、加载、重试和全部 fallback，而不是每一跳都重新
+        获得一份完整预算。这个区别决定故障时是 30 秒返回，还是挂几分钟。
+        """
+        t0 = time.time()
+        try:
+            async with asyncio.timeout(max(0.1, request.timeout)):
+                return await self._generate_within_deadline(request)
+        except TimeoutError:
+            return GatewayResponse(
+                content="",
+                model="",
+                latency_ms=(time.time() - t0) * 1000,
+                error=f"Gateway deadline exceeded ({request.timeout:.1f}s)",
+                finish_reason="error",
+            )
+
+    async def _generate_within_deadline(self, request: GatewayRequest) -> GatewayResponse:
         """统一生成入口.
 
         流程:
@@ -546,6 +594,14 @@ class ModelGateway:
           6. 记账
         """
         t0 = time.time()
+        if request.routing_mode not in {"local", "hybrid", "cloud"}:
+            return GatewayResponse(
+                content="",
+                model="",
+                latency_ms=0,
+                error=f"Invalid routing_mode: {request.routing_mode}",
+                finish_reason="error",
+            )
 
         # 0. 惰性发现: registry 为空时先 discover(SSOT model_defs 不走网络, 很快)
         await self._ensure_registry_ready()
@@ -585,7 +641,9 @@ class ModelGateway:
             selection = await self._scheduler.select_model(sched_req)
             if selection and selection.model.name:
                 sched_model = selection.model.name
-                if sched_model not in full_chain:
+                sched_id = selection.model.id or sched_model
+                allowed = self._routing_allows_model(sched_id, request.routing_mode)
+                if allowed and sched_model not in full_chain:
                     full_chain.append(sched_model)
                 _log.info(
                     "[ModelGateway] scheduler selected: %s (%.2f) — %s",
@@ -598,6 +656,16 @@ class ModelGateway:
 
         # 4. 尝试 fallback 链
         full_chain.extend(chain)
+
+        # 去重并执行本地/云边界。默认 local，不再因为 scheduler 恰好偏爱某个
+        # 云模型就把本地任务送出去。
+        filtered_chain: list[str] = []
+        for model_name in full_chain:
+            if model_name in filtered_chain:
+                continue
+            if self._routing_allows_model(model_name, request.routing_mode):
+                filtered_chain.append(model_name)
+        full_chain = filtered_chain
 
         last_error = ""
         for model_name in full_chain:
@@ -636,6 +704,7 @@ class ModelGateway:
         local_models = [m for m in self._config.fallback_chain if m != "deepseek-chat"]
         chain = [request.model] if request.model and request.model != "deepseek-chat" else []
         chain.extend(local_models)
+        chain = [m for m in dict.fromkeys(chain) if self._routing_allows_model(m, "local")]
 
         for model_name in chain:
             try:
@@ -673,36 +742,53 @@ class ModelGateway:
 
         # ── A. 本机 omlx ────────────────────────────────────
         if local_key in self._config.model_ports:
-            port = self._config.model_ports[local_key]
-            reachable = await self._port_reachable(port)
-            if not reachable:
-                # 端口不通 = 后端没起, 或被 autopilot 按 idle TTL 卸了。
-                # 旧实现在此直接落 registry, 于是被子串顶包成别的模型且
-                # 返回 200 —— 错得悄无声息。正确动作是先把它拉起来。
-                self._loaded_models.pop(local_key, None)  # 缓存与现实对齐
-                reachable = await self._ensure_model(local_key)
-            if reachable:
-                try:
-                    return await self._generate_via_omlx_router(
-                        local_key, request, t0, display_name=model_name
-                    )
-                except Exception as e:
-                    _log.warning("[ModelGateway] omlx 直连 %s 失败: %s", local_key, e)
-                    # 超时几乎总是"后端卡死"而非"模型慢"(就绪探针已经证明过它
-                    # 能生成了)。卡死的进程不会自愈, 就地回收, 本次走兜底。
-                    if isinstance(e, TimeoutError) or "timeout" in str(e).lower():
-                        await self._recycle_backend(local_key)
+            if self._config.local_backend == "app":
+                app_id = self._resolve_model_id(local_key, ("ENG-OMLX-LOCAL",))
+                if app_id and not self._provider_is_self(app_id):
+                    try:
+                        return await self._generate_via_registry(app_id, model_name, request, t0)
+                    except Exception as e:
+                        _log.warning("[ModelGateway] oMLX App %s 失败: %s", local_key, e)
+                else:
+                    _log.warning("[ModelGateway] oMLX App 模型不可解析或端点自指: %s", local_key)
+            else:
+                port = self._config.model_ports[local_key]
+                reachable = await self._port_reachable(port)
+                if not reachable:
+                    # legacy 回滚模式才拉独立 server；App 模式严禁偷偷复活旧架构。
+                    self._loaded_models.pop(local_key, None)
+                    reachable = await self._ensure_model(local_key)
+                if reachable:
+                    try:
+                        return await self._generate_via_omlx_router(
+                            local_key, request, t0, display_name=model_name
+                        )
+                    except Exception as e:
+                        _log.warning("[ModelGateway] legacy omlx 直连 %s 失败: %s", local_key, e)
+                        if isinstance(e, TimeoutError) or "timeout" in str(e).lower():
+                            await self._recycle_backend(local_key)
 
             fb = self._lmstudio_fallback(local_key)
             if fb:
-                _log.warning("[ModelGateway] %s → LM Studio 兜底 %s", local_key, fb)
-                fb_id = self._resolve_model_id(fb)
+                _log.warning("[ModelGateway] %s → LM Link 兜底 %s", local_key, fb)
+                fb_id = self._resolve_model_id(fb, ("ENG-LMSTUDIO-",))
                 if fb_id and not self._provider_is_self(fb_id):
-                    return await self._generate_via_registry(fb_id, model_name, request, t0)
-                _log.warning("[ModelGateway] 兜底目标 %s 在 registry 中不可解析", fb)
+                    try:
+                        return await self._generate_via_registry(fb_id, model_name, request, t0)
+                    except Exception as e:
+                        _log.warning("[ModelGateway] LM Link 兜底 %s 失败: %s", fb, e)
+
+            ollama = self._ollama_fallback(local_key)
+            if ollama:
+                _log.warning("[ModelGateway] %s → Ollama 二级兜底 %s", local_key, ollama)
+                ollama_id = self._resolve_model_id(ollama, ("ENG-OLLAMA-",))
+                if ollama_id and not self._provider_is_self(ollama_id):
+                    return await self._generate_via_registry(ollama_id, model_name, request, t0)
+
             raise RuntimeError(
-                f"{model_name}: 本机 omlx 后端不可用"
-                + (f", LM Studio 兜底 {fb} 也不可用" if fb else ", 且无 LM Studio 兜底映射")
+                f"{model_name}: oMLX App/legacy 本地后端不可用"
+                + (f", LM Link 兜底 {fb} 不可用" if fb else ", 无 LM Link 兜底")
+                + (f", Ollama 兜底 {ollama} 不可用" if ollama else ", 无 Ollama 兜底")
             )
 
         # ── B. registry + provider chain ────────────────────
@@ -729,17 +815,17 @@ class ModelGateway:
     ) -> GatewayResponse:
         """经 registry/provider 链生成。display_name 是消费者原本要的名字。"""
         async def _call(max_tokens: int | None, extra: dict | None = None):
-            return await asyncio.wait_for(
-                self._registry.chat(
-                    model_id,
-                    request.messages,
-                    ChatOptions(
-                        temperature=request.temperature,
-                        max_tokens=max_tokens,
-                        extra=extra,
-                    ),
+            merged_extra = dict(request.extra)
+            if extra:
+                merged_extra.update(extra)
+            return await self._registry.chat(
+                model_id,
+                request.messages,
+                ChatOptions(
+                    temperature=request.temperature,
+                    max_tokens=max_tokens,
+                    extra=merged_extra or None,
                 ),
-                timeout=request.timeout,
             )
 
         # 之前已经证实过这个模型不关 thinking 就不出正文 —— 直接带上,
@@ -816,6 +902,7 @@ class ModelGateway:
             tokens_out=usage.get("completion_tokens", 0),
             provider=provider_name,
             stripped_thinking=was_stripped,
+            finish_reason=result.finish_reason or "stop",
         )
 
     def _lmstudio_fallback(self, local_key: str) -> str | None:
@@ -825,6 +912,10 @@ class ModelGateway:
         避免网关和 CLI 各持一份互相漂移。
         """
         return self._config.lmstudio_fallback.get(local_key)
+
+    def _ollama_fallback(self, local_key: str) -> str | None:
+        """LM Link 之后的 Ollama 兜底，映射同样来自 models.json。"""
+        return self._config.ollama_fallback.get(local_key)
 
     async def _generate_via_omlx_router(
         self,
@@ -863,6 +954,7 @@ class ModelGateway:
                         # None 时不下发, 保持模型自身默认(而不是硬塞一个值)
                         **({"temperature": request.temperature} if request.temperature is not None else {}),
                         **({"max_tokens": request.max_tokens} if request.max_tokens is not None else {}),
+                        **request.extra,
                     },
                     timeout=aiohttp.ClientTimeout(total=request.timeout),
                 ) as resp:
@@ -878,6 +970,8 @@ class ModelGateway:
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         stripped = _strip_thinking(content)
         was_stripped = stripped != content
+        if not stripped.strip():
+            raise RuntimeError(f"{display_name or model_name}: legacy 后端回复为空")
 
         usage = data.get("usage", {})
         latency_ms = (time.time() - t0) * 1000
@@ -891,6 +985,7 @@ class ModelGateway:
             tokens_out=usage.get("completion_tokens", 0),
             provider="ENG-OMLX-LOCAL",
             stripped_thinking=was_stripped,
+            finish_reason=data.get("choices", [{}])[0].get("finish_reason") or "stop",
         )
 
     async def _port_reachable(self, port: int, timeout: float = 0.5) -> bool:
@@ -1148,6 +1243,7 @@ class ModelGateway:
             while True:
                 await asyncio.sleep(self._config.health_check_interval)
                 try:
+                    await self._registry.refresh(self._config.registry_discover_timeout)
                     await self.health()
                 except Exception:
                     _log.exception("[ModelGateway] health check error")
@@ -1167,9 +1263,64 @@ class ModelGateway:
     # ==========================================================
     # Embedding (降级链)
     # ==========================================================
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        """Embedding 降级链: 8183 → 8188 → 错误."""
+    async def embed(
+        self,
+        texts: list[str],
+        model: str = "embedding",
+        timeout: float = 30.0,
+    ) -> list[list[float]]:
+        """Embedding 降级链。
+
+        App 模式复用 ComputeEngine SSOT：oMLX App → LM Link → Ollama；legacy
+        回滚模式保留旧 8183/8188 行为。
+        """
         import aiohttp
+
+        if self._config.local_backend == "app":
+            await self._ensure_registry_ready()
+            local_key = self.resolve_alias(model)
+            candidates: list[str] = []
+            app_id = self._resolve_model_id(local_key, ("ENG-OMLX-LOCAL",))
+            if app_id:
+                candidates.append(app_id)
+            lm = self._lmstudio_fallback(local_key)
+            if lm:
+                lm_id = self._resolve_model_id(lm, ("ENG-LMSTUDIO-",))
+                if lm_id:
+                    candidates.append(lm_id)
+            ollama = self._ollama_fallback(local_key)
+            if ollama:
+                ollama_id = self._resolve_model_id(ollama, ("ENG-OLLAMA-",))
+                if ollama_id:
+                    candidates.append(ollama_id)
+
+            last_error = "no embedding provider"
+            async with asyncio.timeout(max(0.1, timeout)):
+                for model_id in dict.fromkeys(candidates):
+                    if self._provider_is_self(model_id):
+                        continue
+                    provider = self._registry.get_provider(model_id)
+                    base = str(getattr(provider, "base_url", "") or "").rstrip("/")
+                    if not base:
+                        continue
+                    try:
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(
+                                f"{base}/embeddings",
+                                json={"input": texts, "model": _id_tail(model_id)},
+                            ) as resp:
+                                if resp.status != 200:
+                                    last_error = f"{model_id} HTTP {resp.status}"
+                                    continue
+                                data = await resp.json()
+                        embeddings = [item["embedding"] for item in data.get("data", [])]
+                        if len(embeddings) == len(texts):
+                            return embeddings
+                        last_error = f"{model_id} returned {len(embeddings)}/{len(texts)} vectors"
+                    except Exception as e:
+                        last_error = f"{model_id}: {e}"
+                        _log.warning("[ModelGateway] embed %s failed: %s", model_id, e)
+            raise RuntimeError(f"All embedding providers failed. Last: {last_error}")
 
         chain = [
             ("embedding-8183", f"{self._config.local_base_url}:8183"),
@@ -1276,7 +1427,24 @@ class ModelGateway:
 
         return resolve(name, self._config.aliases)
 
-    def _resolve_model_id(self, model_name: str) -> str | None:
+    def _routing_allows_model(self, model_name: str, mode: str) -> bool:
+        """执行本地/云边界；未知模型在 local 模式按保守策略拒绝。"""
+        if mode == "hybrid":
+            return True
+        resolved = self.resolve_alias(model_name)
+        if resolved in self._config.model_ports:
+            is_local = True
+        else:
+            model_id = self._resolve_model_id(resolved)
+            engine = (model_id or resolved).partition("/")[0]
+            is_local = engine.startswith(("ENG-OMLX-", "ENG-LMSTUDIO-", "ENG-OLLAMA-"))
+        return is_local if mode == "local" else not is_local
+
+    def _resolve_model_id(
+        self,
+        model_name: str,
+        engine_prefixes: tuple[str, ...] | None = None,
+    ) -> str | None:
         """解析模型名到 registry ID.
 
         2026-08-10 实测缺陷: 末尾曾是 `model_name.lower() in m.id.lower()` 的
@@ -1291,18 +1459,26 @@ class ModelGateway:
         """
         model_name = self.resolve_alias(model_name)
         reg = self._registry
-        if reg.get(model_name):
+        def _allowed(model_id: str) -> bool:
+            return not engine_prefixes or model_id.partition("/")[0].startswith(engine_prefixes)
+
+        if reg.get(model_name) and _allowed(model_name):
             return model_name
-        for engine in ("ENG-OMLX-LOCAL", "ENG-CC-SWITCH"):
-            if reg.get(f"{engine}/{model_name}"):
-                return f"{engine}/{model_name}"
+        direct_engines = _ENGINE_PREFERENCE + ("ENG-CC-SWITCH",)
+        for engine in direct_engines:
+            candidate = f"{engine}/{model_name}"
+            if _allowed(candidate) and reg.get(candidate):
+                return candidate
 
         # 本机 omlx key 有专属端口, 该走 ensure + 直连;
         # 让它落到别的引擎上就是顶包, 直接拒绝。
-        if model_name in self._config.model_ports:
+        if model_name in self._config.model_ports and not engine_prefixes:
             return None
 
-        matches = [m.id for m in reg.list_models() if _id_tail(m.id) == model_name]
+        matches = [
+            m.id for m in reg.list_models()
+            if _id_tail(m.id) == model_name and _allowed(m.id)
+        ]
         if not matches:
             return None
         matches.sort(key=_engine_rank)

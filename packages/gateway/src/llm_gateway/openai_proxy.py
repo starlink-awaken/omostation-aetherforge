@@ -26,6 +26,7 @@ from aiohttp import web
 from .gateway import GatewayRequest, get_gateway
 
 _log = logging.getLogger(__name__)
+API_KEY = web.AppKey("aetherforge_api_key", str)
 
 
 async def handle_chat_completions(request: web.Request) -> web.Response:
@@ -39,12 +40,22 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     model = body.get("model", "")
     temperature = body.get("temperature")  # None = 不指定, 用下游默认
     max_tokens = body.get("max_tokens")  # 同上
+    if body.get("stream"):
+        return web.json_response(
+            {"error": {"message": "stream=true 暂不支持；请使用非流式请求", "type": "invalid_request_error"}},
+            status=501,
+        )
+
+    gateway_fields = {
+        "messages", "model", "temperature", "max_tokens", "timeout", "task",
+        "routing_mode", "stream", "content_title", "content_url", "extra_body",
+    }
+    extra = dict(body.get("extra_body") or {})
+    # OpenAI SDK 的 extra_body 会摊平进顶层；工具、结构化输出、采样参数等均
+    # 原样交给物理引擎，不在门面静默吞掉。
+    extra.update({k: v for k, v in body.items() if k not in gateway_fields})
 
     gw = get_gateway()
-
-    # Ensure registry is populated
-    if not gw._registry.list_models():
-        await gw._registry.refresh()
 
     req = GatewayRequest(
         messages=messages,
@@ -52,6 +63,11 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         timeout=float(body.get("timeout", 120)),
         temperature=temperature,
         max_tokens=max_tokens,
+        task=str(body.get("task") or "chat"),
+        extra=extra,
+        routing_mode=str(body.get("routing_mode") or "local"),
+        content_title=str(body.get("content_title") or ""),
+        content_url=str(body.get("content_url") or ""),
     )
 
     t0 = time.time()
@@ -73,7 +89,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
             {
                 "index": 0,
                 "message": {"role": "assistant", "content": resp.content},
-                "finish_reason": "stop",
+                "finish_reason": resp.finish_reason,
             }
         ],
         "usage": {
@@ -94,8 +110,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
 async def handle_list_models(request: web.Request) -> web.Response:
     """GET /v1/models — list all discovered models."""
     gw = get_gateway()
-    if not gw._registry.list_models():
-        await gw._registry.refresh()
+    await gw._ensure_registry_ready()
 
     models = gw._registry.list_models()
     return web.json_response(
@@ -127,7 +142,11 @@ async def handle_embeddings(request: web.Request) -> web.Response:
 
     gw = get_gateway()
     try:
-        embeddings = await gw.embed(texts)
+        embeddings = await gw.embed(
+            texts,
+            model=str(body.get("model") or "embedding"),
+            timeout=float(body.get("timeout", 30)),
+        )
         return web.json_response(
             {
                 "object": "list",
@@ -144,10 +163,37 @@ async def handle_health(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "service": "aetherforge-openai-proxy"})
 
 
+async def handle_ready(request: web.Request) -> web.Response:
+    """GET /ready — 真生成探针，能识别“端口活着但后端卡死”。"""
+    model = request.query.get("model", "mythos-fast")
+    try:
+        timeout = min(30.0, max(1.0, float(request.query.get("timeout", "15"))))
+    except ValueError:
+        return web.json_response({"error": {"message": "invalid timeout"}}, status=400)
+    resp = await get_gateway().generate(
+        GatewayRequest(
+            messages=[{"role": "user", "content": "Reply with OK only."}],
+            model=model,
+            max_tokens=8,
+            timeout=timeout,
+            routing_mode="local",
+        )
+    )
+    payload = {
+        "status": "ready" if resp.content else "not_ready",
+        "model": resp.model or model,
+        "provider": resp.provider,
+        "latency_ms": round(resp.latency_ms, 1),
+    }
+    if resp.error:
+        payload["error"] = resp.error
+    return web.json_response(payload, status=200 if resp.content else 503)
+
+
 @web.middleware
 async def auth_middleware(request: web.Request, handler):
     """Bearer 鉴权。未配 key 时整体放行(仅 loopback 场景, 见 serve 的守卫)。"""
-    key = request.app.get("api_key")
+    key = request.app.get(API_KEY)
     if not key or request.path in ("/health", "/"):
         return await handler(request)
     got = request.headers.get("Authorization", "")
@@ -167,11 +213,22 @@ async def auth_middleware(request: web.Request, handler):
 def create_app(api_key: str | None = None) -> web.Application:
     """Create the aiohttp application."""
     app = web.Application(middlewares=[auth_middleware])
-    app["api_key"] = api_key
+    if api_key:
+        app[API_KEY] = api_key
+
+    async def _startup(_app: web.Application) -> None:
+        await get_gateway().start_background_tasks()
+
+    async def _cleanup(_app: web.Application) -> None:
+        await get_gateway().stop_background_tasks()
+
+    app.on_startup.append(_startup)
+    app.on_cleanup.append(_cleanup)
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
     app.router.add_get("/v1/models", handle_list_models)
     app.router.add_post("/v1/embeddings", handle_embeddings)
     app.router.add_get("/health", handle_health)
+    app.router.add_get("/ready", handle_ready)
     app.router.add_get("/", handle_health)
     return app
 

@@ -31,6 +31,92 @@ def cmd_gateway(argv: list[str]) -> int:
     return gateway_main(argv if argv else ["--help"])
 
 
+def cmd_infer(argv: list[str]) -> int:
+    """BOS one-shot inference bridge → running AetherForge data plane.
+
+    stdin accepts either a plain request object or Agora's {"kwargs": {...}} envelope.
+    stdout is always JSON so the subprocess transport can parse it deterministically.
+    """
+    import json
+    import os
+    import sys
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    try:
+        raw = sys.stdin.read().strip()
+        payload = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as exc:
+        print(json.dumps({"error": f"invalid JSON: {exc}"}, ensure_ascii=False))
+        return 2
+
+    if isinstance(payload, dict) and isinstance(payload.get("kwargs"), dict):
+        payload = payload["kwargs"]
+    if not isinstance(payload, dict):
+        print(json.dumps({"error": "request must be a JSON object"}, ensure_ascii=False))
+        return 2
+
+    if not payload.get("messages"):
+        prompt = payload.pop("prompt", "")
+        if not prompt and argv:
+            prompt = " ".join(argv)
+        if not prompt:
+            print(json.dumps({"error": "messages or prompt is required"}, ensure_ascii=False))
+            return 2
+        payload["messages"] = [{"role": "user", "content": str(prompt)}]
+
+    payload.setdefault("routing_mode", "local")
+    payload.setdefault("stream", False)
+    base = os.environ.get("AETHERFORGE_BASE_URL", "http://127.0.0.1:9290/v1").rstrip("/")
+    parsed_base = urllib.parse.urlparse(base)
+    if parsed_base.scheme not in {"http", "https"} or not parsed_base.hostname:
+        print(json.dumps({"error": "AETHERFORGE_BASE_URL must be an http(s) URL"}, ensure_ascii=False))
+        return 2
+    req = urllib.request.Request(  # noqa: S310 -- scheme validated above
+        f"{base}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    key = os.environ.get("AETHERFORGE_API_KEY")
+    if not key:
+        # LaunchAgent/Agora 子进程不该把密钥写进 YAML 或命令行；macOS 上从
+        # Keychain 取，与 omlxc gw 共用 service 名。
+        try:
+            import subprocess
+
+            found = subprocess.run(
+                ["security", "find-generic-password", "-s", "aetherforge-gateway", "-w"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if found.returncode == 0:
+                key = found.stdout.strip()
+        except Exception:
+            pass
+    if key:
+        req.add_header("Authorization", f"Bearer {key}")
+    timeout = min(900.0, max(1.0, float(payload.get("timeout", 120)))) + 2.0
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 -- validated above
+            sys.stdout.write(resp.read().decode("utf-8"))
+            return 0
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        try:
+            error = json.loads(body)
+        except json.JSONDecodeError:
+            error = {"error": {"message": body[:500]}}
+        error["status"] = exc.code
+        print(json.dumps(error, ensure_ascii=False))
+        return 1
+    except Exception as exc:
+        print(json.dumps({"error": {"message": str(exc)}}, ensure_ascii=False))
+        return 1
+
+
 def cmd_mesh(argv: list[str]) -> int:
     """Delegate to mesh CLI."""
     from aetherforge.mesh import cli as mesh_main
@@ -466,9 +552,10 @@ def main(argv: list[str] | None = None) -> int:
         argv = _sys.argv[1:]
 
     if not argv or argv[0] in ("-h", "--help"):
-        print("Usage: aetherforge {gateway,mesh,swarm,route,triage} [subcommand_args]")
+        print("Usage: aetherforge {gateway,infer,mesh,swarm,route,triage} [subcommand_args]")
         print("\nCommands:")
         print("  gateway   LLM Gateway (List models, generate, MCP, serve)")
+        print("  infer     BOS JSON stdin → AetherForge running data plane")
         print("  mesh      Compute Mesh (List nodes, status, topology-scan, health)")
         print("  swarm     Swarm Engine (Run multi-agent workflows)")
         print("  route     RouteScheduler (三级路由 select / policies)")
@@ -480,6 +567,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if domain == "gateway":
         return cmd_gateway(sub_args)
+    elif domain == "infer":
+        return cmd_infer(sub_args)
     elif domain == "mesh":
         return cmd_mesh(sub_args)
     elif domain == "swarm":
@@ -490,7 +579,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_triage(sub_args)
     else:
         print(f"Unknown domain: {domain}")
-        print("Usage: aetherforge {gateway,mesh,swarm,route} [subcommand_args]")
+        print("Usage: aetherforge {gateway,infer,mesh,swarm,route} [subcommand_args]")
         return 1
 
 

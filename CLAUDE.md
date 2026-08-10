@@ -24,11 +24,13 @@ uv run pytest
 uv run ruff check "packages/" "src/"
 ```
 
-## Architecture (2026-08-09 Refactoring)
+## Architecture
 
 - **omlx models.json is the naming SSOT** — model keys flow unchanged through ssot-sync → MODEL-BREW → registry
-- **Direct port routing for local omlx** — `_generate_via_omlx_router()` connects to model ports (8081-8194) directly
-- **LiteLLM :4000 deprecated** — omlx :9000 router + direct ports replace the dead proxy
+- **oMLX App is the MBP primary backend** — AetherForge resolves logical model keys to the App engine in ComputeEngine SSOT
+- **Local fallback order is explicit** — oMLX App → LM Link/LM Studio → Ollama; cloud is used only when callers request `routing_mode=hybrid` or `cloud`
+- **Thinking is disabled by default** — provider `request_defaults` carry the backend-specific no-reasoning fields while explicit caller fields still win
+- **Legacy local servers are rollback-only** — LiteLLM, the old omlx router, and per-model direct ports are not part of the normal request path
 - **cc-switch integration** — `import_from_cc_switch()` syncs 15 cloud providers from iCloud DB
 - **IntelligentAgent middleware** — unified decision chain: Risk → MOS → LLM → Record → Trust
 - **ModelScheduler in generate()** — Filter→Score pipeline replaces hardcoded fallback chain

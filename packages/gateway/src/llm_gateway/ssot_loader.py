@@ -9,6 +9,7 @@ Architecture:
     SSOTProviderAdapter merges all three into a unified provider.
 """
 
+import asyncio
 import glob
 import logging
 import os
@@ -110,6 +111,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
         self.base_url = m1_config.get("base_url")
         self.cost_multiplier = float(m1_config.get("cost_multiplier", 1.0))
         self.protocols = m1_config.get("supported_protocols", [])
+        self.request_defaults = dict(m1_config.get("request_defaults") or {})
         self._model_defs = model_defs or []
         self._credentials: dict | None = None
         self._underlying = None
@@ -170,7 +172,10 @@ class SSOTProviderAdapter(BaseLLMProvider):
         # Fall back to underlying provider API
         if not self._underlying:
             return []
-        model_names = self._underlying.available_models()
+        # available_models 是同步 SDK 调用。直接在 async discover 里跑会把整个
+        # event loop 卡死，registry.gather/timeout 形同虚设；放到线程后各节点才
+        # 能真正并发发现，离线 Y7000P 也不会拖住 MBP 首次请求。
+        model_names = await asyncio.to_thread(self._underlying.available_models)
         cost = {"input": self.cost_multiplier, "output": self.cost_multiplier}
         return [
             ModelDescriptor(
@@ -200,6 +205,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
             system_prompt=sys_prompt,
             model=real_model,
             context=context,
+            extra=dict(self.request_defaults),
         )
         if options:
             if options.temperature is not None:
@@ -207,7 +213,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
             if options.max_tokens is not None:
                 req.max_tokens = options.max_tokens
             if options.extra:
-                req.extra = dict(options.extra)
+                req.extra.update(options.extra)
         return req
 
     async def chat(
