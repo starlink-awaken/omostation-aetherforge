@@ -17,7 +17,13 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _shared import ROOT, append_jsonl, utc_now
+sys.path.insert(0, str(Path(__file__).parents[1]))
+try:
+    from .._shared import ROOT, utc_now
+    from ..governed_io import append_jsonl as governed_append_jsonl
+except ImportError:  # pragma: no cover - direct script compatibility
+    from _shared import ROOT, utc_now
+    from governed_io import append_jsonl as governed_append_jsonl
 from doc_generator import generate_doc, save_draft
 from mail_agent import classify_mail, extract_task, generate_briefing
 from mail_reader import read_all
@@ -31,7 +37,7 @@ def run_cycle() -> dict[str, Any]:
     mails = read_all(limit=20, unread_only=True)
     if not mails:
         result = {"ts": ts, "mails": 0, "status": "no_unread"}
-        append_jsonl(HEARTBEAT, result)
+        governed_append_jsonl(HEARTBEAT, result)
         return result
 
     classifications = []
@@ -59,7 +65,7 @@ def run_cycle() -> dict[str, Any]:
             drafts += 1
 
     result = {"ts": ts, "mails": len(mails), "tasks": len(tasks), "drafts": drafts, "briefing": str(briefing_path), "status": "ok"}
-    append_jsonl(HEARTBEAT, result)
+    governed_append_jsonl(HEARTBEAT, result)
     return result
 
 

@@ -21,7 +21,15 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _shared import ROOT, append_jsonl, utc_now
+sys.path.insert(0, str(Path(__file__).parents[1]))
+try:
+    from .._shared import ROOT, utc_now
+    from ..governed_io import append_jsonl as governed_append_jsonl
+    from ..governed_io import write_json as governed_write_json
+except ImportError:  # pragma: no cover - direct script compatibility
+    from _shared import ROOT, utc_now
+    from governed_io import append_jsonl as governed_append_jsonl
+    from governed_io import write_json as governed_write_json
 from mail_reader import Mail, read_netease_mail
 
 DRAFTS_DIR = Path.home() / "Documents" / "@工作文档" / "卫健委" / "_drafts"
@@ -42,8 +50,7 @@ def load_tasks() -> list[dict[str, Any]]:
 
 def save_tasks(tasks: list[dict[str, Any]]) -> None:
     """保存任务列表."""
-    TASKS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TASKS_FILE.write_text(json.dumps(tasks, ensure_ascii=False, indent=2), encoding="utf-8")
+    governed_write_json(TASKS_FILE, tasks)
 
 
 def register_task(subject: str, deadline: str, target: str, task_type: str) -> None:
@@ -126,7 +133,7 @@ def check_deadlines() -> dict[str, Any]:
     save_tasks(tasks)
 
     result = {"ts": ts, "checked": len(tasks), "alerts": alerts}
-    append_jsonl(HEARTBEAT, result)
+    governed_append_jsonl(HEARTBEAT, result)
 
     # 生成告警报报到 _inbox/
     if alerts:

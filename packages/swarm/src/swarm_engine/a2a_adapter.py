@@ -22,7 +22,14 @@ from __future__ import annotations
 import argparse
 import json
 
-from _shared import ROOT, append_jsonl, load_yaml, read_jsonl, utc_now
+try:
+    from ._shared import ROOT, load_yaml, read_jsonl, utc_now
+    from .governed_io import append_jsonl as governed_append_jsonl
+    from .governed_io import write_json as governed_write_json
+except ImportError:  # pragma: no cover - direct script compatibility
+    from _shared import ROOT, load_yaml, read_jsonl, utc_now
+    from governed_io import append_jsonl as governed_append_jsonl
+    from governed_io import write_json as governed_write_json
 
 AGENTS_DIR = ROOT / ".omo/_truth/registry/agents"
 MESSAGE_QUEUE = ROOT / ".omo/state/a2a-messages.jsonl"
@@ -52,14 +59,16 @@ def discover_agents() -> list[dict]:
 
 def publish_cards() -> dict:
     """Write Agent Cards to .omo/state/agent-cards/ for A2A discovery."""
-    CARD_DIR.mkdir(parents=True, exist_ok=True)
     cards = discover_agents()
     for card in cards:
         path = CARD_DIR / f"{card['id']}.json"
-        path.write_text(json.dumps(card, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+        governed_write_json(path, card, sort_keys=True)
     # Also write index
     index_path = CARD_DIR / "index.json"
-    index_path.write_text(json.dumps({"agents": cards, "count": len(cards), "updated": utc_now()}, ensure_ascii=False, indent=2), encoding="utf-8")
+    governed_write_json(
+        index_path,
+        {"agents": cards, "count": len(cards), "updated": utc_now()},
+    )
     return {"published": len(cards), "dir": str(CARD_DIR.relative_to(ROOT))}
 
 
@@ -72,7 +81,7 @@ def send_message(to_agent: str, msg_type: str, payload: dict, *, from_agent: str
         "type": msg_type,
         "payload": payload,
     }
-    append_jsonl(MESSAGE_QUEUE, msg)
+    governed_append_jsonl(MESSAGE_QUEUE, msg)
     return {"status": "sent", "to": to_agent, "type": msg_type}
 
 

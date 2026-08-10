@@ -18,7 +18,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from _shared import ROOT, load_yaml, read_jsonl, utc_now
+try:
+    from ._shared import ROOT, load_yaml, read_jsonl, utc_now
+    from .governed_io import write_json as governed_write_json
+    from .governed_io import write_text as governed_write_text
+except ImportError:  # pragma: no cover - direct script compatibility
+    from _shared import ROOT, load_yaml, read_jsonl, utc_now
+    from governed_io import write_json as governed_write_json
+    from governed_io import write_text as governed_write_text
 
 GOVERNANCE_CHECKS = ROOT / ".omo" / "_truth" / "registry" / "governance-checks.yaml"
 HISTORY = ROOT / ".omo" / "_knowledge" / "governance-history.jsonl"
@@ -83,11 +90,11 @@ def audit_rules(root: Path | None = None) -> dict[str, Any]:
         "suggestions": suggestions,
     }
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    (OUT_DIR / f"suggestion-{ts}.json").write_text(
-        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
+    governed_write_json(
+        OUT_DIR / f"suggestion-{ts}.json",
+        result,
+        sort_keys=True,
     )
     return result
 
@@ -97,8 +104,6 @@ def _apply_suggestions(suggestions: list[dict], root: Path, *, dry_run: bool) ->
 
     守安全: 备份→修改→验证. dry_run 只预览不写.
     """
-    import shutil
-
     checks_path = root / ".omo" / "_truth" / "registry" / "governance-checks.yaml"
     if not checks_path.exists():
         return {"status": "error", "reason": "governance-checks.yaml not found"}
@@ -137,8 +142,8 @@ def _apply_suggestions(suggestions: list[dict], root: Path, *, dry_run: bool) ->
 
     # Backup + apply
     backup = checks_path.with_suffix(".yaml.bak")
-    shutil.copy2(checks_path, backup)
-    checks_path.write_text(modified, encoding="utf-8")
+    governed_write_text(backup, original)
+    governed_write_text(checks_path, modified)
 
     return {
         "status": "applied",
