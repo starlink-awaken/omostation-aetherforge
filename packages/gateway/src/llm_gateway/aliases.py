@@ -64,7 +64,7 @@ def load_aliases() -> dict[str, str]:
             import yaml
 
             data: Any = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-        except Exception as exc:  # noqa: BLE001 — 配置坏了不应让网关起不来
+        except Exception as exc:
             _log.warning("alias config unreadable, skipping %s: %s", p, exc)
             continue
         raw = data.get("aliases") if isinstance(data, dict) else None
