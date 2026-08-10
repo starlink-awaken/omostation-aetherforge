@@ -15,6 +15,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from llm_gateway.types import ChatResult
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,9 @@ def gateway_config():
             "coding-fast": 8081,
             "test-model": 9999,
         },
+        # 显式给死, 不读本机 ~/omlx/conf/models.json —— 测试结果不该随
+        # 跑测试的这台机器上装了什么模型而变。
+        lmstudio_fallback={"coding-fast": "pool/coding-fallback"},
         fallback_chain=["coding-fast", "test-model"],
         warm_pool_ttl=60,
     )
@@ -285,7 +289,11 @@ class TestGenerateWithKI:
             return True
 
         gw._ensure_model = fake_ensure  # type: ignore[method-assign]
-        gw._port_reachable = AsyncMock(return_value=False)  # skip direct port in tests
+        # 本机 omlx 后端整体不可用(端口不通, 且拉不起来) → 走 LM Studio 兜底,
+        # 兜底再经 registry。这样才能测到本用例真正关心的东西, 而不是让
+        # "端口不通" 悄悄把请求送进 registry 的模糊匹配里。
+        gw._port_reachable = AsyncMock(return_value=False)
+        gw._ensure_model = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
         req = GatewayRequest(
             messages=[{"role": "user", "content": "hello"}],
@@ -321,7 +329,11 @@ class TestGenerateWithKI:
             return True
 
         gw._ensure_model = fake_ensure  # type: ignore[method-assign]
-        gw._port_reachable = AsyncMock(return_value=False)  # skip direct port in tests
+        # 本机 omlx 后端整体不可用(端口不通, 且拉不起来) → 走 LM Studio 兜底,
+        # 兜底再经 registry。这样才能测到本用例真正关心的东西, 而不是让
+        # "端口不通" 悄悄把请求送进 registry 的模糊匹配里。
+        gw._port_reachable = AsyncMock(return_value=False)
+        gw._ensure_model = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
         req = GatewayRequest(
             messages=[{"role": "user", "content": "hi"}],
@@ -558,3 +570,220 @@ def run_all():
 
 if __name__ == "__main__":
     raise SystemExit(run_all())
+
+
+# ── 路由治本的三道回归闸 (2026-08-10) ──────────────────────────────────────
+# 这三条对应三个实测到的静默失败, 每条都能在修复前复现:
+#   B1 端口不通时不 ensure, 直接落 registry
+#   B2 registry 裸子串匹配, 错模型静默顶包
+#   B3 thinking 剥完为空仍算成功
+class TestRoutingRegressions:
+    """本机 omlx 模型的路由不得被"顺手"落到别的引擎上。"""
+
+    def test_port_down_triggers_load_not_registry(self, gateway_config, mock_registry, mock_scheduler):
+        """B1: 端口不通 → 必须先 omlxc load, 而不是掉进 registry。"""
+        import asyncio
+
+        from llm_gateway.gateway import GatewayRequest, ModelGateway
+
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        gw._port_reachable = AsyncMock(return_value=False)
+        called = {"ensure": 0}
+
+        async def spy_ensure(name):
+            called["ensure"] += 1
+            return False  # 拉不起来, 让它继续往兜底走
+
+        gw._ensure_model = spy_ensure  # type: ignore[method-assign]
+        mock_registry.get.return_value = MagicMock(id="pool/coding-fallback")
+        mock_registry.chat = AsyncMock(return_value=ChatResult(content="兜底回答", model="x"))
+        mock_registry.get_provider.return_value = MagicMock(name="ENG-LMSTUDIO-MACBOOKPRO")
+
+        resp = asyncio.run(gw.generate(GatewayRequest(messages=[{"role": "user", "content": "hi"}], model="coding-fast")))
+        assert called["ensure"] >= 1, "端口不通却没尝试加载 —— B1 回归"
+        assert resp.content == "兜底回答"
+
+    def test_local_key_never_fuzzy_matched(self, gateway_config, mock_registry, mock_scheduler):
+        """B2: 本机 omlx key 不得被 registry 里名字含该子串的模型顶包。
+
+        实测原形: reasoning → ENG-LMSTUDIO-MACMINI/qwen3-4b-...-reasoning-distilled
+        """
+        from llm_gateway.gateway import ModelGateway
+
+        mock_registry.get.return_value = None
+        mock_registry.list_models.return_value = [
+            MagicMock(id="ENG-LMSTUDIO-MACMINI/qwen3-4b-coding-fast-distilled"),
+        ]
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        assert gw._resolve_model_id("coding-fast") is None, "本机 key 被顶包 —— B2 回归"
+
+    def test_pool_model_matches_exactly_not_by_substring(self, gateway_config, mock_registry, mock_scheduler):
+        """B2': 池模型按整名匹配; 'embedding' 不该撞上 'gemini-embedding-001'。"""
+        from llm_gateway.gateway import ModelGateway
+
+        mock_registry.get.return_value = None
+        mock_registry.list_models.return_value = [
+            MagicMock(id="ENG-CC-SWITCH/gemini-embedding-001"),
+        ]
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        assert gw._resolve_model_id("embedding") is None, "子串顶包 —— B2 回归"
+
+    def test_engine_preference_is_deterministic(self, gateway_config, mock_registry, mock_scheduler):
+        """同一模型挂在多引擎下时, 选谁必须可复现(本机优先)。"""
+        from llm_gateway.gateway import ModelGateway
+
+        mock_registry.get.return_value = None
+        mock_registry.list_models.return_value = [
+            MagicMock(id="ENG-LMSTUDIO-Y7000P/shared-model"),
+            MagicMock(id="ENG-LMSTUDIO-MACBOOKPRO/shared-model"),
+            MagicMock(id="ENG-LMSTUDIO-MACMINI/shared-model"),
+        ]
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        assert gw._resolve_model_id("shared-model") == "ENG-LMSTUDIO-MACBOOKPRO/shared-model"
+
+    def test_empty_after_strip_is_failure(self, gateway_config, mock_registry, mock_scheduler):
+        """B3: thinking 剥完没正文 = 没回答, 不能当成功返回空的 200。"""
+        import asyncio
+
+        from llm_gateway.gateway import GatewayRequest, ModelGateway
+
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        gw._port_reachable = AsyncMock(return_value=False)
+        gw._ensure_model = AsyncMock(return_value=False)  # type: ignore[method-assign]
+        mock_registry.get.return_value = MagicMock(id="pool/coding-fallback")
+        mock_registry.chat = AsyncMock(return_value=ChatResult(content="<think>只有思考</think>", model="x"))
+        mock_registry.get_provider.return_value = MagicMock(name="p")
+
+        resp = asyncio.run(gw.generate(GatewayRequest(messages=[{"role": "user", "content": "hi"}], model="coding-fast")))
+        assert resp.error, "空回复被当成了成功 —— B3 回归"
+        assert resp.content == ""
+
+    def test_wedged_backend_is_detected_and_recycled(self, gateway_config, mock_registry, mock_scheduler):
+        """B6: 端口应答但生成不了(mlx_lm.server 卡死态) → 判为未就绪并回收。
+
+        实测 2026-08-10: 后端 TCP 照收、GET /v1/models 答 200、CPU 0%,
+        但 POST 永不处理。只探 /v1/models 的健康检查会一路绿灯。
+        """
+        import asyncio
+
+        from llm_gateway.gateway import ModelGateway
+
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        gw._wait_healthy = AsyncMock(return_value=True)          # 端口活着
+        gw._probe_generation = AsyncMock(return_value=False)     # 但生成不了
+        recycled = []
+        gw._recycle_backend = AsyncMock(side_effect=lambda k: recycled.append(k))
+
+        async def fake_exec(*a, **k):
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate = AsyncMock(return_value=(b"", b""))
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            ok = asyncio.run(gw._ensure_model("coding-fast"))
+
+        assert ok is False, "卡死后端被当成加载成功 —— B6 回归"
+        assert recycled == ["coding-fast"], "卡死后端没被回收, 下次请求还会挂"
+
+    def test_healthy_backend_passes_readiness(self, gateway_config, mock_registry, mock_scheduler):
+        """反向: 端口活着且能生成 → 正常算加载成功, 不该误杀。"""
+        import asyncio
+
+        from llm_gateway.gateway import ModelGateway
+
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        gw._wait_healthy = AsyncMock(return_value=True)
+        gw._probe_generation = AsyncMock(return_value=True)
+        gw._recycle_backend = AsyncMock()
+
+        async def fake_exec(*a, **k):
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate = AsyncMock(return_value=(b"", b""))
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            ok = asyncio.run(gw._ensure_model("coding-fast"))
+
+        assert ok is True
+        gw._recycle_backend.assert_not_called()
+
+    def test_thinking_budget_exhausted_retries_with_more_tokens(
+        self, gateway_config, mock_registry, mock_scheduler
+    ):
+        """B7: finish=length 且剥离后无正文 → 补额度重试一次, 而不是直接判失败。
+
+        实测 2026-08-10: LM Link 池里几乎全是 thinking 模型, max_tokens=32 时
+        qwen/qwen3.5-9b 要 455 token 才吐得出"收到", 之前一律返回空。
+        """
+        import asyncio
+
+        from llm_gateway.gateway import GatewayRequest, ModelGateway
+
+        calls = []
+
+        async def chat(model_id, messages, options=None):
+            calls.append(options.max_tokens if options else None)
+            if len(calls) == 1:
+                return ChatResult(content="<think>想...</think>", finish_reason="length")
+            return ChatResult(content="<think>想...</think>收到", finish_reason="stop")
+
+        mock_registry.chat = chat
+        mock_registry.get.return_value = MagicMock(id="pool/coding-fallback")
+        mock_registry.get_provider.return_value = MagicMock(name="p")
+
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        gw._port_reachable = AsyncMock(return_value=False)
+        gw._ensure_model = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+        resp = asyncio.run(
+            gw.generate(
+                GatewayRequest(
+                    messages=[{"role": "user", "content": "hi"}],
+                    model="coding-fast",
+                    max_tokens=32,
+                )
+            )
+        )
+        assert calls[:2] == [32, gateway_config.thinking_retry_budget], (
+            f"没有按预算重试 —— B7 回归 (实际调用额度: {calls})"
+        )
+        assert resp.content == "收到"
+
+    def test_no_retry_when_finish_is_stop(self, gateway_config, mock_registry, mock_scheduler):
+        """反向: finish=stop 还是空, 就是真没回答, 不该白重试一次。"""
+        import asyncio
+
+        from llm_gateway.gateway import GatewayRequest, ModelGateway
+
+        calls = []
+
+        async def chat(model_id, messages, options=None):
+            calls.append(options.max_tokens if options else None)
+            return ChatResult(content="", finish_reason="stop")
+
+        mock_registry.chat = chat
+        mock_registry.get.return_value = MagicMock(id="pool/coding-fallback")
+        mock_registry.get_provider.return_value = MagicMock(name="p")
+
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        gw._port_reachable = AsyncMock(return_value=False)
+        gw._ensure_model = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+        resp = asyncio.run(
+            gw.generate(
+                GatewayRequest(
+                    messages=[{"role": "user", "content": "hi"}],
+                    model="coding-fast",
+                    max_tokens=32,
+                )
+            )
+        )
+        # fallback 链会把链上每个模型都试一遍, 所以调用次数 > 1 是正常的;
+        # 要断言的是**没有任何一次把额度抬上去** —— 即不存在预算重试。
+        assert calls and all(c == 32 for c in calls), (
+            f"finish=stop 也补了额度重试, 白烧推理: {calls}"
+        )
+        assert resp.error
+

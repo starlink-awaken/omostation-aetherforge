@@ -219,6 +219,38 @@ OMLX_CONF = os.path.join(OMLX_ROOT, "conf", "models.json")
 
 
 # 网关别名 → omlx 本地 key(上层习惯用别名, omlx 后端用 key)
+# 同一模型可能同时挂在多个引擎下(LM Link 把三机合成同一池, 每个端点都报一遍)。
+# 选谁必须可复现, 否则同样的请求今天走 mac-mini 明天走 Y7000P, 排查时对不上。
+# 顺序: 本机 omlx > 本机 LM Studio > mac-mini > Y7000P > 其余 > 云端。
+_ENGINE_PREFERENCE = (
+    "ENG-OMLX-LOCAL",
+    "ENG-LMSTUDIO-MACBOOKPRO",
+    "ENG-LMSTUDIO-MACMINI",
+    "ENG-LMSTUDIO-Y7000P",
+    "ENG-OLLAMA-MACBOOKPRO",
+    "ENG-OLLAMA-MACMINI",
+    "ENG-OLLAMA-Y7000P",
+)
+
+
+def _id_tail(model_id: str) -> str:
+    """去掉 `ENG-XXX/` 引擎前缀, 留下模型自己的名字。
+
+    注意模型名本身可能含斜杠(qwen/qwen3.5-9b), 所以只剥第一段, 且只在
+    第一段确实是引擎 id 时才剥。
+    """
+    head, sep, tail = model_id.partition("/")
+    return tail if sep and head.startswith("ENG-") else model_id
+
+
+def _engine_rank(model_id: str) -> tuple[int, str]:
+    head = model_id.partition("/")[0]
+    try:
+        return (_ENGINE_PREFERENCE.index(head), model_id)
+    except ValueError:
+        return (len(_ENGINE_PREFERENCE), model_id)
+
+
 def _load_aliases() -> dict[str, str]:
     """加载别名表(配置优先, 失败回退内置)。"""
     from .aliases import load_aliases
@@ -280,6 +312,27 @@ def _load_omlx_sizes() -> dict[str, float]:
     return out
 
 
+def _load_lmstudio_fallback() -> dict[str, str]:
+    """omlx 本机 key → LM Studio 池里的等价模型 id。
+
+    SSOT 是 omlx 的 models.json(`fallback` 段), 与 omlxc 共用一份 ——
+    网关和 CLI 各自硬编码一份映射迟早会漂移。
+    读不到就返回空: 没有兜底比兜到错模型上强。
+    """
+    try:
+        with open(OMLX_CONF) as f:
+            conf = json.load(f)
+    except Exception:
+        return {}
+    fb = conf.get("fallback") or {}
+    out: dict[str, str] = {k: v for k, v in fb.items() if isinstance(v, str)}
+    # 别名也享受同一张表(coder 和 coding 应指向同一个兜底)
+    for alias, key in OMLX_ALIAS_MAP.items():
+        if key in out:
+            out.setdefault(alias, out[key])
+    return out
+
+
 @dataclass
 class GatewayConfig:
     """网关配置."""
@@ -293,6 +346,17 @@ class GatewayConfig:
     model_ports: dict[str, int] = field(default_factory=_load_omlx_ports)
     # 模型大小 (GB) — MemoryGuard 用 (未知大小的模型跳过检查)
     model_sizes: dict[str, float] = field(default_factory=_load_omlx_sizes)
+    # 本机 omlx 后端起不来时改用 LM Studio 池里的哪个模型
+    lmstudio_fallback: dict[str, str] = field(default_factory=_load_lmstudio_fallback)
+    # 冷加载一个几十 GB 的 MLX 模型远不止 30s。原默认值会让"其实在加载中"
+    # 被判成失败, 于是回退到别的模型 —— 表现为随机地拿到不是自己要的模型。
+    load_ready_timeout: float = 300.0
+    # 加载后再发一发 max_tokens=1 的真生成, 确认后端不是"端口活着但卡死"。
+    # 关掉只在极端在意加载延迟时才有意义 —— 代价是卡死后端会静默吞请求。
+    readiness_probe_enabled: bool = True
+    # thinking 模型在小 max_tokens 下会把额度全花在思考段, content 留空。
+    # 命中时补到这个额度重试一次。设 0 关闭(那就只能拿到空回复的失败)。
+    thinking_retry_budget: int = 1024
     # 本网关自己的 OpenAI 门面端点。SSOT 的 ENG-OMLX-LOCAL 现指向门面
     # (原先指向 LiteLLM :4000), 于是 registry 回退路径有可能打回自己 ——
     # 一个请求在"直连端口失败 → 回退 registry → 门面 → 本网关"之间成环。
@@ -582,22 +646,56 @@ class ModelGateway:
     async def _try_generate(self, model_name: str, request: GatewayRequest) -> GatewayResponse:
         """尝试用指定模型生成.
 
-        Strategy:
-          - Local omlx models (in model_ports): try direct port first, fall back to registry
-          - Cloud models: registry + provider chain only
+        路由分两类, 互不串门:
+
+        A. 本机 omlx 模型(解析后落在 model_ports 里)
+           端口通 → 直连;  端口不通 → 先 `omlxc load` 拉起再直连;
+           拉不起来 → 按 models.json 的 fallback 映射落 LM Studio;
+           都不行 → 抛错, 交给上层 fallback 链。
+           **绝不**掉进 registry 的模糊匹配 —— 它们有专属端口, 顶包出来的
+           是完全不同的模型(实测 reasoning → ...-reasoning-distilled)。
+
+        B. 其余(云端 / LM Link 池)
+           registry + provider chain。
         """
         t0 = time.time()
+        local_key = self.resolve_alias(model_name)
 
-        # Local omlx models: try direct port routing (quick check first)
-        if model_name in self._config.model_ports:
-            port = self._config.model_ports[model_name]
-            if await self._port_reachable(port):
+        # ── A. 本机 omlx ────────────────────────────────────
+        if local_key in self._config.model_ports:
+            port = self._config.model_ports[local_key]
+            reachable = await self._port_reachable(port)
+            if not reachable:
+                # 端口不通 = 后端没起, 或被 autopilot 按 idle TTL 卸了。
+                # 旧实现在此直接落 registry, 于是被子串顶包成别的模型且
+                # 返回 200 —— 错得悄无声息。正确动作是先把它拉起来。
+                self._loaded_models.pop(local_key, None)  # 缓存与现实对齐
+                reachable = await self._ensure_model(local_key)
+            if reachable:
                 try:
-                    return await self._generate_via_omlx_router(model_name, request, t0)
+                    return await self._generate_via_omlx_router(
+                        local_key, request, t0, display_name=model_name
+                    )
                 except Exception as e:
-                    _log.debug("[ModelGateway] direct port %s failed, trying registry: %s", model_name, e)
+                    _log.warning("[ModelGateway] omlx 直连 %s 失败: %s", local_key, e)
+                    # 超时几乎总是"后端卡死"而非"模型慢"(就绪探针已经证明过它
+                    # 能生成了)。卡死的进程不会自愈, 就地回收, 本次走兜底。
+                    if isinstance(e, TimeoutError) or "timeout" in str(e).lower():
+                        await self._recycle_backend(local_key)
 
-        # Registry + provider chain (cloud models + fallback for local)
+            fb = self._lmstudio_fallback(local_key)
+            if fb:
+                _log.warning("[ModelGateway] %s → LM Studio 兜底 %s", local_key, fb)
+                fb_id = self._resolve_model_id(fb)
+                if fb_id and not self._provider_is_self(fb_id):
+                    return await self._generate_via_registry(fb_id, model_name, request, t0)
+                _log.warning("[ModelGateway] 兜底目标 %s 在 registry 中不可解析", fb)
+            raise RuntimeError(
+                f"{model_name}: 本机 omlx 后端不可用"
+                + (f", LM Studio 兜底 {fb} 也不可用" if fb else ", 且无 LM Studio 兜底映射")
+            )
+
+        # ── B. registry + provider chain ────────────────────
         model_id = self._resolve_model_id(model_name)
         if model_id and self._provider_is_self(model_id):
             # 该模型的 provider 端点就是本网关的门面 —— 走下去会成环
@@ -608,44 +706,102 @@ class ModelGateway:
                 f"own facade; local model must be served by its direct port"
             )
         if model_id:
-            result = await asyncio.wait_for(
+            return await self._generate_via_registry(model_id, model_name, request, t0)
+
+        raise RuntimeError(f"Model {model_name} not in registry")
+
+    async def _generate_via_registry(
+        self,
+        model_id: str,
+        display_name: str,
+        request: GatewayRequest,
+        t0: float,
+    ) -> GatewayResponse:
+        """经 registry/provider 链生成。display_name 是消费者原本要的名字。"""
+        async def _call(max_tokens: int | None):
+            return await asyncio.wait_for(
                 self._registry.chat(
                     model_id,
                     request.messages,
                     ChatOptions(
                         temperature=request.temperature,
-                        max_tokens=request.max_tokens,
+                        max_tokens=max_tokens,
                     ),
                 ),
                 timeout=request.timeout,
             )
-            if not result:
-                raise RuntimeError(f"No response from {model_name}")
 
-            content = result.content or ""
-            stripped = _strip_thinking(content)
-            was_stripped = stripped != content
-            usage = result.usage or {}
-            provider = self._registry.get_provider(model_id)
-            provider_name = provider.name if provider else ""
+        result = await _call(request.max_tokens)
+        if not result:
+            raise RuntimeError(f"No response from {display_name}")
 
-            return GatewayResponse(
-                content=stripped,
-                model=model_name,
-                latency_ms=(time.time() - t0) * 1000,
-                tokens_in=usage.get("prompt_tokens", 0),
-                tokens_out=usage.get("completion_tokens", 0),
-                provider=provider_name,
-                stripped_thinking=was_stripped,
+        content = result.content or ""
+        stripped = _strip_thinking(content)
+
+        # 预算耗尽在思考段: finish_reason=length 且剥离后没正文。
+        # 这不是模型不行, 是给的额度不够 —— 补足再来一次, 只补一次。
+        if (
+            not stripped.strip()
+            and result.finish_reason == "length"
+            and self._config.thinking_retry_budget
+        ):
+            budget = self._config.thinking_retry_budget
+            if (request.max_tokens or 0) < budget:
+                _log.info(
+                    "[ModelGateway] %s 预算耗尽在思考段(max_tokens=%s), 提到 %d 重试一次",
+                    display_name,
+                    request.max_tokens,
+                    budget,
+                )
+                result = await _call(budget)
+                content = (result.content or "") if result else ""
+                stripped = _strip_thinking(content)
+
+        was_stripped = stripped != content
+        # 到这儿还空, 就是真没回答。返回空的 200 会让上层以为成功, 必须当失败,
+        # 好让 fallback 链继续往下走。
+        if not stripped.strip():
+            raise RuntimeError(
+                f"{display_name} via {model_id}: 回复为空"
+                + (
+                    f"(finish={result.finish_reason}, 补到 {self._config.thinking_retry_budget} "
+                    "token 仍无正文)"
+                    if result and result.finish_reason == "length"
+                    else "(thinking 段剥离后无正文)"
+                    if was_stripped
+                    else ""
+                )
             )
 
-        # Registry can't resolve — try omlx :9000 router for local models
-        if model_name in self._config.model_ports:
-            return await self._generate_via_omlx_router(model_name, request, t0)
+        usage = result.usage or {}
+        provider = self._registry.get_provider(model_id)
+        provider_name = provider.name if provider else ""
 
-        raise RuntimeError(f"Model {model_name} not in registry")
+        return GatewayResponse(
+            content=stripped,
+            model=display_name,
+            latency_ms=(time.time() - t0) * 1000,
+            tokens_in=usage.get("prompt_tokens", 0),
+            tokens_out=usage.get("completion_tokens", 0),
+            provider=provider_name,
+            stripped_thinking=was_stripped,
+        )
 
-    async def _generate_via_omlx_router(self, model_name: str, request: GatewayRequest, t0: float) -> GatewayResponse:
+    def _lmstudio_fallback(self, local_key: str) -> str | None:
+        """本机 omlx 后端起不来时的 LM Studio 兜底模型名。
+
+        映射来自 omlx models.json 的 `fallback` 段 —— 与 omlxc 同一 SSOT,
+        避免网关和 CLI 各持一份互相漂移。
+        """
+        return self._config.lmstudio_fallback.get(local_key)
+
+    async def _generate_via_omlx_router(
+        self,
+        model_name: str,
+        request: GatewayRequest,
+        t0: float,
+        display_name: str | None = None,
+    ) -> GatewayResponse:
         """Generate via direct omlx port — bypasses dead :4000 proxy.
 
         Connects directly to the model's port (from model_ports config).
@@ -662,21 +818,7 @@ class ModelGateway:
         port = self._config.model_ports[model_name]
         base = self._config.local_base_url
 
-        # Cache the real model ID (omlx needs full HF path, not friendly name)
-        cache_key = f"_omlx_mid_{model_name}"
-        real_model_id = getattr(self, cache_key, None)
-        if not real_model_id:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(
-                        f"{base}:{port}/v1/models",
-                        timeout=aiohttp.ClientTimeout(total=5),
-                    ) as resp:
-                        models_data = await resp.json()
-                        real_model_id = models_data.get("data", [{}])[0].get("id", model_name)
-                        setattr(self, cache_key, real_model_id)
-            except Exception:
-                real_model_id = model_name  # best-effort
+        real_model_id = await self._omlx_real_model_id(base, port, model_name)
 
         url = f"{base}:{port}/v1/chat/completions"
 
@@ -711,7 +853,8 @@ class ModelGateway:
 
         return GatewayResponse(
             content=stripped,
-            model=model_name,
+            # 回消费者问的那个名字(coder), 而不是内部后端键(coding)
+            model=display_name or model_name,
             latency_ms=latency_ms,
             tokens_in=usage.get("prompt_tokens", 0),
             tokens_out=usage.get("completion_tokens", 0),
@@ -738,8 +881,17 @@ class ModelGateway:
     # ==========================================================
     async def _ensure_model(self, model_name: str) -> bool:
         """确保模型已加载 (自动 load + MemoryGuard)."""
+        if model_name not in self._config.model_ports:
+            _log.warning("[ModelGateway] %s 无端口配置", model_name)
+            return False
+
         if model_name in self._loaded_models:
-            return True
+            # 只信端口, 不信缓存 —— autopilot 会按 idle TTL 在网关背后卸载模型,
+            # 缓存说"已加载"而端口早断, 是上一轮间歇性失败的帮凶之一。
+            if await self._port_reachable(self._config.model_ports[model_name]):
+                return True
+            _log.info("[ModelGateway] %s 缓存说已加载但端口已断, 重新拉起", model_name)
+            self._loaded_models.pop(model_name, None)
 
         if model_name not in self._config.model_ports:
             _log.warning("[ModelGateway] %s 无端口配置", model_name)
@@ -773,9 +925,11 @@ class ModelGateway:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
+                # `omlxc load` 只是后台拉起进程就返回, 不等模型加载完,
+                # 所以这里 30s 足够; 真正的等待在下面的 _wait_healthy。
                 _, stderr = await asyncio.wait_for(
                     proc.communicate(),
-                    timeout=120,
+                    timeout=30,
                 )
 
                 if proc.returncode != 0:
@@ -786,14 +940,28 @@ class ModelGateway:
                     )
                     return False
 
-                # 等待服务就绪
-                if await self._wait_healthy(model_name, base_url, port):
-                    self._loaded_models[model_name] = time.time()
-                    _log.info("[ModelGateway] %s loaded on port %d", model_name, port)
-                    return True
-                else:
+                # 等待端口应答(存活)
+                if not await self._wait_healthy(
+                    model_name, base_url, port, timeout=self._config.load_ready_timeout
+                ):
                     _log.warning("[ModelGateway] %s load timeout", model_name)
                     return False
+
+                # 再证明它真能生成(就绪)。/v1/models 只能说明进程活着 ——
+                # 卡死的 mlx_lm.server 照样答 200。这一发同时把权重预热进内存,
+                # 所以不是白花的开销: 用户的第一个请求本来也要付这份冷加载。
+                if self._config.readiness_probe_enabled and not await self._probe_generation(
+                    model_name, base_url, port, timeout=self._config.load_ready_timeout
+                ):
+                    _log.error(
+                        "[ModelGateway] %s 端口应答但生成不了(疑似卡死), 回收后端", model_name
+                    )
+                    await self._recycle_backend(model_name)
+                    return False
+
+                self._loaded_models[model_name] = time.time()
+                _log.info("[ModelGateway] %s loaded on port %d", model_name, port)
+                return True
 
             except TimeoutError:
                 _log.warning("[ModelGateway] %s load timed out", model_name)
@@ -801,6 +969,77 @@ class ModelGateway:
             except Exception as e:
                 _log.error("[ModelGateway] %s load error: %s", model_name, e)
                 return False
+
+    async def _probe_generation(
+        self, model_name: str, base_url: str, port: int, timeout: float
+    ) -> bool:
+        """发一发最小生成, 确认后端真能干活(不只是端口应答)。
+
+        用 max_tokens=1, 内容随便; 拿到 200 且有 choices 即算就绪。
+        """
+        import aiohttp
+
+        real_id = await self._omlx_real_model_id(base_url, port, model_name)
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.post(
+                    f"{base_url}:{port}/v1/chat/completions",
+                    json={
+                        "model": real_id,
+                        "messages": [{"role": "user", "content": "ok"}],
+                        "max_tokens": 1,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=timeout),
+                ) as r:
+                    if r.status != 200:
+                        _log.warning(
+                            "[ModelGateway] %s 就绪探针 HTTP %s", model_name, r.status
+                        )
+                        return False
+                    return bool((await r.json()).get("choices"))
+        except Exception as e:
+            _log.warning("[ModelGateway] %s 就绪探针失败: %s", model_name, e)
+            return False
+
+    async def _recycle_backend(self, model_name: str) -> None:
+        """回收卡死的本机后端 —— 它不会自愈, 留着只会让后续请求继续超时。
+
+        只 stop 不 start: 下一次请求走 _ensure_model 自然会拉起干净的进程,
+        避免在这里和 autopilot 抢着起同一个后端。
+        """
+        self._loaded_models.pop(model_name, None)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self._config.omlx_bin,
+                "stop",
+                model_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=30)
+            _log.info("[ModelGateway] 已回收后端 %s", model_name)
+        except Exception as e:
+            _log.warning("[ModelGateway] 回收 %s 失败: %s", model_name, e)
+
+    async def _omlx_real_model_id(self, base_url: str, port: int, model_name: str) -> str:
+        """omlx 后端要的是权重全路径, 不是友好名。取一次缓存起来。"""
+        import aiohttp
+
+        cache_key = f"_omlx_mid_{model_name}"
+        cached = getattr(self, cache_key, None)
+        if cached:
+            return cached
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(
+                    f"{base_url}:{port}/v1/models",
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as r:
+                    mid = (await r.json()).get("data", [{}])[0].get("id", model_name)
+        except Exception:
+            mid = model_name  # best-effort
+        setattr(self, cache_key, mid)
+        return mid
 
     async def _wait_healthy(
         self,
@@ -1007,7 +1246,18 @@ class ModelGateway:
         return resolve(name, self._config.aliases)
 
     def _resolve_model_id(self, model_name: str) -> str | None:
-        """解析模型名到 registry ID."""
+        """解析模型名到 registry ID.
+
+        2026-08-10 实测缺陷: 末尾曾是 `model_name.lower() in m.id.lower()` 的
+        裸子串匹配, 会把意图名撞到任意名字里含该子串的模型上, 且悄无声息:
+            reasoning → ENG-LMSTUDIO-MACMINI/qwen3-4b-...-reasoning-distilled
+            embedding → ENG-CC-SWITCH/gemini-embedding-001   (本地请求上了云!)
+        顶包出来的模型往往能返回 200, 错误一路沉到"回答变奇怪"才被发现。
+
+        现在只认精确匹配(整名, 或去掉 ENGINE 前缀后的整名)。同一模型在
+        多引擎上重复出现时(LM Link 池)按 _ENGINE_PREFERENCE 定序, 保证
+        可复现 —— 原来的 matches[0] 取决于 registry 遍历顺序。
+        """
         model_name = self.resolve_alias(model_name)
         reg = self._registry
         if reg.get(model_name):
@@ -1015,8 +1265,17 @@ class ModelGateway:
         for engine in ("ENG-OMLX-LOCAL", "ENG-CC-SWITCH"):
             if reg.get(f"{engine}/{model_name}"):
                 return f"{engine}/{model_name}"
-        matches = [m for m in reg.list_models() if model_name.lower() in m.id.lower()]
-        return matches[0].id if matches else None
+
+        # 本机 omlx key 有专属端口, 该走 ensure + 直连;
+        # 让它落到别的引擎上就是顶包, 直接拒绝。
+        if model_name in self._config.model_ports:
+            return None
+
+        matches = [m.id for m in reg.list_models() if _id_tail(m.id) == model_name]
+        if not matches:
+            return None
+        matches.sort(key=_engine_rank)
+        return matches[0]
 
     @property
     def metrics(self) -> MetricsCollector:
