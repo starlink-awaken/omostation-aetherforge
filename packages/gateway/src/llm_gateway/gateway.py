@@ -487,6 +487,9 @@ class ModelGateway:
 
         # 已加载模型集合 (model_name → load_time)
         self._loaded_models: dict[str, float] = {}
+        # 实测需要关 thinking 才出正文的 model_id。只活在本进程内 ——
+        # 模型换了模板重启一次就自然纠正, 不必持久化。
+        self._needs_no_think: set[str] = set()
         # 加载锁 (防止并发 load 两个大模型)
         self._load_lock = asyncio.Lock()
         # warm pool: model_name → last_used_time
@@ -739,7 +742,14 @@ class ModelGateway:
                 timeout=request.timeout,
             )
 
-        result = await _call(request.max_tokens)
+        # 之前已经证实过这个模型不关 thinking 就不出正文 —— 直接带上,
+        # 省掉那次注定烧满预算的首发(实测 triage 热态 14s → 1s)。
+        preset = (
+            dict(self._config.no_think_param)
+            if model_id in self._needs_no_think and self._config.no_think_param
+            else None
+        )
+        result = await _call(request.max_tokens, preset)
         if not result:
             raise RuntimeError(f"No response from {display_name}")
 
@@ -766,6 +776,7 @@ class ModelGateway:
                     result = retry
                     content = retry.content or ""
                     stripped = _strip_thinking(content)
+                    self._needs_no_think.add(model_id)  # 记住, 下次直接带上
 
             # 第二手: 下游不认这个参数(或认了仍不出正文)时才抬预算。
             budget = self._config.thinking_retry_budget

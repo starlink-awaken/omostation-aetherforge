@@ -829,3 +829,52 @@ class TestRoutingRegressions:
         )
         assert resp.error
 
+    def test_no_think_is_remembered_across_calls(
+        self, gateway_config, mock_registry, mock_scheduler
+    ):
+        """B8: 同一模型第二次请求, 不该再白跑一次带 thinking 的首发。
+
+        实测热态 triage 14s, 其中约 13s 花在那次注定烧满预算的首发上。
+        """
+        import asyncio
+
+        from llm_gateway.gateway import GatewayRequest, ModelGateway
+
+        calls = []
+
+        async def chat(model_id, messages, options=None):
+            extra = dict(options.extra or {})
+            calls.append(extra)
+            if not extra:
+                return ChatResult(content="<think>想...</think>", finish_reason="length")
+            return ChatResult(content="收到", finish_reason="stop")
+
+        mock_registry.chat = chat
+        mock_registry.get.return_value = MagicMock(id="pool/coding-fallback")
+        mock_registry.get_provider.return_value = MagicMock(name="p")
+
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        gw._port_reachable = AsyncMock(return_value=False)
+        gw._ensure_model = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+        def once():
+            return asyncio.run(
+                gw.generate(
+                    GatewayRequest(
+                        messages=[{"role": "user", "content": "hi"}],
+                        model="coding-fast",
+                        max_tokens=32,
+                    )
+                )
+            )
+
+        assert once().content == "收到"
+        first_round = len(calls)
+        assert first_round == 2, f"第一次应是 试→重试 两发, 实际 {first_round}"
+
+        calls.clear()
+        assert once().content == "收到"
+        assert calls == [gateway_config.no_think_param], (
+            f"第二次仍白跑了一次带 thinking 的首发: {calls}"
+        )
+
