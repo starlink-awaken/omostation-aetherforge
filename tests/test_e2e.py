@@ -314,13 +314,44 @@ def test_mesh_cost():
     print(f"    sqlite=2 records cost=0.015 session={r['session']['total_requests']}")
 
 
-@register_test("Mesh: WorkerRegistry + TaskDispatcher")
-def test_mesh_worker():
+def _pool_with_online_node():
+    """拿一个至少有 1 个**在线**节点的 ComputePool。
+
+    本机跑着 omlx / LM Studio 时用真节点; CI 的 runner 上什么都没跑, 发现
+    结果是空的, 就补一个合成节点。被测的是 WorkerRegistry / TaskDispatcher /
+    auto_scale 的逻辑, 不该要求跑测试的机器上恰好有模型服务在跑 ——
+    这两个用例因此在 main 上红了很久(本机 26/26, CI 24/26)。
+
+    顺序很关键: 先探活真节点, 在线数为 0 才补合成节点, 补完不再探活 ——
+    否则健康检查会把合成节点(base_url 指向不存在的端口)标成离线, 等于没补。
+    """
     from compute_mesh.pool import ComputePool
-    from compute_mesh.worker import TaskDispatcher, WorkerRegistry
+    from compute_mesh.topology.node import ComputeNode, NodeStatus
 
     pool = ComputePool()
     pool.scan()
+    if pool.node_count:
+        pool.health_check_all()
+    if not pool.get_online():
+        pool.registry.register(
+            ComputeNode(
+                node_id="synthetic-ci-node",
+                name="synthetic node (test fixture)",
+                base_url="http://127.0.0.1:0",
+                network_zone="local",
+                protocols=["openai"],
+                capabilities=["chat"],
+                status=NodeStatus.ONLINE,
+            )
+        )
+    return pool
+
+
+@register_test("Mesh: WorkerRegistry + TaskDispatcher")
+def test_mesh_worker():
+    from compute_mesh.worker import TaskDispatcher, WorkerRegistry
+
+    pool = _pool_with_online_node()
     reg = WorkerRegistry()
     dispatcher = TaskDispatcher(pool, reg)
 
@@ -388,12 +419,10 @@ def test_mesh_queue():
 
 @register_test("Mesh: Auto-scale workers")
 def test_mesh_auto_scale():
-    from compute_mesh.pool import ComputePool
     from compute_mesh.worker import WorkerRegistry
 
-    pool = ComputePool()
-    pool.scan()
-    pool.health_check_all()
+    # 探活已经在 helper 里做过了; 这里再探一次会把合成节点标成离线
+    pool = _pool_with_online_node()
     reg = WorkerRegistry()
 
     result = pool.auto_scale_workers(reg, min_workers=2, max_workers=10)
