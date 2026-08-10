@@ -286,6 +286,11 @@ class GatewayConfig:
     model_ports: dict[str, int] = field(default_factory=_load_omlx_ports)
     # 模型大小 (GB) — MemoryGuard 用 (未知大小的模型跳过检查)
     model_sizes: dict[str, float] = field(default_factory=_load_omlx_sizes)
+    # 本网关自己的 OpenAI 门面端点。SSOT 的 ENG-OMLX-LOCAL 现指向门面
+    # (原先指向 LiteLLM :4000), 于是 registry 回退路径有可能打回自己 ——
+    # 一个请求在"直连端口失败 → 回退 registry → 门面 → 本网关"之间成环。
+    # 这里显式声明自身端点, 供 _is_self_endpoint 识别并跳过。
+    self_facade_ports: tuple[int, ...] = (9290,)
     # 别名表: 消费者意图名 → 可路由模型名。配置驱动, 见 aliases.py/aliases.yaml。
     # openai_proxy(HTTP) 与 aetherforge.bridge(库) 共用同一个 ModelGateway,
     # 因此天然共用这一份 —— 两个入口的路由结果必须一致。
@@ -587,6 +592,14 @@ class ModelGateway:
 
         # Registry + provider chain (cloud models + fallback for local)
         model_id = self._resolve_model_id(model_name)
+        if model_id and self._provider_is_self(model_id):
+            # 该模型的 provider 端点就是本网关的门面 —— 走下去会成环
+            # (直连失败 → registry → 门面 → 本网关 → 直连失败 → ...)。
+            # 如实报错比在环里耗尽超时好排查得多。
+            raise RuntimeError(
+                f"{model_name}: provider endpoint points back at this gateway's "
+                f"own facade; local model must be served by its direct port"
+            )
         if model_id:
             result = await asyncio.wait_for(
                 self._registry.chat(
@@ -945,6 +958,37 @@ class ModelGateway:
                 content = msg.get("content", "")
                 return content if isinstance(content, str) else str(content)
         return ""
+
+    def _provider_is_self(self, model_id: str) -> bool:
+        """该模型的 provider 是否指向本网关自己的门面。"""
+        try:
+            provider = self._registry.get_provider(model_id)
+        except Exception:  # 取不到 provider 就不做判定
+            return False
+        base = getattr(provider, "base_url", "") or ""
+        return self._is_self_endpoint(str(base))
+
+    def _is_self_endpoint(self, base_url: str) -> bool:
+        """该 endpoint 是不是本网关自己的门面。
+
+        指向自己时必须跳过, 否则回退路径会成环。宁可让这次调用失败并如实
+        报错, 也不要在环里耗尽超时 —— 后者排查起来要难得多。
+        """
+        if not base_url:
+            return False
+        try:
+            from urllib.parse import urlparse
+
+            u = urlparse(base_url)
+        except Exception:  # 解析不了就不当作自引用
+            return False
+        host = (u.hostname or "").lower()
+        # S104 在此为误报: 这是把 0.0.0.0 归入"指向本机"的**比较**,
+        # 不是把服务绑到所有网卡。门面若以 0.0.0.0 暴露, 自引用同样成立。
+        loopback = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}  # noqa: S104
+        if host not in loopback:
+            return False
+        return (u.port or 0) in self._config.self_facade_ports
 
     def resolve_alias(self, name: str) -> str:
         """把消费者的意图名展开成可路由的模型名。

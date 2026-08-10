@@ -118,3 +118,36 @@ def test_gateway_config_loads_alias_table():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── 5. 自引用防护 ──────────────────────────────────────────
+
+
+def test_self_endpoint_detection():
+    """SSOT 的 ENG-OMLX-LOCAL 现指向本网关门面(原先是 LiteLLM :4000),
+    回退路径必须能识别"打回自己"并拒绝, 否则会成环。"""
+    from llm_gateway.gateway import get_gateway
+
+    gw = get_gateway()
+    for url in (
+        "http://127.0.0.1:9290/v1",
+        "http://localhost:9290/v1",
+        "http://0.0.0.0:9290/v1",
+    ):
+        assert gw._is_self_endpoint(url), f"未识别为自引用: {url}"
+
+
+def test_non_self_endpoints_not_flagged():
+    """别的端点不能被误判 —— 误判会让正常的云端/远端路由失效。"""
+    from llm_gateway.gateway import get_gateway
+
+    gw = get_gateway()
+    for url in (
+        "http://127.0.0.1:1234/v1",  # LM Link
+        "http://127.0.0.1:8082/v1",  # omlx 直连端口
+        "https://api.deepseek.com/v1",  # 云端
+        "http://100.99.210.78:1234/v1",  # 远端节点
+        "",
+        "not-a-url",
+    ):
+        assert not gw._is_self_endpoint(url), f"误判为自引用: {url}"
