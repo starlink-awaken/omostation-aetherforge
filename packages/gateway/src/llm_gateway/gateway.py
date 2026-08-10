@@ -205,10 +205,17 @@ class GatewayResponse:
 
 
 # ============================================================
-# omlx 动态对接 (SSOT: /Volumes/Model/omlx/conf/models.json)
+# omlx 动态对接。root 由 OMLX_ROOT 决定, 与 omlx CLI 同一约定。
+#
+# 2026-08-10: 默认从 /Volumes/Model/omlx 迁到 ~/omlx —— launchd 服务受 macOS
+# TCC 限制**无法执行外置卷上的二进制**(Operation not permitted), 导致本网关
+# 作为 launchd 服务运行时调不到 omlx, 本地模型全部路由失败。
+# 症状很隐蔽: 服务起得来、健康检查绿, 只有翻日志才看到 "not loadable"。
+# 模型权重仍在 /Volumes/Model/LMStudio, 未迁移。
 # 避免硬编码端口漂移 —— omlx 改端口/加模型后自动同步
 # ============================================================
-OMLX_CONF = "/Volumes/Model/omlx/conf/models.json"
+OMLX_ROOT = os.environ.get("OMLX_ROOT", os.path.expanduser("~/omlx"))
+OMLX_CONF = os.path.join(OMLX_ROOT, "conf", "models.json")
 
 
 # 网关别名 → omlx 本地 key(上层习惯用别名, omlx 后端用 key)
@@ -278,7 +285,7 @@ class GatewayConfig:
     """网关配置."""
 
     # omlx CLI 路径
-    omlx_bin: str = "/Volumes/Model/omlx/bin/omlx"
+    omlx_bin: str = field(default_factory=lambda: os.path.join(OMLX_ROOT, "bin", "omlx"))
     # 本地模型基础 URL
     # omlx 后端只绑 loopback(:4000 网关才绑 tailscale IP), 直连必须用 127.0.0.1
     local_base_url: str = "http://127.0.0.1"
