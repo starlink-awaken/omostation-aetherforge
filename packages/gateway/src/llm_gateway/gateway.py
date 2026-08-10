@@ -210,7 +210,16 @@ class GatewayResponse:
 # ============================================================
 OMLX_CONF = "/Volumes/Model/omlx/conf/models.json"
 
+
 # 网关别名 → omlx 本地 key(上层习惯用别名, omlx 后端用 key)
+def _load_aliases() -> dict[str, str]:
+    """加载别名表(配置优先, 失败回退内置)。"""
+    from .aliases import load_aliases
+
+    return load_aliases()
+
+
+# 兼容保留: 早期硬编码别名。新增别名请改 aliases.yaml, 不要动这里。
 OMLX_ALIAS_MAP: dict[str, str] = {
     "coder": "coding",
     "coder-fast": "coding-fast",
@@ -277,6 +286,10 @@ class GatewayConfig:
     model_ports: dict[str, int] = field(default_factory=_load_omlx_ports)
     # 模型大小 (GB) — MemoryGuard 用 (未知大小的模型跳过检查)
     model_sizes: dict[str, float] = field(default_factory=_load_omlx_sizes)
+    # 别名表: 消费者意图名 → 可路由模型名。配置驱动, 见 aliases.py/aliases.yaml。
+    # openai_proxy(HTTP) 与 aetherforge.bridge(库) 共用同一个 ModelGateway,
+    # 因此天然共用这一份 —— 两个入口的路由结果必须一致。
+    aliases: dict[str, str] = field(default_factory=_load_aliases)
     # fallback 链 (按优先级)
     fallback_chain: list[str] = field(default_factory=lambda: ["coding", "reasoning", "mythos-fast"])
     # 按复杂度分流: level → 定制 fallback 链 (未配置的 level 回退 fallback_chain)
@@ -736,7 +749,7 @@ class ModelGateway:
                 proc = await asyncio.create_subprocess_exec(
                     self._config.omlx_bin,
                     "load",
-                    OMLX_ALIAS_MAP.get(model_name, model_name),  # 别名→omlx本地key
+                    self.resolve_alias(model_name),  # 别名→本地 key(走统一解析点)
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -933,8 +946,18 @@ class ModelGateway:
                 return content if isinstance(content, str) else str(content)
         return ""
 
+    def resolve_alias(self, name: str) -> str:
+        """把消费者的意图名展开成可路由的模型名。
+
+        单一解析点 —— HTTP 门面与库入口都经由 ModelGateway, 因此都会命中这里。
+        """
+        from .aliases import resolve
+
+        return resolve(name, self._config.aliases)
+
     def _resolve_model_id(self, model_name: str) -> str | None:
         """解析模型名到 registry ID."""
+        model_name = self.resolve_alias(model_name)
         reg = self._registry
         if reg.get(model_name):
             return model_name

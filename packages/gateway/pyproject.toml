@@ -32,4 +32,7 @@ legacy = [
 gateway = "llm_gateway.cli:main"
 
 [tool.hatch.build.targets.wheel]
+# aliases.yaml 是运行时读的默认配置, 必须随包分发,
+# 否则装出来的包只能用内置兜底表。
+artifacts = ["src/llm_gateway/*.yaml"]
 packages = ["src/llm_gateway"]

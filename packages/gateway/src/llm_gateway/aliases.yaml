@@ -1,0 +1,50 @@
+# 模型别名表 — 消费者用的"意图名" → 网关能路由的模型名
+#
+# 迁移基准: LiteLLM 的 model_list。网关要接管它, 消费者不应被迫改名,
+# 所以这里逐条对齐了 LiteLLM 曾提供的别名。
+#
+# 目标名的两类:
+#   * omlx 本机模型 → models.json 里的键(coding / reasoning / ...)
+#   * LM Link 池中的模型 → LM Studio 的模型 ID
+#     LM Link 已把三台机器互联成同一个池(见 ENG-LMSTUDIO-* 的 lm_link_pool),
+#     任一端点都能看到全部模型, 因此**别名不需要携带机器地址** —— 具体在哪台
+#     执行由 LM Link 自己决定(lms link set-preferred-device)。
+#
+# 维护约定: 新增别名时只写"意图名 → 目标名"。不要在这里写 endpoint/IP,
+# 那是 compute_engine SSOT 与 compute_mesh 的职责。
+
+aliases:
+  # ── 本机 omlx 后端 ───────────────────────────────
+  coder: coding
+  coder-fast: coding-fast
+  reasoner: reasoning
+  reasoner-lite: reasoning-lite
+  embed: embedding
+
+  # ── LM Link 池(原先分散在 mac-mini / Y7000P 的别名) ──
+  # 2026-08-09 决策: 原 triage / mini-9b 指向 mac-mini 上 **ollama** 的
+  # qwen3.5:9b。ollama 不在 LM Link 池内(它是 LM Studio 的功能), 为避免为
+  # 单个模型再引入一条跨机路径, 改用池内等价模型 qwen/qwen3.5-9b 承接。
+  triage: qwen/qwen3.5-9b
+  mini-9b: qwen/qwen3.5-9b
+  fast: qwen/qwen3.5-9b
+  mid: google/gemma-4-12b-qat
+  general: google/gemma-4-12b-qat
+  mini-chat: gemma-4-e4b-it-mlx
+  rerank: baai-bge-reranker-v2-m3-mlx
+  embed-bge: bge-m3-mlx
+  ocr: deepseek-ocr
+  vision-lite: zai-org/glm-4.6v-flash
+
+# 已知未覆盖 —— 如实记录, 不要假装齐了
+unsupported:
+  - name: "macmini/* · macmini-ollama/* · y7000p/* · lms/* 通配符"
+    reason: >-
+      LiteLLM 用通配符做"直接按机器寻址"。LM Link 已把三机合成同一池,
+      按机器寻址不再是常态需求; 确需指定机器时用
+      `lms link set-preferred-device`, 而不是在别名里编码地址。
+  - name: "ollama 上的 qwen3.5:9b"
+    reason: >-
+      不在 LM Link 池内。已按上述决策由 qwen/qwen3.5-9b 承接;
+      若将来要恢复 ollama 路径, 应由 compute_mesh 把该 endpoint
+      作为 provider node 纳入, 而不是让网关直连。
