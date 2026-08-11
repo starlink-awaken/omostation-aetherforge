@@ -57,5 +57,6 @@ coverage.xml
 # ── Runtime logs ──
 packages/gateway/gateway.log
 .omc/
+.superpowers/
 *.tmp
 gateway.py.bak-*

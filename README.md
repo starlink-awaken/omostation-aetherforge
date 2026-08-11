@@ -38,16 +38,21 @@ uv run ruff check "packages/" "src/"
 
 ## Local Compute Hub
 
-AetherForge exposes one OpenAI-compatible facade over the local compute fleet. The
-default request policy stays local and uses the governed order:
-
-1. oMLX App on the MacBook Pro.
-2. LM Link / LM Studio engines registered in ComputeEngine SSOT.
-3. Ollama engines registered in ComputeEngine SSOT.
+AetherForge exposes one authenticated OpenAI-compatible facade over the local
+compute fleet. It owns logical aliases, K1 constraints, and cloud policy. In
+`active` mode it sends the resolved local model ID through the private `omlxcd`
+Unix socket; omlxc exclusively owns physical placement, capacity, residency, and
+local backend fallback.
 
 Cloud providers are eligible only when the caller explicitly selects
 `routing_mode=hybrid` or `routing_mode=cloud`. Provider request defaults disable
 reasoning/thinking unless the caller supplies a supported override.
+
+Migration is controlled by `AETHERFORGE_OMLXC_MODE=legacy|shadow|active` and
+defaults to `legacy`. `shadow` performs one bounded route-plan comparison while
+the single real inference remains on the legacy path. `OMLXC_SOCKET` overrides
+the platform-default socket. The same application and gateway singleton serve
+the canonical `9290` facade and optional transition listener `4000`.
 
 The BOS/Agora adapter accepts either a normal JSON request or the Agora
 `{"kwargs": ...}` envelope on stdin:

@@ -50,6 +50,7 @@ from .gateway import (
     run_async,
     strip_thinking,
 )
+from .omlxc_client import OmlxcClient, OmlxcError, OmlxcErrorCode
 from .provider import (
     LLMError,
     LLMProvider,
@@ -90,6 +91,9 @@ __all__ = (
     "GatewayRequest",
     "GatewayResponse",
     "GatewayConfig",
+    "OmlxcClient",
+    "OmlxcError",
+    "OmlxcErrorCode",
     "get_gateway",
     "reset_gateway",
     "run_async",

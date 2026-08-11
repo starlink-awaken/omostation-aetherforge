@@ -93,6 +93,7 @@ def test_serve_allows_loopback_without_key(monkeypatch):
     seen = {}
 
     async def fake_sites(app, hosts, ports):
+        seen["app"] = app
         seen["hosts"] = hosts
         seen["ports"] = ports
 
@@ -100,6 +101,7 @@ def test_serve_allows_loopback_without_key(monkeypatch):
     proxy.serve(port="59290,59291", bind="local")
     assert seen["hosts"] == ["127.0.0.1"]
     assert seen["ports"] == [59290, 59291]
+    assert isinstance(seen["app"], web.Application)
 
 
 def test_ports_parse():

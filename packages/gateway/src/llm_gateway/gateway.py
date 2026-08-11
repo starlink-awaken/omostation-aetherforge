@@ -29,11 +29,13 @@ import math
 import os
 import re
 import time
-from dataclasses import dataclass, field
+from collections.abc import AsyncIterator
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .complexity import TaskComplexityScorer
 from .metrics import MetricsCollector
+from .omlxc_client import OmlxcClient, OmlxcError, OmlxcErrorCode, OmlxcStreamChunk
 from .paths import M1_COMPUTE_ENGINE_DIR, M1_MODEL_DIR
 from .registry import ModelRegistry
 from .scheduler import ModelScheduler
@@ -283,6 +285,8 @@ def _load_omlx_ports() -> dict[str, int]:
         "reasoning-lite": 8085,
         "mythos-fast": 8185,
     }
+    if os.environ.get("AETHERFORGE_OMLXC_MODE", "legacy").lower() != "legacy":
+        return fallback
     try:
         with open(OMLX_CONF) as f:
             conf = json.load(f)
@@ -320,6 +324,8 @@ def _load_omlx_sizes() -> dict[str, float]:
         "deepseek-v4-flash": 4.0,
     }
     out = dict(fallback)
+    if os.environ.get("AETHERFORGE_OMLXC_MODE", "legacy").lower() != "legacy":
+        return out
     try:
         with open(OMLX_CONF) as f:
             conf = json.load(f)
@@ -348,6 +354,8 @@ def _load_lmstudio_fallback() -> dict[str, str]:
     网关和 CLI 各自硬编码一份映射迟早会漂移。
     读不到就返回空: 没有兜底比兜到错模型上强。
     """
+    if os.environ.get("AETHERFORGE_OMLXC_MODE", "legacy").lower() != "legacy":
+        return {}
     try:
         with open(OMLX_CONF) as f:
             conf = json.load(f)
@@ -364,6 +372,8 @@ def _load_lmstudio_fallback() -> dict[str, str]:
 
 def _load_ollama_fallback() -> dict[str, str]:
     """本机逻辑 key → Ollama 第二兜底模型。"""
+    if os.environ.get("AETHERFORGE_OMLXC_MODE", "legacy").lower() != "legacy":
+        return {}
     try:
         with open(OMLX_CONF) as f:
             conf = json.load(f)
@@ -381,6 +391,9 @@ def _load_ollama_fallback() -> dict[str, str]:
 class GatewayConfig:
     """网关配置."""
 
+    # legacy = 当前回滚路径；shadow = legacy 推理 + 只读 plan；active = omlxcd 推理。
+    omlxc_mode: str = field(default_factory=lambda: os.environ.get("AETHERFORGE_OMLXC_MODE", "legacy").lower())
+
     # omlx CLI 路径
     omlx_bin: str = field(default_factory=lambda: os.path.join(OMLX_ROOT, "bin", "omlx"))
     # 本地模型基础 URL
@@ -395,9 +408,7 @@ class GatewayConfig:
     # LM Link 也失败时的 Ollama 第二兜底。
     ollama_fallback: dict[str, str] = field(default_factory=_load_ollama_fallback)
     # app = oMLX App 单进程承载(默认); legacy = 每模型独立端口, 仅供回滚。
-    local_backend: str = field(
-        default_factory=lambda: os.environ.get("AETHERFORGE_LOCAL_BACKEND", "app")
-    )
+    local_backend: str = field(default_factory=lambda: os.environ.get("AETHERFORGE_LOCAL_BACKEND", "app"))
     # 冷加载一个几十 GB 的 MLX 模型远不止 30s。原默认值会让"其实在加载中"
     # 被判成失败, 于是回退到别的模型 —— 表现为随机地拿到不是自己要的模型。
     load_ready_timeout: float = 300.0
@@ -411,9 +422,7 @@ class GatewayConfig:
     # chat_template_kwargs.enable_thinking / thinking、reasoning_effort=low、
     # 消息里加 /no_think 前缀 —— 四种写法都不管用(2026-08-10, qwen3.5-9b)。
     # 设成 None 可整体关掉这条补救。
-    no_think_param: dict[str, object] | None = field(
-        default_factory=lambda: {"reasoning_effort": "none"}
-    )
+    no_think_param: dict[str, object] | None = field(default_factory=lambda: {"reasoning_effort": "none"})
     # 本网关自己的 OpenAI 门面端点。SSOT 的 ENG-OMLX-LOCAL 现指向门面
     # (原先指向 LiteLLM :4000), 于是 registry 回退路径有可能打回自己 ——
     # 一个请求在"直连端口失败 → 回退 registry → 门面 → 本网关"之间成环。
@@ -445,6 +454,10 @@ class GatewayConfig:
     registry_discover_timeout: float = 2.0
     # 是否启用后台任务 (warm pool sweep + health check)
     background_tasks_enabled: bool = True
+
+    def __post_init__(self) -> None:
+        if self.omlxc_mode not in {"legacy", "shadow", "active"}:
+            raise ValueError("AETHERFORGE_OMLXC_MODE must be one of: legacy, shadow, active")
 
 
 # ============================================================
@@ -530,6 +543,7 @@ class ModelGateway:
         scheduler: ModelScheduler,
         config: GatewayConfig | None = None,
         metrics: MetricsCollector | None = None,
+        omlxc_client: OmlxcClient | None = None,
     ):
         self._registry = registry
         self._scheduler = scheduler
@@ -537,6 +551,7 @@ class ModelGateway:
         self._metrics = metrics or MetricsCollector()
         self._memory_guard = MemoryGuard(self._config.memory_safety_factor)
         self._complexity_scorer = TaskComplexityScorer()
+        self._omlxc = omlxc_client or OmlxcClient()
 
         # 已加载模型集合 (model_name → load_time)
         self._loaded_models: dict[str, float] = {}
@@ -596,7 +611,11 @@ class ModelGateway:
         t0 = time.time()
         try:
             async with asyncio.timeout(max(0.1, request.timeout)):
-                return await self._generate_within_deadline(request)
+                if self._config.omlxc_mode == "legacy":
+                    return await self._generate_legacy(request)
+                if self._config.omlxc_mode == "shadow":
+                    return await self._generate_shadow(request)
+                return await self._generate_active(request)
         except TimeoutError:
             return GatewayResponse(
                 content="",
@@ -606,7 +625,105 @@ class ModelGateway:
                 finish_reason="error",
             )
 
-    async def _generate_within_deadline(self, request: GatewayRequest) -> GatewayResponse:
+    async def _generate_shadow(self, request: GatewayRequest) -> GatewayResponse:
+        """Compare only the local route plan; inference remains exactly legacy."""
+        plan = None
+        logical = request.model or self._business_model(request)
+        resolved = self.resolve_alias(logical)
+        if request.routing_mode != "cloud":
+            try:
+                plan = await self._omlxc.route_plan(
+                    resolved,
+                    profile="interactive",
+                    capabilities={"chat"},
+                    thinking=False,
+                    timeout=min(request.timeout, 2.0),
+                )
+            except OmlxcError as error:
+                _log.warning(
+                    "omlxc shadow route failed logical=%s resolved=%s code=%s",
+                    logical,
+                    resolved,
+                    error.code.value,
+                )
+        result = await self._generate_legacy(request)
+        if plan is not None:
+            _log.info(
+                "omlxc shadow route request_id=%s logical=%s resolved=%s "
+                "legacy_provider=%s legacy_model=%s placement=%s explanation=%s",
+                plan.request_id,
+                logical,
+                resolved,
+                result.provider,
+                result.model,
+                plan.selected,
+                plan.explanation[:120],
+            )
+        return result
+
+    async def _generate_active(self, request: GatewayRequest) -> GatewayResponse:
+        """Execute the approved local phase only through omlxcd."""
+        if request.routing_mode not in {"local", "hybrid", "cloud"}:
+            return GatewayResponse(
+                content="",
+                model="",
+                latency_ms=0,
+                error=f"Invalid routing_mode: {request.routing_mode}",
+                finish_reason="error",
+            )
+        sensitive = bool(
+            (request.content_title or request.content_url) and _is_sensitive(request.content_title, request.content_url)
+        )
+        if request.routing_mode == "cloud" and not sensitive:
+            return await self._generate_legacy(request)
+        logical = request.model or self._business_model(request)
+        resolved = self.resolve_alias(logical)
+        t0 = time.time()
+        try:
+            result = await self._omlxc.chat(
+                model=resolved,
+                messages=request.messages,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                timeout=request.timeout,
+                profile="interactive",
+                thinking=False,
+            )
+        except OmlxcError as error:
+            if sensitive:
+                return GatewayResponse(
+                    content="",
+                    model=logical,
+                    latency_ms=(time.time() - t0) * 1000,
+                    error="[K1] local inference unavailable",
+                    finish_reason="error",
+                )
+            if request.routing_mode == "hybrid" and error.cloud_fallback_allowed:
+                return await self._generate_legacy(replace(request, routing_mode="cloud"))
+            return GatewayResponse(
+                content="",
+                model=logical,
+                latency_ms=(time.time() - t0) * 1000,
+                error="local inference failed",
+                finish_reason="error",
+            )
+        return GatewayResponse(
+            content=strip_thinking(result.content),
+            model=logical,
+            latency_ms=(time.time() - t0) * 1000,
+            tokens_in=result.usage.prompt_tokens,
+            tokens_out=result.usage.completion_tokens,
+            provider=f"omlxc:{result.backend or 'local'}",
+            finish_reason=result.finish_reason,
+        )
+
+    def _business_model(self, request: GatewayRequest) -> str:
+        prompt = self._extract_prompt(request.messages)
+        complexity = self._complexity_scorer.estimate(prompt=prompt, task=request.task)
+        chain = self._config.complexity_chains.get(complexity.level, self._config.fallback_chain)
+        return chain[0] if chain else "coding"
+
+    async def _generate_legacy(self, request: GatewayRequest) -> GatewayResponse:
         """统一生成入口.
 
         流程:
@@ -720,6 +837,62 @@ class ModelGateway:
             error=f"All models failed. Last: {last_error}",
         )
 
+    async def generate_stream(self, request: GatewayRequest) -> AsyncIterator[OmlxcStreamChunk]:
+        """Stream without buffering the active local UDS response."""
+        if self._config.omlxc_mode != "active" or request.routing_mode == "cloud":
+            response = await self._generate_legacy(request)
+            if response.error and not response.content:
+                raise OmlxcError(OmlxcErrorCode.UNAVAILABLE)
+            yield OmlxcStreamChunk(
+                content=response.content,
+                model=response.model,
+                finish_reason=response.finish_reason,
+                usage={
+                    "prompt_tokens": response.tokens_in,
+                    "completion_tokens": response.tokens_out,
+                    "total_tokens": response.tokens_in + response.tokens_out,
+                },
+            )
+            return
+
+        sensitive = bool(
+            (request.content_title or request.content_url) and _is_sensitive(request.content_title, request.content_url)
+        )
+        logical = request.model or self._business_model(request)
+        resolved = self.resolve_alias(logical)
+        emitted = False
+        try:
+            async for chunk in self._omlxc.stream_chat(
+                model=resolved,
+                messages=request.messages,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                timeout=request.timeout,
+                profile="interactive",
+                thinking=False,
+            ):
+                emitted = emitted or bool(chunk.content)
+                yield replace(chunk, model=logical)
+        except OmlxcError as error:
+            if sensitive:
+                raise OmlxcError(error.code, emitted_content=emitted) from error
+            if request.routing_mode == "hybrid" and not emitted and error.cloud_fallback_allowed:
+                response = await self._generate_legacy(replace(request, routing_mode="cloud"))
+                if response.error and not response.content:
+                    raise OmlxcError(OmlxcErrorCode.UNAVAILABLE) from error
+                yield OmlxcStreamChunk(
+                    content=response.content,
+                    model=response.model,
+                    finish_reason=response.finish_reason,
+                    usage={
+                        "prompt_tokens": response.tokens_in,
+                        "completion_tokens": response.tokens_out,
+                        "total_tokens": response.tokens_in + response.tokens_out,
+                    },
+                )
+                return
+            raise
+
     async def _generate_local_only(self, request: GatewayRequest) -> GatewayResponse:
         """敏感流: 只用本地模型, 不 fallback 到云端."""
         t0 = time.time()
@@ -784,9 +957,7 @@ class ModelGateway:
                     reachable = await self._ensure_model(local_key)
                 if reachable:
                     try:
-                        return await self._generate_via_omlx_router(
-                            local_key, request, t0, display_name=model_name
-                        )
+                        return await self._generate_via_omlx_router(local_key, request, t0, display_name=model_name)
                     except Exception as e:
                         _log.warning("[ModelGateway] legacy omlx 直连 %s 失败: %s", local_key, e)
                         if isinstance(e, TimeoutError) or "timeout" in str(e).lower():
@@ -838,6 +1009,7 @@ class ModelGateway:
         t0: float,
     ) -> GatewayResponse:
         """经 registry/provider 链生成。display_name 是消费者原本要的名字。"""
+
         async def _call(max_tokens: int | None, extra: dict | None = None):
             merged_extra = dict(request.extra)
             if extra:
@@ -891,9 +1063,7 @@ class ModelGateway:
             # 第二手: 下游不认这个参数(或认了仍不出正文)时才抬预算。
             budget = self._config.thinking_retry_budget
             if not stripped.strip() and budget and (request.max_tokens or 0) < budget:
-                _log.info(
-                    "[ModelGateway] %s 仍无正文, 预算提到 %d 再试一次", display_name, budget
-                )
+                _log.info("[ModelGateway] %s 仍无正文, 预算提到 %d 再试一次", display_name, budget)
                 result = await _call(budget)
                 content = (result.content or "") if result else ""
                 stripped = _strip_thinking(content)
@@ -905,14 +1075,15 @@ class ModelGateway:
             raise RuntimeError(
                 f"{display_name} via {model_id}: 回复为空"
                 + (
-                    f"(finish={result.finish_reason}, 补到 {self._config.thinking_retry_budget} "
-                    "token 仍无正文)"
+                    f"(finish={result.finish_reason}, 补到 {self._config.thinking_retry_budget} token 仍无正文)"
                     if result and result.finish_reason == "length"
                     else "(thinking 段剥离后无正文)"
                     if was_stripped
                     else ""
                 )
             )
+        if result is None:
+            raise RuntimeError(f"{display_name} via {model_id}: empty provider result")
 
         usage = result.usage or {}
         provider = self._registry.get_provider(model_id)
@@ -1091,9 +1262,7 @@ class ModelGateway:
                     return False
 
                 # 等待端口应答(存活)
-                if not await self._wait_healthy(
-                    model_name, base_url, port, timeout=self._config.load_ready_timeout
-                ):
+                if not await self._wait_healthy(model_name, base_url, port, timeout=self._config.load_ready_timeout):
                     _log.warning("[ModelGateway] %s load timeout", model_name)
                     return False
 
@@ -1103,9 +1272,7 @@ class ModelGateway:
                 if self._config.readiness_probe_enabled and not await self._probe_generation(
                     model_name, base_url, port, timeout=self._config.load_ready_timeout
                 ):
-                    _log.error(
-                        "[ModelGateway] %s 端口应答但生成不了(疑似卡死), 回收后端", model_name
-                    )
+                    _log.error("[ModelGateway] %s 端口应答但生成不了(疑似卡死), 回收后端", model_name)
                     await self._recycle_backend(model_name)
                     return False
 
@@ -1120,9 +1287,7 @@ class ModelGateway:
                 _log.error("[ModelGateway] %s load error: %s", model_name, e)
                 return False
 
-    async def _probe_generation(
-        self, model_name: str, base_url: str, port: int, timeout: float
-    ) -> bool:
+    async def _probe_generation(self, model_name: str, base_url: str, port: int, timeout: float) -> bool:
         """发一发最小生成, 确认后端真能干活(不只是端口应答)。
 
         用 max_tokens=1, 内容随便; 拿到 200 且有 choices 即算就绪。
@@ -1142,9 +1307,7 @@ class ModelGateway:
                     timeout=aiohttp.ClientTimeout(total=timeout),
                 ) as r:
                     if r.status != 200:
-                        _log.warning(
-                            "[ModelGateway] %s 就绪探针 HTTP %s", model_name, r.status
-                        )
+                        _log.warning("[ModelGateway] %s 就绪探针 HTTP %s", model_name, r.status)
                         return False
                     return bool((await r.json()).get("choices"))
         except Exception as e:
@@ -1282,6 +1445,9 @@ class ModelGateway:
         for task in self._bg_tasks:
             task.cancel()
         self._bg_tasks.clear()
+        close = getattr(self._omlxc, "aclose", None)
+        if close is not None:
+            await close()
         _log.info("[ModelGateway] background tasks stopped")
 
     # ==========================================================
@@ -1292,6 +1458,55 @@ class ModelGateway:
         texts: list[str],
         model: str = "embedding",
         timeout: float = 30.0,
+        *,
+        routing_mode: str = "local",
+        content_title: str = "",
+        content_url: str = "",
+    ) -> list[list[float]]:
+        """Embed with the same legacy/shadow/active ownership as chat."""
+        if routing_mode not in {"local", "hybrid", "cloud"}:
+            raise ValueError(f"Invalid routing_mode: {routing_mode}")
+        if self._config.omlxc_mode == "legacy":
+            return await self._embed_legacy(texts, model, timeout, routing_mode=routing_mode)
+        sensitive = bool((content_title or content_url) and _is_sensitive(content_title, content_url))
+        if self._config.omlxc_mode == "shadow":
+            if routing_mode != "cloud":
+                resolved = self.resolve_alias(model)
+                try:
+                    await self._omlxc.route_plan(
+                        resolved,
+                        capabilities={"embedding"},
+                        thinking=False,
+                        timeout=min(timeout, 2.0),
+                    )
+                except OmlxcError as error:
+                    _log.warning(
+                        "omlxc shadow embedding route failed logical=%s resolved=%s code=%s",
+                        model,
+                        resolved,
+                        error.code.value,
+                    )
+            return await self._embed_legacy(texts, model, timeout, routing_mode=routing_mode)
+        if routing_mode == "cloud" and not sensitive:
+            return await self._embed_legacy(texts, model, timeout, routing_mode="cloud")
+
+        resolved = self.resolve_alias(model)
+        try:
+            return await self._omlxc.embed(model=resolved, inputs=texts, timeout=timeout, profile="interactive")
+        except OmlxcError as error:
+            if sensitive:
+                raise RuntimeError("[K1] local embedding unavailable") from error
+            if routing_mode == "hybrid" and error.cloud_fallback_allowed:
+                return await self._embed_legacy(texts, model, timeout, routing_mode="cloud")
+            raise RuntimeError("local embedding failed") from error
+
+    async def _embed_legacy(
+        self,
+        texts: list[str],
+        model: str = "embedding",
+        timeout: float = 30.0,
+        *,
+        routing_mode: str = "local",
     ) -> list[list[float]]:
         """Embedding 降级链。
 
@@ -1300,23 +1515,31 @@ class ModelGateway:
         """
         import aiohttp
 
-        if self._config.local_backend == "app":
+        if routing_mode == "cloud" or self._config.local_backend == "app":
             await self._ensure_registry_ready()
             local_key = self.resolve_alias(model)
             candidates: list[str] = []
-            app_id = self._resolve_model_id(local_key, ("ENG-OMLX-LOCAL",))
-            if app_id:
-                candidates.append(app_id)
-            lm = self._lmstudio_fallback(local_key)
-            if lm:
-                lm_id = self._resolve_model_id(lm, ("ENG-LMSTUDIO-",))
-                if lm_id:
-                    candidates.append(lm_id)
-            ollama = self._ollama_fallback(local_key)
-            if ollama:
-                ollama_id = self._resolve_model_id(ollama, ("ENG-OLLAMA-",))
-                if ollama_id:
-                    candidates.append(ollama_id)
+            if routing_mode == "cloud":
+                candidates.extend(
+                    item.id
+                    for item in self._registry.list_models()
+                    if not item.id.partition("/")[0].startswith(("ENG-OMLX-", "ENG-LMSTUDIO-", "ENG-OLLAMA-"))
+                    and _id_tail(item.id) == local_key
+                )
+            else:
+                app_id = self._resolve_model_id(local_key, ("ENG-OMLX-LOCAL",))
+                if app_id:
+                    candidates.append(app_id)
+                lm = self._lmstudio_fallback(local_key)
+                if lm:
+                    lm_id = self._resolve_model_id(lm, ("ENG-LMSTUDIO-",))
+                    if lm_id:
+                        candidates.append(lm_id)
+                ollama = self._ollama_fallback(local_key)
+                if ollama:
+                    ollama_id = self._resolve_model_id(ollama, ("ENG-OLLAMA-",))
+                    if ollama_id:
+                        candidates.append(ollama_id)
 
             last_error = "no embedding provider"
             async with asyncio.timeout(max(0.1, timeout)):
@@ -1483,6 +1706,7 @@ class ModelGateway:
         """
         model_name = self.resolve_alias(model_name)
         reg = self._registry
+
         def _allowed(model_id: str) -> bool:
             return not engine_prefixes or model_id.partition("/")[0].startswith(engine_prefixes)
 
@@ -1499,10 +1723,7 @@ class ModelGateway:
         if model_name in self._config.model_ports and not engine_prefixes:
             return None
 
-        matches = [
-            m.id for m in reg.list_models()
-            if _id_tail(m.id) == model_name and _allowed(m.id)
-        ]
+        matches = [m.id for m in reg.list_models() if _id_tail(m.id) == model_name and _allowed(m.id)]
         if not matches:
             return None
         matches.sort(key=_engine_rank)

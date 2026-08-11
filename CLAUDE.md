@@ -26,11 +26,12 @@ uv run ruff check "packages/" "src/"
 
 ## Architecture
 
-- **omlx models.json is the naming SSOT** — model keys flow unchanged through ssot-sync → MODEL-BREW → registry
-- **oMLX App is the MBP primary backend** — AetherForge resolves logical model keys to the App engine in ComputeEngine SSOT
-- **Local fallback order is explicit** — oMLX App → LM Link/LM Studio → Ollama; cloud is used only when callers request `routing_mode=hybrid` or `cloud`
+- **Alias ownership stays here** — AetherForge resolves logical aliases once, then sends the stable local model ID to the versioned `omlxcd` API
+- **Physical placement belongs to omlxc** — local inventory, capacity, model residency, backend selection, and local fallback are never duplicated in an active AetherForge path
+- **Cloud ownership stays here** — cloud is used only for `routing_mode=cloud`, or after a typed pre-token local failure in `routing_mode=hybrid`; K1 never reaches cloud
 - **Thinking is disabled by default** — provider `request_defaults` carry the backend-specific no-reasoning fields while explicit caller fields still win
-- **Legacy local servers are rollback-only** — LiteLLM, the old omlx router, and per-model direct ports are not part of the normal request path
+- **Migration mode is explicit** — `AETHERFORGE_OMLXC_MODE=legacy|shadow|active`, defaulting to `legacy`; shadow performs one read-only route plan and exactly one legacy inference
+- **Legacy local servers are rollback-only** — LiteLLM, the old omlx router, cross-repository JSON, subprocess loading, and per-model direct ports are excluded from active paths
 - **cc-switch integration** — `import_from_cc_switch()` syncs 15 cloud providers from iCloud DB
 - **IntelligentAgent middleware** — unified decision chain: Risk → MOS → LLM → Record → Trust
 - **ModelScheduler in generate()** — Filter→Score pipeline replaces hardcoded fallback chain

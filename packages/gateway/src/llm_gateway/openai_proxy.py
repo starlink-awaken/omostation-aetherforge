@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import time
@@ -24,6 +25,7 @@ import time
 from aiohttp import web
 
 from .gateway import GatewayRequest, get_gateway
+from .omlxc_client import OmlxcError
 
 _log = logging.getLogger(__name__)
 API_KEY = web.AppKey("aetherforge_api_key", str)
@@ -40,15 +42,18 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     model = body.get("model", "")
     temperature = body.get("temperature")  # None = 不指定, 用下游默认
     max_tokens = body.get("max_tokens")  # 同上
-    if body.get("stream"):
-        return web.json_response(
-            {"error": {"message": "stream=true 暂不支持；请使用非流式请求", "type": "invalid_request_error"}},
-            status=501,
-        )
-
     gateway_fields = {
-        "messages", "model", "temperature", "max_tokens", "timeout", "task",
-        "routing_mode", "stream", "content_title", "content_url", "extra_body",
+        "messages",
+        "model",
+        "temperature",
+        "max_tokens",
+        "timeout",
+        "task",
+        "routing_mode",
+        "stream",
+        "content_title",
+        "content_url",
+        "extra_body",
     }
     extra = dict(body.get("extra_body") or {})
     # OpenAI SDK 的 extra_body 会摊平进顶层；工具、结构化输出、采样参数等均
@@ -69,6 +74,14 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         content_title=str(body.get("content_title") or ""),
         content_url=str(body.get("content_url") or ""),
     )
+
+    if body.get("stream"):
+        return web.Response(
+            body=_openai_sse(gw, req),
+            status=200,
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            content_type="text/event-stream",
+        )
 
     t0 = time.time()
     resp = await gw.generate(req)
@@ -105,6 +118,43 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         return web.json_response(response_body, status=502)
 
     return web.json_response(response_body)
+
+
+async def _openai_sse(gateway, request: GatewayRequest):
+    """Translate gateway chunks as they arrive; cancellation closes the UDS stream."""
+    emitted = False
+    try:
+        async for chunk in gateway.generate_stream(request):
+            payload: dict[str, object] = {
+                "id": f"chatcmpl-aetherforge-{chunk.request_id or int(time.time())}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": chunk.model or request.model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": chunk.content},
+                        "finish_reason": chunk.finish_reason,
+                    }
+                ],
+            }
+            if chunk.usage is not None:
+                payload["usage"] = dict(chunk.usage)
+            emitted = emitted or bool(chunk.content)
+            encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+            yield f"data: {encoded}\n\n".encode()
+    except OmlxcError:
+        payload = {
+            "error": {
+                "message": "local stream failed",
+                "type": "stream_error",
+                "code": "stream_error",
+                "emitted_content": emitted,
+            }
+        }
+        yield f"data: {json.dumps(payload, separators=(',', ':'))}\n\n".encode()
+        return
+    yield b"data: [DONE]\n\n"
 
 
 async def handle_list_models(request: web.Request) -> web.Response:
@@ -146,16 +196,20 @@ async def handle_embeddings(request: web.Request) -> web.Response:
             texts,
             model=str(body.get("model") or "embedding"),
             timeout=float(body.get("timeout", 30)),
+            routing_mode=str(body.get("routing_mode") or "local"),
+            content_title=str(body.get("content_title") or ""),
+            content_url=str(body.get("content_url") or ""),
         )
         return web.json_response(
             {
                 "object": "list",
                 "data": [{"object": "embedding", "index": i, "embedding": emb} for i, emb in enumerate(embeddings)],
                 "model": body.get("model", "embedding"),
+                "usage": {"prompt_tokens": 0, "total_tokens": 0},
             }
         )
-    except Exception as e:
-        return web.json_response({"error": {"message": str(e)[:100]}}, status=502)
+    except Exception:
+        return web.json_response({"error": {"message": "embedding failed"}}, status=502)
 
 
 async def handle_health(request: web.Request) -> web.Response:
@@ -273,7 +327,7 @@ def resolve_bind_hosts(bind: str) -> list[str]:
 
 
 def parse_ports(spec: str | int) -> list[int]:
-    """"9290" / "9290,4000" / 9290 → [9290] / [9290, 4000] / [9290]"""
+    """ "9290" / "9290,4000" / 9290 → [9290] / [9290, 4000] / [9290]"""
     if isinstance(spec, int):
         return [spec]
     out: list[int] = []
@@ -293,7 +347,7 @@ async def _run_sites(app: web.Application, hosts: list[str], ports: list[int]) -
     for h in hosts:
         for p in ports:
             await web.TCPSite(runner, h, p).start()
-    await asyncio.Event().wait()   # 交给信号处理去中断
+    await asyncio.Event().wait()  # 交给信号处理去中断
 
 
 def serve(port: int | str = 9290, bind: str = "local") -> None:
