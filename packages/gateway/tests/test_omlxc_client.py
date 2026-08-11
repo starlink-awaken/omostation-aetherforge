@@ -44,6 +44,7 @@ async def test_route_plan_uses_versioned_envelope_and_resolved_model() -> None:
         captured["body"] = json.loads(request.content)
         return httpx.Response(
             200,
+            headers={"X-OMLXC-Request-ID": "req-1"},
             json=_envelope(
                 {
                     "request_id": "req-1",
@@ -94,6 +95,7 @@ async def test_chat_and_embeddings_validate_shapes_and_metadata() -> None:
         if request.url.path.endswith("embeddings"):
             return httpx.Response(
                 200,
+                headers={"X-OMLXC-Request-ID": "backend-req"},
                 json={
                     "object": "list",
                     "model": "local/resolved",
@@ -161,7 +163,10 @@ async def test_embedding_rejects_non_finite_or_ragged_vectors() -> None:
             return httpx.Response(
                 200,
                 content=json.dumps(payload, allow_nan=True).encode(),
-                headers={"content-type": "application/json"},
+                headers={
+                    "content-type": "application/json",
+                    "X-OMLXC-Request-ID": "embed-req",
+                },
             )
 
         client = OmlxcClient(transport=httpx.MockTransport(handler))
@@ -229,7 +234,16 @@ async def test_stream_maps_pre_and_post_token_disconnect_and_closes(with_token: 
     stream = ChunkStream(chunks, error=httpx.ReadError("Authorization: Bearer secret"))
 
     async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=stream)
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "text/event-stream",
+                "X-OMLXC-Request-ID": "stream-req",
+                "X-OMLXC-Placement": "placement-a",
+                "X-OMLXC-Backend": "backend-a",
+            },
+            stream=stream,
+        )
 
     client = OmlxcClient(transport=httpx.MockTransport(handler))
     observed: list[OmlxcStreamChunk] = []
@@ -266,7 +280,16 @@ async def test_stream_cancellation_closes_response() -> None:
     stream = BlockingStream()
 
     async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=stream)
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "text/event-stream",
+                "X-OMLXC-Request-ID": "stream-req",
+                "X-OMLXC-Placement": "placement-a",
+                "X-OMLXC-Backend": "backend-a",
+            },
+            stream=stream,
+        )
 
     client = OmlxcClient(transport=httpx.MockTransport(handler))
 
@@ -317,7 +340,11 @@ async def test_errors_are_typed_and_sanitized(status: int, error_type: str, code
 @pytest.mark.asyncio
 async def test_malformed_envelope_fails_closed() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"schema_version": 2, "request_id": "req", "data": {}})
+        return httpx.Response(
+            200,
+            headers={"X-OMLXC-Request-ID": "req"},
+            json={"schema_version": 2, "request_id": "req", "data": {}},
+        )
 
     client = OmlxcClient(transport=httpx.MockTransport(handler))
     with pytest.raises(OmlxcError) as raised:
@@ -342,7 +369,16 @@ async def test_malformed_sse_is_invalid_and_closed() -> None:
     stream = ChunkStream((b"data: {not-json}\n\ndata: [DONE]\n\n",))
 
     async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=stream)
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "text/event-stream",
+                "X-OMLXC-Request-ID": "stream-req",
+                "X-OMLXC-Placement": "placement-a",
+                "X-OMLXC-Backend": "backend-a",
+            },
+            stream=stream,
+        )
 
     client = OmlxcClient(transport=httpx.MockTransport(handler))
     with pytest.raises(OmlxcError) as raised:
@@ -364,6 +400,7 @@ async def test_client_reuses_transport_until_explicit_close() -> None:
             self.calls += 1
             return httpx.Response(
                 200,
+                headers={"X-OMLXC-Request-ID": "req-1"},
                 json=_envelope(
                     {
                         "request_id": "req-1",
@@ -389,3 +426,115 @@ async def test_client_reuses_transport_until_explicit_close() -> None:
     assert not transport.closed
     await client.aclose()
     assert transport.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"content-type": "text/plain", "X-OMLXC-Request-ID": "req-1"},
+        {"content-type": "application/jsonish", "X-OMLXC-Request-ID": "req-1"},
+        {"content-type": "application/json", "X-OMLXC-Request-ID": ""},
+    ],
+)
+async def test_json_success_requires_json_content_type_and_request_id(
+    headers: dict[str, str],
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers=headers,
+            json=_envelope(
+                {
+                    "request_id": "req-1",
+                    "selected_placement_id": "p",
+                    "candidates": ["p"],
+                    "candidate_scores": {"p": 1.0},
+                    "rejected": {},
+                    "fallback_chain": ["p"],
+                    "config_version": "v1",
+                    "explanation": "selected",
+                }
+            ),
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(OmlxcError) as raised:
+        await client.route_plan("m")
+    assert raised.value.code is OmlxcErrorCode.INVALID
+    assert str(raised.value) == "local inference returned an invalid response"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"X-OMLXC-Request-ID": "req", "X-OMLXC-Placement": "p"},
+        {"X-OMLXC-Request-ID": "req", "X-OMLXC-Backend": "b"},
+        {"X-OMLXC-Placement": "p", "X-OMLXC-Backend": "b"},
+    ],
+)
+async def test_chat_success_requires_request_placement_and_backend_headers(
+    headers: dict[str, str],
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers=headers,
+            json={
+                "object": "chat.completion",
+                "model": "m",
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(OmlxcError) as raised:
+        await client.chat(model="m", messages=[{"role": "user", "content": "hi"}])
+    assert raised.value.code is OmlxcErrorCode.INVALID
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {
+            "content-type": "application/json",
+            "X-OMLXC-Request-ID": "r",
+            "X-OMLXC-Placement": "p",
+            "X-OMLXC-Backend": "b",
+        },
+        {
+            "content-type": "application/x-text/event-stream",
+            "X-OMLXC-Request-ID": "r",
+            "X-OMLXC-Placement": "p",
+            "X-OMLXC-Backend": "b",
+        },
+        {"content-type": "text/event-stream", "X-OMLXC-Placement": "p", "X-OMLXC-Backend": "b"},
+        {"content-type": "text/event-stream", "X-OMLXC-Request-ID": "r", "X-OMLXC-Backend": "b"},
+        {"content-type": "text/event-stream", "X-OMLXC-Request-ID": "r", "X-OMLXC-Placement": "p"},
+    ],
+)
+async def test_stream_success_requires_sse_and_all_metadata_before_yield(
+    headers: dict[str, str],
+) -> None:
+    stream = ChunkStream((b'data: {"model":"m","choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n',))
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers=headers, stream=stream)
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+    observed: list[OmlxcStreamChunk] = []
+    with pytest.raises(OmlxcError) as raised:
+        async for chunk in client.stream_chat(model="m", messages=[{"role": "user", "content": "hi"}]):
+            observed.append(chunk)
+    assert raised.value.code is OmlxcErrorCode.INVALID
+    assert observed == []
+    assert stream.closed

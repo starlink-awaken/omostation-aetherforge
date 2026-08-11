@@ -29,7 +29,7 @@ import math
 import os
 import re
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -837,61 +837,116 @@ class ModelGateway:
             error=f"All models failed. Last: {last_error}",
         )
 
-    async def generate_stream(self, request: GatewayRequest) -> AsyncIterator[OmlxcStreamChunk]:
+    async def generate_stream(self, request: GatewayRequest) -> AsyncGenerator[OmlxcStreamChunk]:
         """Stream without buffering the active local UDS response."""
-        if self._config.omlxc_mode != "active" or request.routing_mode == "cloud":
-            response = await self._generate_legacy(request)
-            if response.error and not response.content:
-                raise OmlxcError(OmlxcErrorCode.UNAVAILABLE)
-            yield OmlxcStreamChunk(
-                content=response.content,
-                model=response.model,
-                finish_reason=response.finish_reason,
-                usage={
-                    "prompt_tokens": response.tokens_in,
-                    "completion_tokens": response.tokens_out,
-                    "total_tokens": response.tokens_in + response.tokens_out,
-                },
-            )
-            return
-
         sensitive = bool(
             (request.content_title or request.content_url) and _is_sensitive(request.content_title, request.content_url)
         )
-        logical = request.model or self._business_model(request)
+        effective = replace(request, routing_mode="local") if sensitive else request
+
+        if self._config.omlxc_mode == "legacy":
+            relay = self._relay_stream(self._generate_legacy_stream(effective))
+            try:
+                async for chunk in relay:
+                    yield chunk
+            finally:
+                await relay.aclose()
+            return
+
+        logical = effective.model or self._business_model(effective)
         resolved = self.resolve_alias(logical)
+        if self._config.omlxc_mode == "shadow":
+            if effective.routing_mode != "cloud":
+                try:
+                    await self._omlxc.route_plan(
+                        resolved,
+                        profile="interactive",
+                        capabilities={"chat", "streaming"},
+                        thinking=False,
+                        timeout=min(effective.timeout, 2.0),
+                    )
+                except OmlxcError as error:
+                    _log.warning(
+                        "omlxc shadow stream route failed logical=%s resolved=%s code=%s",
+                        logical,
+                        resolved,
+                        error.code.value,
+                    )
+            relay = self._relay_stream(self._generate_legacy_stream(effective))
+            try:
+                async for chunk in relay:
+                    yield chunk
+            finally:
+                await relay.aclose()
+            return
+
+        if effective.routing_mode == "cloud":
+            relay = self._relay_stream(self._generate_legacy_stream(effective))
+            try:
+                async for chunk in relay:
+                    yield chunk
+            finally:
+                await relay.aclose()
+            return
+
         emitted = False
+        source = self._omlxc.stream_chat(
+            model=resolved,
+            messages=effective.messages,
+            temperature=effective.temperature,
+            max_tokens=effective.max_tokens,
+            timeout=effective.timeout,
+            profile="interactive",
+            thinking=False,
+        )
         try:
-            async for chunk in self._omlxc.stream_chat(
-                model=resolved,
-                messages=request.messages,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                timeout=request.timeout,
-                profile="interactive",
-                thinking=False,
-            ):
+            async for chunk in source:
                 emitted = emitted or bool(chunk.content)
                 yield replace(chunk, model=logical)
         except OmlxcError as error:
             if sensitive:
                 raise OmlxcError(error.code, emitted_content=emitted) from error
-            if request.routing_mode == "hybrid" and not emitted and error.cloud_fallback_allowed:
-                response = await self._generate_legacy(replace(request, routing_mode="cloud"))
-                if response.error and not response.content:
-                    raise OmlxcError(OmlxcErrorCode.UNAVAILABLE) from error
-                yield OmlxcStreamChunk(
-                    content=response.content,
-                    model=response.model,
-                    finish_reason=response.finish_reason,
-                    usage={
-                        "prompt_tokens": response.tokens_in,
-                        "completion_tokens": response.tokens_out,
-                        "total_tokens": response.tokens_in + response.tokens_out,
-                    },
-                )
+            if effective.routing_mode == "hybrid" and not emitted and error.cloud_fallback_allowed:
+                relay = self._relay_stream(self._generate_legacy_stream(replace(effective, routing_mode="cloud")))
+                try:
+                    async for chunk in relay:
+                        yield chunk
+                finally:
+                    await relay.aclose()
                 return
             raise
+        finally:
+            close = getattr(source, "aclose", None)
+            if close is not None:
+                await close()
+
+    async def _generate_legacy_stream(self, request: GatewayRequest) -> AsyncGenerator[OmlxcStreamChunk]:
+        """Rollback-only legacy stream boundary; exactly one legacy inference."""
+        response = await self._generate_legacy(request)
+        if response.error and not response.content:
+            raise OmlxcError(OmlxcErrorCode.UNAVAILABLE)
+        yield OmlxcStreamChunk(
+            content=response.content,
+            model=response.model,
+            finish_reason=response.finish_reason,
+            usage={
+                "prompt_tokens": response.tokens_in,
+                "completion_tokens": response.tokens_out,
+                "total_tokens": response.tokens_in + response.tokens_out,
+            },
+        )
+
+    @staticmethod
+    async def _relay_stream(
+        source: AsyncIterator[OmlxcStreamChunk],
+    ) -> AsyncGenerator[OmlxcStreamChunk]:
+        try:
+            async for chunk in source:
+                yield chunk
+        finally:
+            close = getattr(source, "aclose", None)
+            if close is not None:
+                await close()
 
     async def _generate_local_only(self, request: GatewayRequest) -> GatewayResponse:
         """敏感流: 只用本地模型, 不 fallback 到云端."""

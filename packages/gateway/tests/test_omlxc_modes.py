@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from typing import Any
 
@@ -10,6 +12,7 @@ from llm_gateway.omlxc_client import (
     OmlxcError,
     OmlxcErrorCode,
     OmlxcRoutePlan,
+    OmlxcStreamChunk,
     TokenUsage,
 )
 
@@ -25,16 +28,23 @@ class FakeScheduler:
 
 
 class FakeOmlxc:
-    def __init__(self, error: OmlxcError | None = None) -> None:
+    def __init__(
+        self,
+        error: OmlxcError | None = None,
+        *,
+        plan_error: OmlxcError | None = None,
+    ) -> None:
         self.error = error
+        self.plan_error = plan_error
         self.plan_calls: list[dict[str, Any]] = []
         self.chat_calls: list[dict[str, Any]] = []
         self.embed_calls: list[dict[str, Any]] = []
+        self.stream_calls: list[dict[str, Any]] = []
 
     async def route_plan(self, model_id: str, **kwargs: Any) -> OmlxcRoutePlan:
         self.plan_calls.append({"model_id": model_id, **kwargs})
-        if self.error:
-            raise self.error
+        if self.plan_error:
+            raise self.plan_error
         return OmlxcRoutePlan(
             request_id="route-1",
             selected="placement-a",
@@ -65,6 +75,12 @@ class FakeOmlxc:
         if self.error:
             raise self.error
         return [[1.0, 2.0] for _ in kwargs["inputs"]]
+
+    async def stream_chat(self, **kwargs: Any) -> AsyncIterator[OmlxcStreamChunk]:
+        self.stream_calls.append(kwargs)
+        if self.error:
+            raise self.error
+        yield OmlxcStreamChunk(content="local", model=kwargs["model"])
 
 
 def _gateway(mode: str, client: FakeOmlxc) -> ModelGateway:
@@ -247,3 +263,83 @@ async def test_active_embed_uses_omlxc_without_legacy(monkeypatch: pytest.Monkey
     vectors = await gateway.embed(["a", "b"], model="logical", timeout=2)
     assert vectors == [[1.0, 2.0], [1.0, 2.0]]
     assert client.embed_calls[0]["model"] == "local/resolved"
+
+
+@pytest.mark.asyncio
+async def test_active_stream_cloud_sensitive_forces_omlxc_and_never_cloud(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeOmlxc()
+    gateway = _gateway("active", client)
+    cloud_calls = 0
+
+    async def forbidden_cloud(_request: GatewayRequest) -> GatewayResponse:
+        nonlocal cloud_calls
+        cloud_calls += 1
+        return GatewayResponse("cloud", "cloud", 1)
+
+    monkeypatch.setattr(gateway, "_generate_legacy", forbidden_cloud)
+    chunks = [
+        chunk
+        async for chunk in gateway.generate_stream(
+            GatewayRequest(
+                messages=[{"role": "user", "content": "private"}],
+                model="logical",
+                routing_mode="cloud",
+                content_title="公文",
+            )
+        )
+    ]
+    assert [chunk.content for chunk in chunks] == ["local"]
+    assert len(client.stream_calls) == 1
+    assert cloud_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_shadow_stream_plans_once_then_runs_one_legacy_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeOmlxc()
+    gateway = _gateway("shadow", client)
+    legacy_calls = 0
+    closed = False
+
+    async def legacy_stream(_request: GatewayRequest) -> AsyncIterator[OmlxcStreamChunk]:
+        nonlocal legacy_calls, closed
+        legacy_calls += 1
+        try:
+            yield OmlxcStreamChunk(content="legacy", model="legacy")
+            await asyncio.Event().wait()
+        finally:
+            closed = True
+
+    monkeypatch.setattr(gateway, "_generate_legacy_stream", legacy_stream)
+    source = gateway.generate_stream(GatewayRequest(messages=[{"role": "user", "content": "hi"}], model="logical"))
+    first = await anext(source)
+    assert first.content == "legacy"
+    await source.aclose()
+    assert len(client.plan_calls) == 1
+    assert not client.stream_calls and not client.chat_calls
+    assert legacy_calls == 1
+    assert closed
+
+
+@pytest.mark.asyncio
+async def test_shadow_stream_plan_failure_is_best_effort(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeOmlxc(plan_error=OmlxcError(OmlxcErrorCode.TIMEOUT))
+    gateway = _gateway("shadow", client)
+
+    async def legacy_stream(_request: GatewayRequest) -> AsyncIterator[OmlxcStreamChunk]:
+        yield OmlxcStreamChunk(content="legacy", model="legacy")
+
+    monkeypatch.setattr(gateway, "_generate_legacy_stream", legacy_stream)
+    chunks = [
+        chunk
+        async for chunk in gateway.generate_stream(
+            GatewayRequest(messages=[{"role": "user", "content": "hi"}], model="logical")
+        )
+    ]
+    assert [chunk.content for chunk in chunks] == ["legacy"]
+    assert len(client.plan_calls) == 1

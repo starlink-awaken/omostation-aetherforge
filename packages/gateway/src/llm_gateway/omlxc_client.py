@@ -154,6 +154,8 @@ class OmlxcClient:
         }
         response = await self._post_json("/api/v1/routes/plan", payload, timeout)
         envelope = _envelope(response)
+        if _required_header(response, "X-OMLXC-Request-ID") != envelope["request_id"]:
+            raise OmlxcError(OmlxcErrorCode.INVALID)
         data = _mapping(envelope["data"])
         required = {
             "request_id",
@@ -214,14 +216,17 @@ class OmlxcClient:
         message = _mapping(choice.get("message"))
         content = _string(message.get("content"))
         usage = _usage(body.get("usage"))
+        request_id = _required_header(response, "X-OMLXC-Request-ID")
+        placement = _required_header(response, "X-OMLXC-Placement")
+        backend = _required_header(response, "X-OMLXC-Backend")
         return OmlxcChatResult(
             content=content,
             model=_string(body.get("model")),
             finish_reason=_string(choice.get("finish_reason")),
             usage=usage,
-            request_id=response.headers.get("X-OMLXC-Request-ID", ""),
-            placement=response.headers.get("X-OMLXC-Placement"),
-            backend=response.headers.get("X-OMLXC-Backend"),
+            request_id=request_id,
+            placement=placement,
+            backend=backend,
         )
 
     async def stream_chat(
@@ -257,13 +262,12 @@ class OmlxcClient:
                 ) as response:
                     if response.status_code >= 400:
                         await _raise_http_error(response)
-                    content_type = response.headers.get("content-type", "").lower()
-                    if "text/event-stream" not in content_type:
+                    if _media_type(response) != "text/event-stream":
                         raise OmlxcError(OmlxcErrorCode.INVALID)
                     metadata = {
-                        "request_id": response.headers.get("X-OMLXC-Request-ID", ""),
-                        "placement": response.headers.get("X-OMLXC-Placement"),
-                        "backend": response.headers.get("X-OMLXC-Backend"),
+                        "request_id": _required_header(response, "X-OMLXC-Request-ID"),
+                        "placement": _required_header(response, "X-OMLXC-Placement"),
+                        "backend": _required_header(response, "X-OMLXC-Backend"),
                     }
                     async for data in _sse_data(response.aiter_bytes()):
                         if data == "[DONE]":
@@ -360,6 +364,9 @@ class OmlxcClient:
             response = await self._http.post(path, json=payload, timeout=self._timeout(timeout))
             if response.status_code >= 400:
                 await _raise_http_error(response)
+            if _media_type(response) != "application/json":
+                raise OmlxcError(OmlxcErrorCode.INVALID)
+            _required_header(response, "X-OMLXC-Request-ID")
             return response
         except OmlxcError:
             raise
@@ -448,6 +455,17 @@ def _response_mapping(response: httpx.Response) -> Mapping[str, object]:
         return _mapping(response.json())
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         raise OmlxcError(OmlxcErrorCode.INVALID) from exc
+
+
+def _required_header(response: httpx.Response, name: str) -> str:
+    value = response.headers.get(name, "").strip()
+    if not value:
+        raise OmlxcError(OmlxcErrorCode.INVALID)
+    return value
+
+
+def _media_type(response: httpx.Response) -> str:
+    return response.headers.get("content-type", "").partition(";")[0].strip().lower()
 
 
 async def _sse_data(chunks: AsyncIterator[bytes]) -> AsyncIterator[str]:
