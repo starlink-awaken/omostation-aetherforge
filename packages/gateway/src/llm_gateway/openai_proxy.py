@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Mapping, Sequence
 
 from aiohttp import web
 
@@ -30,6 +31,8 @@ from .omlxc_client import OmlxcError, OmlxcErrorCode
 
 _log = logging.getLogger(__name__)
 API_KEY = web.AppKey("aetherforge_api_key", str)
+_PRETOKEN_MAX_EVENTS = 64
+_PRETOKEN_MAX_BYTES = 64 * 1024
 
 _OMLXC_HTTP_STATUS = {
     OmlxcErrorCode.NO_CAPACITY: 409,
@@ -70,7 +73,94 @@ def _openai_error_payload(
 async def _close_stream(source: object) -> None:
     close = getattr(source, "aclose", None)
     if close is not None:
-        await close()
+        await asyncio.shield(close())
+
+
+def _bounded_value_size(value: object, limit: int, seen: set[int]) -> int:
+    """Estimate JSON-like size without serializing or retaining metadata values."""
+    if limit < 0:
+        return 1
+    if value is None:
+        return 4 if limit >= 4 else limit + 1
+    if isinstance(value, bool):
+        size = 4 if value else 5
+        return size if size <= limit else limit + 1
+    if isinstance(value, int):
+        digits = max(1, (abs(value).bit_length() * 30103) // 100000 + 1)
+        size = digits + int(value < 0)
+        return size if size <= limit else limit + 1
+    if isinstance(value, float):
+        return 32 if limit >= 32 else limit + 1
+    if isinstance(value, str):
+        if len(value) > limit:
+            return limit + 1
+        size = 2
+        for character in value:
+            codepoint = ord(character)
+            if codepoint < 0x20:
+                size += 6
+            elif character in {'"', "\\"}:
+                size += 2
+            elif codepoint <= 0x7F:
+                size += 1
+            elif codepoint <= 0xFFFF:
+                size += 6
+            else:
+                size += 12
+            if size > limit:
+                return limit + 1
+        return size
+    if isinstance(value, bytes):
+        return limit + 1
+
+    identity = id(value)
+    if identity in seen:
+        return limit + 1
+    if isinstance(value, Mapping):
+        seen.add(identity)
+        total = 2
+        try:
+            for key, nested in value.items():
+                if not isinstance(key, str) or total > limit:
+                    return limit + 1
+                key_size = _bounded_value_size(key, limit - total, seen)
+                total += key_size + 1
+                if total > limit:
+                    return limit + 1
+                total += _bounded_value_size(nested, limit - total, seen) + 1
+            return total if total <= limit else limit + 1
+        finally:
+            seen.remove(identity)
+    if isinstance(value, Sequence):
+        seen.add(identity)
+        total = 2
+        try:
+            for nested in value:
+                if total > limit:
+                    return limit + 1
+                total += _bounded_value_size(nested, limit - total, seen) + 1
+            return total if total <= limit else limit + 1
+        finally:
+            seen.remove(identity)
+    return limit + 1
+
+
+def _pretoken_chunk_size(chunk: object, limit: int) -> int:
+    # Fixed envelope overhead plus all values that can later enter the SSE payload.
+    total = 128
+    for value in (
+        getattr(chunk, "content", None),
+        getattr(chunk, "model", None),
+        getattr(chunk, "request_id", None),
+        getattr(chunk, "placement", None),
+        getattr(chunk, "backend", None),
+        getattr(chunk, "finish_reason", None),
+        getattr(chunk, "usage", None),
+    ):
+        if total > limit:
+            return limit + 1
+        total += _bounded_value_size(value, limit - total, set())
+    return total if total <= limit else limit + 1
 
 
 async def handle_chat_completions(request: web.Request) -> web.Response:
@@ -120,6 +210,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     if body.get("stream"):
         source = gw.generate_stream(req)
         pending_chunks = []
+        pending_bytes = 0
         try:
             async with asyncio.timeout(max(0.1, req.timeout)):
                 while True:
@@ -127,7 +218,12 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                         chunk = await anext(source)
                     except StopAsyncIteration:
                         break
+                    remaining = _PRETOKEN_MAX_BYTES - pending_bytes
+                    chunk_size = _pretoken_chunk_size(chunk, remaining)
+                    if len(pending_chunks) >= _PRETOKEN_MAX_EVENTS or chunk_size > remaining:
+                        raise OmlxcError(OmlxcErrorCode.INTERNAL)
                     pending_chunks.append(chunk)
+                    pending_bytes += chunk_size
                     if chunk.content:
                         break
         except TimeoutError:

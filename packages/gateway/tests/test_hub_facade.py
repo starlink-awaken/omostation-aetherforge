@@ -448,6 +448,135 @@ def test_proxy_bounds_pretoken_metadata_wait_and_closes_stream_once(monkeypatch)
     assert closed == 1
 
 
+def test_proxy_rejects_high_volume_pretoken_metadata_events_before_http_200(monkeypatch):
+    produced = 0
+    closed = 0
+
+    class Gateway:
+        async def generate_stream(self, _request):
+            nonlocal closed, produced
+            from llm_gateway.omlxc_client import OmlxcStreamChunk
+
+            try:
+                for _ in range(65):
+                    produced += 1
+                    yield OmlxcStreamChunk(
+                        content="",
+                        model="coding",
+                        request_id="req-1",
+                        usage={"prompt_tokens": produced},
+                    )
+                produced += 1
+                yield OmlxcStreamChunk(content="must-not-emit", model="coding", request_id="req-1")
+            finally:
+                closed += 1
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+            "timeout": 10,
+        }
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    async def invoke():
+        return await asyncio.wait_for(openai_proxy.handle_chat_completions(request), timeout=0.5)
+
+    response = asyncio.run(invoke())
+
+    assert response.status == 502
+    payload = json.loads(response.body)
+    assert payload["error"]["code"] == "internal"
+    assert produced == 65
+    assert closed == 1
+
+
+def test_proxy_accepts_event_limit_with_content_and_preserves_order(monkeypatch):
+    class Gateway:
+        async def generate_stream(self, _request):
+            from llm_gateway.omlxc_client import OmlxcStreamChunk
+
+            for index in range(63):
+                yield OmlxcStreamChunk(
+                    content="",
+                    model="coding",
+                    request_id="req-1",
+                    usage={"prompt_tokens": index},
+                )
+            yield OmlxcStreamChunk(content="token", model="coding", request_id="req-1")
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        }
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    async def collect():
+        response = await openai_proxy.handle_chat_completions(request)
+        payload = b"".join([chunk async for chunk in response.body._value]).decode()
+        return response, payload
+
+    response, payload = asyncio.run(collect())
+
+    assert response.status == 200
+    assert payload.index('"prompt_tokens":0') < payload.index('"content":"token"')
+    assert payload.count('"content":""') == 63
+    assert payload.endswith("data: [DONE]\n\n")
+
+
+def test_proxy_rejects_oversized_nested_usage_without_serializing_or_echoing_it(monkeypatch):
+    closed = 0
+    marker = "private-metadata-marker"
+
+    class Gateway:
+        async def generate_stream(self, _request):
+            nonlocal closed
+            from llm_gateway.omlxc_client import OmlxcStreamChunk
+
+            try:
+                yield OmlxcStreamChunk(
+                    content="",
+                    model="coding",
+                    request_id="req-1",
+                    usage={"nested": {"payload": marker + ("x" * 65_536)}},
+                )
+                yield OmlxcStreamChunk(content="must-not-emit", model="coding", request_id="req-1")
+            finally:
+                closed += 1
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        }
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    response = asyncio.run(openai_proxy.handle_chat_completions(request))
+
+    assert response.status == 502
+    payload = json.loads(response.body)
+    assert payload["error"]["code"] == "internal"
+    assert marker not in response.body.decode()
+    assert "must-not-emit" not in response.body.decode()
+    assert closed == 1
+
+
 def test_proxy_keeps_posttoken_stream_error_in_sse_without_replay(monkeypatch):
     class Gateway:
         async def generate_stream(self, _request):
