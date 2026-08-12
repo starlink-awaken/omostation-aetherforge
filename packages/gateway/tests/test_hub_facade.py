@@ -264,6 +264,190 @@ def test_proxy_maps_pretoken_stream_error_to_http_status(monkeypatch):
     assert payload["error"]["code"] == "no_capacity"
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"usage": {"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1}},
+        {"finish_reason": "stop"},
+    ],
+    ids=["usage", "finish"],
+)
+def test_proxy_maps_stream_error_after_metadata_but_before_content_to_http_status(
+    metadata,
+    monkeypatch,
+):
+    closed = 0
+
+    class Gateway:
+        async def generate_stream(self, _request):
+            nonlocal closed
+            from llm_gateway.omlxc_client import OmlxcStreamChunk
+
+            try:
+                yield OmlxcStreamChunk(
+                    content="",
+                    model="coding",
+                    request_id="req-1",
+                    **metadata,
+                )
+                raise OmlxcError(OmlxcErrorCode.NO_CAPACITY)
+            finally:
+                closed += 1
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        }
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    response = asyncio.run(openai_proxy.handle_chat_completions(request))
+
+    assert response.status == 409
+    payload = json.loads(response.body)
+    assert payload["error"]["code"] == "no_capacity"
+    assert closed == 1
+
+
+def test_proxy_preserves_metadata_chunk_order_before_first_content(monkeypatch):
+    class Gateway:
+        async def generate_stream(self, _request):
+            from llm_gateway.omlxc_client import OmlxcStreamChunk
+
+            yield OmlxcStreamChunk(
+                content="",
+                model="coding",
+                request_id="req-1",
+                usage={"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1},
+            )
+            yield OmlxcStreamChunk(content="token", model="coding", request_id="req-1")
+            yield OmlxcStreamChunk(
+                content="",
+                model="coding",
+                request_id="req-1",
+                finish_reason="stop",
+                usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            )
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        }
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    async def collect():
+        response = await openai_proxy.handle_chat_completions(request)
+        payload = b"".join([chunk async for chunk in response.body._value]).decode()
+        return response, payload
+
+    response, payload = asyncio.run(collect())
+    first_usage = payload.index('"total_tokens":1')
+    content = payload.index('"content":"token"')
+    final_usage = payload.index('"total_tokens":2')
+
+    assert response.status == 200
+    assert first_usage < content < final_usage
+    assert payload.endswith("data: [DONE]\n\n")
+
+
+def test_proxy_preserves_normal_metadata_only_stream(monkeypatch):
+    class Gateway:
+        async def generate_stream(self, _request):
+            from llm_gateway.omlxc_client import OmlxcStreamChunk
+
+            yield OmlxcStreamChunk(
+                content="",
+                model="coding",
+                request_id="req-1",
+                usage={"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1},
+            )
+            yield OmlxcStreamChunk(
+                content="",
+                model="coding",
+                request_id="req-1",
+                finish_reason="stop",
+                usage={"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 2},
+            )
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        }
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    async def collect():
+        response = await openai_proxy.handle_chat_completions(request)
+        payload = b"".join([chunk async for chunk in response.body._value]).decode()
+        return response, payload
+
+    response, payload = asyncio.run(collect())
+
+    assert response.status == 200
+    assert payload.index('"total_tokens":1') < payload.index('"total_tokens":2')
+    assert '"finish_reason":"stop"' in payload
+    assert payload.endswith("data: [DONE]\n\n")
+
+
+def test_proxy_bounds_pretoken_metadata_wait_and_closes_stream_once(monkeypatch):
+    closed = 0
+
+    class Gateway:
+        async def generate_stream(self, _request):
+            nonlocal closed
+            from llm_gateway.omlxc_client import OmlxcStreamChunk
+
+            try:
+                yield OmlxcStreamChunk(
+                    content="",
+                    model="coding",
+                    request_id="req-1",
+                    usage={"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1},
+                )
+                await asyncio.Event().wait()
+            finally:
+                closed += 1
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+            "timeout": 0.01,
+        }
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    async def invoke():
+        return await asyncio.wait_for(openai_proxy.handle_chat_completions(request), timeout=0.5)
+
+    response = asyncio.run(invoke())
+
+    assert response.status == 504
+    payload = json.loads(response.body)
+    assert payload["error"]["code"] == "timeout"
+    assert closed == 1
+
+
 def test_proxy_keeps_posttoken_stream_error_in_sse_without_replay(monkeypatch):
     class Gateway:
         async def generate_stream(self, _request):

@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -118,21 +119,37 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
 
     if body.get("stream"):
         source = gw.generate_stream(req)
+        pending_chunks = []
         try:
-            first_chunk = await anext(source)
-        except StopAsyncIteration:
-            first_chunk = None
+            async with asyncio.timeout(max(0.1, req.timeout)):
+                while True:
+                    try:
+                        chunk = await anext(source)
+                    except StopAsyncIteration:
+                        break
+                    pending_chunks.append(chunk)
+                    if chunk.content:
+                        break
+        except TimeoutError:
+            await _close_stream(source)
+            return web.json_response(
+                _openai_error_payload(OmlxcErrorCode.TIMEOUT),
+                status=_omlxc_http_status(OmlxcErrorCode.TIMEOUT),
+            )
         except OmlxcError as error:
             await _close_stream(source)
             return web.json_response(
                 _openai_error_payload(error.code),
                 status=_omlxc_http_status(error.code),
             )
+        except asyncio.CancelledError:
+            await _close_stream(source)
+            raise
         except Exception:
             await _close_stream(source)
             return web.json_response(_openai_error_payload(None), status=502)
         return web.Response(
-            body=_openai_sse(gw, req, source=source, first_chunk=first_chunk),
+            body=_openai_sse(gw, req, source=source, pending_chunks=tuple(pending_chunks)),
             status=200,
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             content_type="text/event-stream",
@@ -181,14 +198,13 @@ async def _openai_sse(
     request: GatewayRequest,
     *,
     source=None,
-    first_chunk=None,
+    pending_chunks=(),
 ):
     """Translate gateway chunks as they arrive; cancellation closes the UDS stream."""
     emitted = False
     stream = source if source is not None else gateway.generate_stream(request)
     try:
-        pending = (first_chunk,) if first_chunk is not None else ()
-        async for chunk in _chain_stream(pending, stream):
+        async for chunk in _chain_stream(pending_chunks, stream):
             payload: dict[str, object] = {
                 "id": f"chatcmpl-aetherforge-{chunk.request_id or int(time.time())}",
                 "object": "chat.completion.chunk",
