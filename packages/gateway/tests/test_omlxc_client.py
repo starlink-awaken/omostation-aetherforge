@@ -36,6 +36,177 @@ class ChunkStream(httpx.AsyncByteStream):
 
 
 @pytest.mark.asyncio
+async def test_list_models_uses_versioned_envelope_and_requests_a_bounded_page() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["params"] = dict(request.url.params)
+        return httpx.Response(
+            200,
+            headers={"X-OMLXC-Request-ID": "catalog-req"},
+            json=_envelope(
+                {
+                    "items": [
+                        {"id": "coding", "capabilities": ["chat", "streaming"]},
+                        {"id": "embedding", "capabilities": ["embedding"]},
+                    ],
+                    "next_cursor": None,
+                },
+                request_id="catalog-req",
+            ),
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+    models = await client.list_models(timeout=2)
+
+    assert captured == {"path": "/api/v1/models", "params": {"limit": "100"}}
+    assert [model.id for model in models] == ["coding", "embedding"]
+    assert models[0].capabilities == frozenset({"chat", "streaming"})
+
+
+@pytest.mark.asyncio
+async def test_list_models_reads_all_pages_without_repeating_a_cursor() -> None:
+    requests: list[dict[str, str]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(dict(request.url.params))
+        after = request.url.params.get("after")
+        if after is None:
+            data = {"items": [{"id": "coding", "capabilities": ["chat"]}], "next_cursor": "coding"}
+        elif after == "coding":
+            data = {
+                "items": [{"id": "embedding", "capabilities": ["embedding"]}],
+                "next_cursor": "embedding",
+            }
+        elif after == "embedding":
+            data = {"items": [], "next_cursor": None}
+        else:
+            pytest.fail(f"unexpected cursor: {after}")
+        return httpx.Response(
+            200,
+            headers={"X-OMLXC-Request-ID": "catalog-req"},
+            json=_envelope(data, request_id="catalog-req"),
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+
+    models = await client.list_models(timeout=2)
+
+    assert [model.id for model in models] == ["coding", "embedding"]
+    assert requests == [
+        {"limit": "100"},
+        {"after": "coding", "limit": "100"},
+        {"after": "embedding", "limit": "100"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_models_rejects_a_repeated_pagination_cursor() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"X-OMLXC-Request-ID": "catalog-req"},
+            json=_envelope(
+                {"items": [{"id": "coding", "capabilities": ["chat"]}], "next_cursor": "coding"},
+                request_id="catalog-req",
+            ),
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(OmlxcError) as raised:
+        await client.list_models(timeout=2)
+
+    assert raised.value.code is OmlxcErrorCode.INVALID
+
+
+@pytest.mark.asyncio
+async def test_list_models_uses_one_total_timeout_budget_across_pages() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.07)
+        return httpx.Response(
+            200,
+            headers={"X-OMLXC-Request-ID": "catalog-req"},
+            json=_envelope(
+                {"items": [{"id": "coding", "capabilities": ["chat"]}], "next_cursor": "coding"},
+                request_id="catalog-req",
+            ),
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(OmlxcError) as raised:
+        await client.list_models(timeout=0.1)
+
+    assert raised.value.code is OmlxcErrorCode.TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_list_models_rejects_a_malformed_catalog_item() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"X-OMLXC-Request-ID": "catalog-req"},
+            json=_envelope(
+                {"items": [{"id": ["not-a-model-id"], "capabilities": ["chat"]}], "next_cursor": None},
+                request_id="catalog-req",
+            ),
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(OmlxcError) as raised:
+        await client.list_models(timeout=2)
+
+    assert raised.value.code is OmlxcErrorCode.INVALID
+
+
+@pytest.mark.asyncio
+async def test_list_models_rejects_a_mismatched_envelope_request_id() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"X-OMLXC-Request-ID": "header-request"},
+            json=_envelope(
+                {"items": [{"id": "coding", "capabilities": ["chat"]}], "next_cursor": None},
+                request_id="body-request",
+            ),
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(OmlxcError) as raised:
+        await client.list_models(timeout=2)
+
+    assert raised.value.code is OmlxcErrorCode.INVALID
+
+
+@pytest.mark.asyncio
+async def test_list_models_rejects_duplicate_logical_ids_across_pages() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        after = request.url.params.get("after")
+        if after is None:
+            data = {"items": [{"id": "coding", "capabilities": ["chat"]}], "next_cursor": "one"}
+        elif after == "one":
+            data = {"items": [{"id": "coding", "capabilities": ["chat"]}], "next_cursor": None}
+        else:
+            pytest.fail(f"unexpected cursor: {after}")
+        return httpx.Response(
+            200,
+            headers={"X-OMLXC-Request-ID": "catalog-req"},
+            json=_envelope(data, request_id="catalog-req"),
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(OmlxcError) as raised:
+        await client.list_models(timeout=2)
+
+    assert raised.value.code is OmlxcErrorCode.INVALID
+
+
+@pytest.mark.asyncio
 async def test_route_plan_uses_versioned_envelope_and_resolved_model() -> None:
     captured: dict[str, object] = {}
 

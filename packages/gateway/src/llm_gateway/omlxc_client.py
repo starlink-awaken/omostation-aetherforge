@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
@@ -18,6 +19,8 @@ import httpx
 _BASE_URL = "http://omlxc"
 _SCHEMA_VERSION = 1
 _MAX_SSE_EVENT_BYTES = 1_048_576
+_CATALOG_PAGE_LIMIT = 100
+_MAX_CATALOG_PAGES = 100
 
 
 class OmlxcErrorCode(StrEnum):
@@ -74,6 +77,14 @@ class OmlxcRoutePlan:
     config_version: str
     explanation: str
     thinking_authorized: bool = False
+
+
+@dataclass(frozen=True)
+class OmlxcCatalogModel:
+    """A logical model advertised by the private omlxcd control plane."""
+
+    id: str
+    capabilities: frozenset[str]
 
 
 @dataclass(frozen=True)
@@ -185,6 +196,44 @@ class OmlxcClient:
             explanation=_string(data["explanation"]),
             thinking_authorized=_bool(data.get("thinking_authorized", False)),
         )
+
+    async def list_models(self, *, timeout: float = 2.0) -> tuple[OmlxcCatalogModel, ...]:
+        """List the logical models that omlxcd can accept in active mode."""
+        bounded_timeout = max(0.1, min(float(timeout), 3600.0))
+        try:
+            async with asyncio.timeout(bounded_timeout):
+                cursor: str | None = None
+                seen_cursors: set[str] = set()
+                seen_model_ids: set[str] = set()
+                models: list[OmlxcCatalogModel] = []
+                for _page in range(_MAX_CATALOG_PAGES):
+                    params: dict[str, str | int] = {"limit": _CATALOG_PAGE_LIMIT}
+                    if cursor is not None:
+                        params["after"] = cursor
+                    response = await self._get_json("/api/v1/models", timeout, params=params)
+                    envelope = _envelope(response)
+                    if _required_header(response, "X-OMLXC-Request-ID") != envelope["request_id"]:
+                        raise OmlxcError(OmlxcErrorCode.INVALID)
+                    data = _mapping(envelope["data"])
+                    for item in _sequence(data.get("items")):
+                        model = OmlxcCatalogModel(
+                            id=_nonempty_string(_mapping(item).get("id")),
+                            capabilities=frozenset(_strings(_mapping(item).get("capabilities", ()))),
+                        )
+                        if model.id in seen_model_ids:
+                            raise OmlxcError(OmlxcErrorCode.INVALID)
+                        seen_model_ids.add(model.id)
+                        models.append(model)
+                    next_cursor = data.get("next_cursor")
+                    if next_cursor is None:
+                        return tuple(models)
+                    cursor = _nonempty_string(next_cursor)
+                    if cursor in seen_cursors:
+                        raise OmlxcError(OmlxcErrorCode.INVALID)
+                    seen_cursors.add(cursor)
+        except TimeoutError as exc:
+            raise OmlxcError(OmlxcErrorCode.TIMEOUT) from exc
+        raise OmlxcError(OmlxcErrorCode.INVALID)
 
     async def chat(
         self,
@@ -375,6 +424,24 @@ class OmlxcClient:
         except httpx.HTTPError as exc:
             raise OmlxcError(OmlxcErrorCode.UNAVAILABLE) from exc
 
+    async def _get_json(
+        self, path: str, timeout: float, *, params: Mapping[str, str | int] | None = None
+    ) -> httpx.Response:
+        try:
+            response = await self._http.get(path, params=params, timeout=self._timeout(timeout))
+            if response.status_code >= 400:
+                await _raise_http_error(response)
+            if _media_type(response) != "application/json":
+                raise OmlxcError(OmlxcErrorCode.INVALID)
+            _required_header(response, "X-OMLXC-Request-ID")
+            return response
+        except OmlxcError:
+            raise
+        except httpx.TimeoutException as exc:
+            raise OmlxcError(OmlxcErrorCode.TIMEOUT) from exc
+        except httpx.HTTPError as exc:
+            raise OmlxcError(OmlxcErrorCode.UNAVAILABLE) from exc
+
 
 def _chat_payload(
     *,
@@ -522,6 +589,13 @@ def _string(value: object) -> str:
     if not isinstance(value, str):
         raise OmlxcError(OmlxcErrorCode.INVALID)
     return value
+
+
+def _nonempty_string(value: object) -> str:
+    result = _string(value)
+    if not result:
+        raise OmlxcError(OmlxcErrorCode.INVALID)
+    return result
 
 
 def _strings(value: object) -> tuple[str, ...]:

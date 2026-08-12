@@ -11,6 +11,7 @@ import pytest
 from llm_gateway import openai_proxy
 from llm_gateway.gateway import GatewayResponse
 from llm_gateway.omlxc_client import OmlxcError, OmlxcErrorCode
+from openai.types import Model
 
 
 def test_proxy_preserves_engine_specific_fields(monkeypatch):
@@ -46,6 +47,68 @@ def test_proxy_preserves_engine_specific_fields(monkeypatch):
     assert gateway_request.extra["tools"][0]["function"]["name"] == "ping"
     assert gateway_request.extra["response_format"] == {"type": "json_object"}
     assert gateway_request.extra["reasoning_effort"] == "none"
+
+
+def test_active_model_directory_only_exposes_omlxc_logical_models(monkeypatch):
+    class Gateway:
+        _config = SimpleNamespace(omlxc_mode="active")
+        _registry = SimpleNamespace(
+            list_models=lambda: [SimpleNamespace(id="legacy-provider/unsafe-choice", provider="legacy-provider")]
+        )
+
+        async def _ensure_registry_ready(self):
+            raise AssertionError("active model directory must not refresh the legacy registry")
+
+        async def list_omlxc_models(self):
+            return [SimpleNamespace(id="coding", capabilities=frozenset({"chat"}))]
+
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    response = asyncio.run(openai_proxy.handle_list_models(SimpleNamespace()))
+    payload = json.loads(response.body)
+
+    assert response.status == 200
+    assert payload["data"][0]["id"] == "coding"
+    assert payload["data"][0]["object"] == "model"
+    assert payload["data"][0]["owned_by"] == "omlxc"
+    assert isinstance(payload["data"][0]["created"], int)
+    assert Model.model_validate(payload["data"][0]).id == "coding"
+
+
+def test_active_model_directory_fails_closed_when_omlxc_catalog_is_unavailable(monkeypatch):
+    class Gateway:
+        _config = SimpleNamespace(omlxc_mode="active")
+        _registry = SimpleNamespace(list_models=lambda: [object()])
+
+        async def list_omlxc_models(self):
+            raise OmlxcError(OmlxcErrorCode.UNAVAILABLE)
+
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    response = asyncio.run(openai_proxy.handle_list_models(SimpleNamespace()))
+    payload = json.loads(response.body)
+
+    assert response.status == 503
+    assert payload["error"]["code"] == "unavailable"
+
+
+def test_non_active_model_directory_preserves_registry_compatibility(monkeypatch):
+    class Gateway:
+        _config = SimpleNamespace(omlxc_mode="shadow")
+        _registry = SimpleNamespace(
+            list_models=lambda: [SimpleNamespace(id="legacy-model", provider="legacy-provider")]
+        )
+
+        async def _ensure_registry_ready(self):
+            return None
+
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    response = asyncio.run(openai_proxy.handle_list_models(SimpleNamespace()))
+    payload = json.loads(response.body)
+
+    assert response.status == 200
+    assert payload["data"][0]["id"] == "legacy-model"
 
 
 def test_proxy_streams_openai_chunks_without_buffering(monkeypatch):

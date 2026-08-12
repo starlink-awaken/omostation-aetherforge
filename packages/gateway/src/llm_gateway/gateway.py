@@ -35,7 +35,13 @@ from typing import Any
 
 from .complexity import TaskComplexityScorer
 from .metrics import MetricsCollector
-from .omlxc_client import OmlxcClient, OmlxcError, OmlxcErrorCode, OmlxcStreamChunk
+from .omlxc_client import (
+    OmlxcCatalogModel,
+    OmlxcClient,
+    OmlxcError,
+    OmlxcErrorCode,
+    OmlxcStreamChunk,
+)
 from .paths import M1_COMPUTE_ENGINE_DIR, M1_MODEL_DIR
 from .registry import ModelRegistry
 from .scheduler import ModelScheduler
@@ -602,6 +608,12 @@ class ModelGateway:
         except Exception as e:
             _log.warning("[ModelGateway] registry refresh failed: %s", e)
             # Do NOT set _registry_ready — allow retry on next call
+
+    async def list_omlxc_models(self) -> tuple[OmlxcCatalogModel, ...]:
+        """Return only the logical models executable by the active UDS data plane."""
+        if self._config.omlxc_mode != "active":
+            raise OmlxcError(OmlxcErrorCode.INVALID)
+        return await self._omlxc.list_models()
 
     async def generate(self, request: GatewayRequest) -> GatewayResponse:
         """带端到端 deadline 的统一入口。
