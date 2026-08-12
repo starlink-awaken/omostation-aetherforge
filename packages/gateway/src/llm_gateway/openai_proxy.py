@@ -5,7 +5,7 @@ Any tool using the openai Python library can point to this server:
 
 Endpoints:
     POST /v1/chat/completions  → ModelGateway.generate()
-    GET  /v1/models            → registry.list_models()
+    GET  /v1/models            → active: omlxcd logical catalog; shadow/legacy: registry
     POST /v1/embeddings        → ModelGateway.embed()
     GET  /health               → simple health check
 
@@ -344,8 +344,30 @@ async def _chain_stream(first_chunks, source):
 
 
 async def handle_list_models(request: web.Request) -> web.Response:
-    """GET /v1/models — list all discovered models."""
+    """GET /v1/models — list models executable in the current gateway mode."""
     gw = get_gateway()
+    if gw._config.omlxc_mode == "active":
+        try:
+            models = await gw.list_omlxc_models()
+        except OmlxcError as error:
+            return web.json_response(
+                _openai_error_payload(error.code),
+                status=_omlxc_http_status(error.code),
+            )
+        return web.json_response(
+            {
+                "object": "list",
+                "data": [
+                    {
+                        "id": model.id,
+                        "object": "model",
+                        "created": int(time.time()),
+                        "owned_by": "omlxc",
+                    }
+                    for model in models
+                ],
+            }
+        )
     await gw._ensure_registry_ready()
 
     models = gw._registry.list_models()

@@ -61,6 +61,10 @@ class TestAuth:
     def test_missing_key_rejected(self):
         assert self._run("secret").status == 401
 
+    def test_model_directory_requires_the_same_key(self):
+        """模型发现不能成为绕过公开门面认证的侧门。"""
+        assert self._run("secret", path="/v1/models").status == 401
+
     def test_wrong_key_rejected(self):
         assert self._run("secret", header={"Authorization": "Bearer nope"}).status == 401
 
