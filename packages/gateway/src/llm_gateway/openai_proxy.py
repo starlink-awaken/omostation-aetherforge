@@ -17,18 +17,150 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import os
 import time
+from collections.abc import Mapping, Sequence
 
 from aiohttp import web
 
 from .gateway import GatewayRequest, get_gateway
-from .omlxc_client import OmlxcError
+from .omlxc_client import OmlxcError, OmlxcErrorCode
 
 _log = logging.getLogger(__name__)
 API_KEY = web.AppKey("aetherforge_api_key", str)
+_PRETOKEN_MAX_EVENTS = 64
+_PRETOKEN_MAX_BYTES = 64 * 1024
+
+_OMLXC_HTTP_STATUS = {
+    OmlxcErrorCode.NO_CAPACITY: 409,
+    OmlxcErrorCode.TIMEOUT: 504,
+    OmlxcErrorCode.SECURITY: 403,
+    OmlxcErrorCode.INVALID: 400,
+    OmlxcErrorCode.UNAVAILABLE: 503,
+    OmlxcErrorCode.INTERNAL: 502,
+}
+
+
+def _known_omlxc_code(code: object) -> OmlxcErrorCode | None:
+    return code if isinstance(code, OmlxcErrorCode) else None
+
+
+def _omlxc_http_status(code: object) -> int:
+    known = _known_omlxc_code(code)
+    return _OMLXC_HTTP_STATUS[known] if known is not None else 502
+
+
+def _openai_error_payload(
+    code: object,
+    *,
+    stream: bool = False,
+    emitted_content: bool = False,
+) -> dict[str, object]:
+    known = _known_omlxc_code(code)
+    error: dict[str, object] = {
+        "message": str(OmlxcError(known)) if known is not None else "local inference failed",
+        "type": "stream_error" if stream else "local_inference_error",
+        "code": known.value if known is not None else "internal",
+    }
+    if stream:
+        error["emitted_content"] = emitted_content
+    return {"error": error}
+
+
+async def _close_stream(source: object) -> None:
+    close = getattr(source, "aclose", None)
+    if close is not None:
+        await asyncio.shield(close())
+
+
+def _bounded_value_size(value: object, limit: int, seen: set[int]) -> int:
+    """Estimate JSON-like size without serializing or retaining metadata values."""
+    if limit < 0:
+        return 1
+    if value is None:
+        return 4 if limit >= 4 else limit + 1
+    if isinstance(value, bool):
+        size = 4 if value else 5
+        return size if size <= limit else limit + 1
+    if isinstance(value, int):
+        digits = max(1, (abs(value).bit_length() * 30103) // 100000 + 1)
+        size = digits + int(value < 0)
+        return size if size <= limit else limit + 1
+    if isinstance(value, float):
+        return 32 if limit >= 32 else limit + 1
+    if isinstance(value, str):
+        if len(value) > limit:
+            return limit + 1
+        size = 2
+        for character in value:
+            codepoint = ord(character)
+            if codepoint < 0x20:
+                size += 6
+            elif character in {'"', "\\"}:
+                size += 2
+            elif codepoint <= 0x7F:
+                size += 1
+            elif codepoint <= 0xFFFF:
+                size += 6
+            else:
+                size += 12
+            if size > limit:
+                return limit + 1
+        return size
+    if isinstance(value, bytes):
+        return limit + 1
+
+    identity = id(value)
+    if identity in seen:
+        return limit + 1
+    if isinstance(value, Mapping):
+        seen.add(identity)
+        total = 2
+        try:
+            for key, nested in value.items():
+                if not isinstance(key, str) or total > limit:
+                    return limit + 1
+                key_size = _bounded_value_size(key, limit - total, seen)
+                total += key_size + 1
+                if total > limit:
+                    return limit + 1
+                total += _bounded_value_size(nested, limit - total, seen) + 1
+            return total if total <= limit else limit + 1
+        finally:
+            seen.remove(identity)
+    if isinstance(value, Sequence):
+        seen.add(identity)
+        total = 2
+        try:
+            for nested in value:
+                if total > limit:
+                    return limit + 1
+                total += _bounded_value_size(nested, limit - total, seen) + 1
+            return total if total <= limit else limit + 1
+        finally:
+            seen.remove(identity)
+    return limit + 1
+
+
+def _pretoken_chunk_size(chunk: object, limit: int) -> int:
+    # Fixed envelope overhead plus all values that can later enter the SSE payload.
+    total = 128
+    for value in (
+        getattr(chunk, "content", None),
+        getattr(chunk, "model", None),
+        getattr(chunk, "request_id", None),
+        getattr(chunk, "placement", None),
+        getattr(chunk, "backend", None),
+        getattr(chunk, "finish_reason", None),
+        getattr(chunk, "usage", None),
+    ):
+        if total > limit:
+            return limit + 1
+        total += _bounded_value_size(value, limit - total, set())
+    return total if total <= limit else limit + 1
 
 
 async def handle_chat_completions(request: web.Request) -> web.Response:
@@ -76,8 +208,44 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     )
 
     if body.get("stream"):
+        source = gw.generate_stream(req)
+        pending_chunks = []
+        pending_bytes = 0
+        try:
+            async with asyncio.timeout(max(0.1, req.timeout)):
+                while True:
+                    try:
+                        chunk = await anext(source)
+                    except StopAsyncIteration:
+                        break
+                    remaining = _PRETOKEN_MAX_BYTES - pending_bytes
+                    chunk_size = _pretoken_chunk_size(chunk, remaining)
+                    if len(pending_chunks) >= _PRETOKEN_MAX_EVENTS or chunk_size > remaining:
+                        raise OmlxcError(OmlxcErrorCode.INTERNAL)
+                    pending_chunks.append(chunk)
+                    pending_bytes += chunk_size
+                    if chunk.content:
+                        break
+        except TimeoutError:
+            await _close_stream(source)
+            return web.json_response(
+                _openai_error_payload(OmlxcErrorCode.TIMEOUT),
+                status=_omlxc_http_status(OmlxcErrorCode.TIMEOUT),
+            )
+        except OmlxcError as error:
+            await _close_stream(source)
+            return web.json_response(
+                _openai_error_payload(error.code),
+                status=_omlxc_http_status(error.code),
+            )
+        except asyncio.CancelledError:
+            await _close_stream(source)
+            raise
+        except Exception:
+            await _close_stream(source)
+            return web.json_response(_openai_error_payload(None), status=502)
         return web.Response(
-            body=_openai_sse(gw, req),
+            body=_openai_sse(gw, req, source=source, pending_chunks=tuple(pending_chunks)),
             status=200,
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             content_type="text/event-stream",
@@ -114,17 +282,25 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     }
 
     if resp.error and not resp.content:
-        response_body["error"] = {"message": resp.error}
-        return web.json_response(response_body, status=502)
+        code = getattr(resp, "error_code", None)
+        response_body.update(_openai_error_payload(code))
+        return web.json_response(response_body, status=_omlxc_http_status(code))
 
     return web.json_response(response_body)
 
 
-async def _openai_sse(gateway, request: GatewayRequest):
+async def _openai_sse(
+    gateway,
+    request: GatewayRequest,
+    *,
+    source=None,
+    pending_chunks=(),
+):
     """Translate gateway chunks as they arrive; cancellation closes the UDS stream."""
     emitted = False
+    stream = source if source is not None else gateway.generate_stream(request)
     try:
-        async for chunk in gateway.generate_stream(request):
+        async for chunk in _chain_stream(pending_chunks, stream):
             payload: dict[str, object] = {
                 "id": f"chatcmpl-aetherforge-{chunk.request_id or int(time.time())}",
                 "object": "chat.completion.chunk",
@@ -143,18 +319,28 @@ async def _openai_sse(gateway, request: GatewayRequest):
             emitted = emitted or bool(chunk.content)
             encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
             yield f"data: {encoded}\n\n".encode()
-    except OmlxcError:
-        payload = {
-            "error": {
-                "message": "local stream failed",
-                "type": "stream_error",
-                "code": "stream_error",
-                "emitted_content": emitted,
-            }
-        }
+    except OmlxcError as error:
+        payload = _openai_error_payload(
+            error.code,
+            stream=True,
+            emitted_content=emitted or error.emitted_content,
+        )
         yield f"data: {json.dumps(payload, separators=(',', ':'))}\n\n".encode()
         return
+    except Exception:
+        payload = _openai_error_payload(None, stream=True, emitted_content=emitted)
+        yield f"data: {json.dumps(payload, separators=(',', ':'))}\n\n".encode()
+        return
+    finally:
+        await _close_stream(stream)
     yield b"data: [DONE]\n\n"
+
+
+async def _chain_stream(first_chunks, source):
+    for chunk in first_chunks:
+        yield chunk
+    async for chunk in source:
+        yield chunk
 
 
 async def handle_list_models(request: web.Request) -> web.Response:
@@ -208,8 +394,13 @@ async def handle_embeddings(request: web.Request) -> web.Response:
                 "usage": {"prompt_tokens": 0, "total_tokens": 0},
             }
         )
+    except OmlxcError as error:
+        return web.json_response(
+            _openai_error_payload(error.code),
+            status=_omlxc_http_status(error.code),
+        )
     except Exception:
-        return web.json_response({"error": {"message": "embedding failed"}}, status=502)
+        return web.json_response(_openai_error_payload(None), status=502)
 
 
 async def handle_health(request: web.Request) -> web.Response:

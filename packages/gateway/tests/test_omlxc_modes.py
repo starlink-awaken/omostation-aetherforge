@@ -226,6 +226,33 @@ async def test_hybrid_fails_closed_for_non_fallbackable_error(
 
 
 @pytest.mark.asyncio
+async def test_active_local_preserves_typed_error_for_openai_facade() -> None:
+    client = FakeOmlxc(OmlxcError(OmlxcErrorCode.NO_CAPACITY))
+    gateway = _gateway("active", client)
+
+    result = await gateway.generate(
+        GatewayRequest(
+            messages=[{"role": "user", "content": "hi"}],
+            model="logical",
+            routing_mode="local",
+        )
+    )
+
+    assert result.error_code is OmlxcErrorCode.NO_CAPACITY
+
+
+@pytest.mark.asyncio
+async def test_active_embed_preserves_typed_error_for_openai_facade() -> None:
+    client = FakeOmlxc(OmlxcError(OmlxcErrorCode.NO_CAPACITY))
+    gateway = _gateway("active", client)
+
+    with pytest.raises(OmlxcError) as raised:
+        await gateway.embed(["hi"], model="logical", routing_mode="local")
+
+    assert raised.value.code is OmlxcErrorCode.NO_CAPACITY
+
+
+@pytest.mark.asyncio
 async def test_k1_never_falls_back_to_cloud(monkeypatch: pytest.MonkeyPatch) -> None:
     client = FakeOmlxc(OmlxcError(OmlxcErrorCode.UNAVAILABLE))
     gateway = _gateway("active", client)
