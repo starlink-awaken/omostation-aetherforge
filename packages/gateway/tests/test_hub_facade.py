@@ -7,8 +7,10 @@ import io
 import json
 from types import SimpleNamespace
 
+import pytest
 from llm_gateway import openai_proxy
 from llm_gateway.gateway import GatewayResponse
+from llm_gateway.omlxc_client import OmlxcError, OmlxcErrorCode
 
 
 def test_proxy_preserves_engine_specific_fields(monkeypatch):
@@ -72,13 +74,14 @@ def test_proxy_streams_openai_chunks_without_buffering(monkeypatch):
 
     request.json = body
     monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
-    response = asyncio.run(openai_proxy.handle_chat_completions(request))
+
+    async def collect():
+        response = await openai_proxy.handle_chat_completions(request)
+        payload = b"".join([chunk async for chunk in response.body._value]).decode()
+        return response, payload
+
+    response, payload = asyncio.run(collect())
     assert response.status == 200
-
-    async def collect() -> bytes:
-        return b"".join([chunk async for chunk in response.body._value])
-
-    payload = asyncio.run(collect()).decode()
     assert payload.endswith("data: [DONE]\n\n")
     assert '"content":"hel"' in payload
     assert '"content":"lo"' in payload
@@ -163,6 +166,172 @@ def test_proxy_embeddings_preserve_routing_and_sensitive_context(monkeypatch):
         "content_url": "https://example.com",
     }
     assert payload["usage"] == {"prompt_tokens": 0, "total_tokens": 0}
+
+
+@pytest.mark.parametrize(
+    ("code", "expected_status"),
+    [
+        (OmlxcErrorCode.NO_CAPACITY, 409),
+        (OmlxcErrorCode.TIMEOUT, 504),
+        (OmlxcErrorCode.SECURITY, 403),
+        (OmlxcErrorCode.INVALID, 400),
+        (OmlxcErrorCode.UNAVAILABLE, 503),
+        (OmlxcErrorCode.INTERNAL, 502),
+    ],
+)
+def test_proxy_maps_whitelisted_omlxc_errors_for_nonstream(code, expected_status, monkeypatch):
+    class Gateway:
+        async def generate(self, _request):
+            return SimpleNamespace(
+                content="",
+                model="coding",
+                finish_reason="error",
+                tokens_in=0,
+                tokens_out=0,
+                provider="",
+                error="local inference failed",
+                error_code=code,
+            )
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {"model": "coding", "messages": [{"role": "user", "content": "hi"}]}
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    response = asyncio.run(openai_proxy.handle_chat_completions(request))
+    payload = json.loads(response.body)
+
+    assert response.status == expected_status
+    assert payload["error"]["code"] == code.value
+
+
+def test_proxy_does_not_trust_unknown_downstream_error_status(monkeypatch):
+    class Gateway:
+        async def generate(self, _request):
+            return SimpleNamespace(
+                content="",
+                model="coding",
+                finish_reason="error",
+                tokens_in=0,
+                tokens_out=0,
+                provider="",
+                error="private downstream detail",
+                error_code="teapot:418",
+            )
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {"model": "coding", "messages": [{"role": "user", "content": "hi"}]}
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    response = asyncio.run(openai_proxy.handle_chat_completions(request))
+    payload = json.loads(response.body)
+
+    assert response.status == 502
+    assert payload["error"]["code"] == "internal"
+    assert "private downstream detail" not in response.body.decode()
+
+
+def test_proxy_maps_pretoken_stream_error_to_http_status(monkeypatch):
+    class Gateway:
+        async def generate_stream(self, _request):
+            if False:
+                yield
+            raise OmlxcError(OmlxcErrorCode.NO_CAPACITY)
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        }
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    response = asyncio.run(openai_proxy.handle_chat_completions(request))
+    payload = json.loads(response.body)
+
+    assert response.status == 409
+    assert payload["error"]["code"] == "no_capacity"
+
+
+def test_proxy_keeps_posttoken_stream_error_in_sse_without_replay(monkeypatch):
+    class Gateway:
+        async def generate_stream(self, _request):
+            from llm_gateway.omlxc_client import OmlxcStreamChunk
+
+            yield OmlxcStreamChunk(content="once", model="coding", request_id="req-1")
+            raise OmlxcError(OmlxcErrorCode.NO_CAPACITY, emitted_content=True)
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        }
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    async def collect():
+        response = await openai_proxy.handle_chat_completions(request)
+        payload = b"".join([chunk async for chunk in response.body._value]).decode()
+        return response, payload
+
+    response, payload = asyncio.run(collect())
+    assert response.status == 200
+    assert payload.count('"content":"once"') == 1
+    assert '"code":"no_capacity"' in payload
+    assert '"emitted_content":true' in payload
+    assert "data: [DONE]" not in payload
+
+
+def test_proxy_maps_embedding_omlxc_error(monkeypatch):
+    class Gateway:
+        async def embed(self, _texts, **_kwargs):
+            raise OmlxcError(OmlxcErrorCode.TIMEOUT)
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {"model": "embedding", "input": "hello"}
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+    response = asyncio.run(openai_proxy.handle_embeddings(request))
+    payload = json.loads(response.body)
+
+    assert response.status == 504
+    assert payload["error"]["code"] == "timeout"
+
+
+def test_proxy_keeps_unknown_embedding_error_sanitized_502(monkeypatch):
+    class Gateway:
+        async def embed(self, _texts, **_kwargs):
+            raise RuntimeError("private downstream detail")
+
+    request = SimpleNamespace()
+
+    async def body():
+        return {"model": "embedding", "input": "hello"}
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+    response = asyncio.run(openai_proxy.handle_embeddings(request))
+
+    assert response.status == 502
+    assert "private downstream detail" not in response.body.decode()
 
 
 def test_bos_infer_reads_agora_envelope_and_calls_running_facade(monkeypatch, capsys):

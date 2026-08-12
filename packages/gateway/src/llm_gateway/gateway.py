@@ -210,6 +210,7 @@ class GatewayResponse:
     error: str = ""
     stripped_thinking: bool = False  # 是否剥离了 thinking 段
     finish_reason: str = "stop"
+    error_code: OmlxcErrorCode | None = None
 
 
 # ============================================================
@@ -623,6 +624,7 @@ class ModelGateway:
                 latency_ms=(time.time() - t0) * 1000,
                 error=f"Gateway deadline exceeded ({request.timeout:.1f}s)",
                 finish_reason="error",
+                error_code=OmlxcErrorCode.TIMEOUT,
             )
 
     async def _generate_shadow(self, request: GatewayRequest) -> GatewayResponse:
@@ -670,6 +672,7 @@ class ModelGateway:
                 latency_ms=0,
                 error=f"Invalid routing_mode: {request.routing_mode}",
                 finish_reason="error",
+                error_code=OmlxcErrorCode.INVALID,
             )
         sensitive = bool(
             (request.content_title or request.content_url) and _is_sensitive(request.content_title, request.content_url)
@@ -697,6 +700,7 @@ class ModelGateway:
                     latency_ms=(time.time() - t0) * 1000,
                     error="[K1] local inference unavailable",
                     finish_reason="error",
+                    error_code=error.code,
                 )
             if request.routing_mode == "hybrid" and error.cloud_fallback_allowed:
                 return await self._generate_legacy(replace(request, routing_mode="cloud"))
@@ -706,6 +710,7 @@ class ModelGateway:
                 latency_ms=(time.time() - t0) * 1000,
                 error="local inference failed",
                 finish_reason="error",
+                error_code=error.code,
             )
         return GatewayResponse(
             content=strip_thinking(result.content),
@@ -1553,7 +1558,7 @@ class ModelGateway:
                 raise RuntimeError("[K1] local embedding unavailable") from error
             if routing_mode == "hybrid" and error.cloud_fallback_allowed:
                 return await self._embed_legacy(texts, model, timeout, routing_mode="cloud")
-            raise RuntimeError("local embedding failed") from error
+            raise
 
     async def _embed_legacy(
         self,

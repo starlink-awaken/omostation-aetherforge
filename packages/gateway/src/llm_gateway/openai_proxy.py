@@ -25,10 +25,51 @@ import time
 from aiohttp import web
 
 from .gateway import GatewayRequest, get_gateway
-from .omlxc_client import OmlxcError
+from .omlxc_client import OmlxcError, OmlxcErrorCode
 
 _log = logging.getLogger(__name__)
 API_KEY = web.AppKey("aetherforge_api_key", str)
+
+_OMLXC_HTTP_STATUS = {
+    OmlxcErrorCode.NO_CAPACITY: 409,
+    OmlxcErrorCode.TIMEOUT: 504,
+    OmlxcErrorCode.SECURITY: 403,
+    OmlxcErrorCode.INVALID: 400,
+    OmlxcErrorCode.UNAVAILABLE: 503,
+    OmlxcErrorCode.INTERNAL: 502,
+}
+
+
+def _known_omlxc_code(code: object) -> OmlxcErrorCode | None:
+    return code if isinstance(code, OmlxcErrorCode) else None
+
+
+def _omlxc_http_status(code: object) -> int:
+    known = _known_omlxc_code(code)
+    return _OMLXC_HTTP_STATUS[known] if known is not None else 502
+
+
+def _openai_error_payload(
+    code: object,
+    *,
+    stream: bool = False,
+    emitted_content: bool = False,
+) -> dict[str, object]:
+    known = _known_omlxc_code(code)
+    error: dict[str, object] = {
+        "message": str(OmlxcError(known)) if known is not None else "local inference failed",
+        "type": "stream_error" if stream else "local_inference_error",
+        "code": known.value if known is not None else "internal",
+    }
+    if stream:
+        error["emitted_content"] = emitted_content
+    return {"error": error}
+
+
+async def _close_stream(source: object) -> None:
+    close = getattr(source, "aclose", None)
+    if close is not None:
+        await close()
 
 
 async def handle_chat_completions(request: web.Request) -> web.Response:
@@ -76,8 +117,22 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     )
 
     if body.get("stream"):
+        source = gw.generate_stream(req)
+        try:
+            first_chunk = await anext(source)
+        except StopAsyncIteration:
+            first_chunk = None
+        except OmlxcError as error:
+            await _close_stream(source)
+            return web.json_response(
+                _openai_error_payload(error.code),
+                status=_omlxc_http_status(error.code),
+            )
+        except Exception:
+            await _close_stream(source)
+            return web.json_response(_openai_error_payload(None), status=502)
         return web.Response(
-            body=_openai_sse(gw, req),
+            body=_openai_sse(gw, req, source=source, first_chunk=first_chunk),
             status=200,
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             content_type="text/event-stream",
@@ -114,17 +169,26 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     }
 
     if resp.error and not resp.content:
-        response_body["error"] = {"message": resp.error}
-        return web.json_response(response_body, status=502)
+        code = getattr(resp, "error_code", None)
+        response_body.update(_openai_error_payload(code))
+        return web.json_response(response_body, status=_omlxc_http_status(code))
 
     return web.json_response(response_body)
 
 
-async def _openai_sse(gateway, request: GatewayRequest):
+async def _openai_sse(
+    gateway,
+    request: GatewayRequest,
+    *,
+    source=None,
+    first_chunk=None,
+):
     """Translate gateway chunks as they arrive; cancellation closes the UDS stream."""
     emitted = False
+    stream = source if source is not None else gateway.generate_stream(request)
     try:
-        async for chunk in gateway.generate_stream(request):
+        pending = (first_chunk,) if first_chunk is not None else ()
+        async for chunk in _chain_stream(pending, stream):
             payload: dict[str, object] = {
                 "id": f"chatcmpl-aetherforge-{chunk.request_id or int(time.time())}",
                 "object": "chat.completion.chunk",
@@ -143,18 +207,28 @@ async def _openai_sse(gateway, request: GatewayRequest):
             emitted = emitted or bool(chunk.content)
             encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
             yield f"data: {encoded}\n\n".encode()
-    except OmlxcError:
-        payload = {
-            "error": {
-                "message": "local stream failed",
-                "type": "stream_error",
-                "code": "stream_error",
-                "emitted_content": emitted,
-            }
-        }
+    except OmlxcError as error:
+        payload = _openai_error_payload(
+            error.code,
+            stream=True,
+            emitted_content=emitted or error.emitted_content,
+        )
         yield f"data: {json.dumps(payload, separators=(',', ':'))}\n\n".encode()
         return
+    except Exception:
+        payload = _openai_error_payload(None, stream=True, emitted_content=emitted)
+        yield f"data: {json.dumps(payload, separators=(',', ':'))}\n\n".encode()
+        return
+    finally:
+        await _close_stream(stream)
     yield b"data: [DONE]\n\n"
+
+
+async def _chain_stream(first_chunks, source):
+    for chunk in first_chunks:
+        yield chunk
+    async for chunk in source:
+        yield chunk
 
 
 async def handle_list_models(request: web.Request) -> web.Response:
@@ -208,8 +282,13 @@ async def handle_embeddings(request: web.Request) -> web.Response:
                 "usage": {"prompt_tokens": 0, "total_tokens": 0},
             }
         )
+    except OmlxcError as error:
+        return web.json_response(
+            _openai_error_payload(error.code),
+            status=_omlxc_http_status(error.code),
+        )
     except Exception:
-        return web.json_response({"error": {"message": "embedding failed"}}, status=502)
+        return web.json_response(_openai_error_payload(None), status=502)
 
 
 async def handle_health(request: web.Request) -> web.Response:
