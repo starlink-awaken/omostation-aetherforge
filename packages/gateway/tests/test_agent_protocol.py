@@ -82,6 +82,49 @@ async def test_omlxc_client_forwards_agent_fields_and_parses_nonstream_tool_call
 
 
 @pytest.mark.asyncio
+async def test_omlxc_client_forwards_bounded_omp_tool_catalog() -> None:
+    captured: dict[str, object] = {}
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": f"tool_{index}",
+                "description": "bounded tool",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+        for index in range(223)
+    ]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "application/json",
+                "X-OMLXC-Request-ID": "req-1",
+                "X-OMLXC-Placement": "placement-local",
+                "X-OMLXC-Backend": "backend-local",
+            },
+            json={
+                "model": "coding",
+                "choices": [{"message": {"role": "assistant", "content": "OK"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+    result = await client.chat(
+        model="coding",
+        messages=[{"role": "user", "content": "inspect"}],
+        tools=tools,
+    )
+
+    assert result.content == "OK"
+    assert len(captured["tools"]) == 223  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
 async def test_omlxc_client_parses_stream_tool_call_deltas() -> None:
     body = (
         b'data: {"model":"coding","choices":[{"index":0,"delta":{"tool_calls":['
