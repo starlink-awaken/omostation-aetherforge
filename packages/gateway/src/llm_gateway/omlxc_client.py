@@ -21,6 +21,8 @@ _SCHEMA_VERSION = 1
 _MAX_SSE_EVENT_BYTES = 1_048_576
 _CATALOG_PAGE_LIMIT = 100
 _MAX_CATALOG_PAGES = 100
+_MAX_AGENT_TOOLS = 256
+_MAX_AGENT_TOOLS_BYTES = 512_000
 
 
 class OmlxcErrorCode(StrEnum):
@@ -498,13 +500,13 @@ def _validate_agent_fields(
     tool_choice: object | None,
 ) -> None:
     if tools is not None:
-        if not tools or len(tools) > 128:
+        if not tools or len(tools) > _MAX_AGENT_TOOLS:
             raise OmlxcError(OmlxcErrorCode.INVALID)
         try:
             encoded = json.dumps(tools, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
         except (TypeError, ValueError) as exc:
             raise OmlxcError(OmlxcErrorCode.INVALID) from exc
-        if len(encoded) > 512_000:
+        if len(encoded) > _MAX_AGENT_TOOLS_BYTES:
             raise OmlxcError(OmlxcErrorCode.INVALID)
     if tool_choice is not None and not tools:
         raise OmlxcError(OmlxcErrorCode.INVALID)
