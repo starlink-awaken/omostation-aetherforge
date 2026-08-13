@@ -156,6 +156,7 @@ def _pretoken_chunk_size(chunk: object, limit: int) -> int:
         getattr(chunk, "backend", None),
         getattr(chunk, "finish_reason", None),
         getattr(chunk, "usage", None),
+        getattr(chunk, "tool_calls", None),
     ):
         if total > limit:
             return limit + 1
@@ -224,7 +225,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                         raise OmlxcError(OmlxcErrorCode.INTERNAL)
                     pending_chunks.append(chunk)
                     pending_bytes += chunk_size
-                    if chunk.content:
+                    if chunk.content or chunk.tool_calls:
                         break
         except TimeoutError:
             await _close_stream(source)
@@ -269,7 +270,13 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         "choices": [
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": resp.content},
+                "message": {
+                    "role": "assistant",
+                    "content": resp.content,
+                    **(
+                        {"tool_calls": list(getattr(resp, "tool_calls", ()))} if getattr(resp, "tool_calls", ()) else {}
+                    ),
+                },
                 "finish_reason": resp.finish_reason,
             }
         ],
@@ -301,6 +308,9 @@ async def _openai_sse(
     stream = source if source is not None else gateway.generate_stream(request)
     try:
         async for chunk in _chain_stream(pending_chunks, stream):
+            delta: dict[str, object] = {"content": chunk.content}
+            if chunk.tool_calls:
+                delta["tool_calls"] = list(chunk.tool_calls)
             payload: dict[str, object] = {
                 "id": f"chatcmpl-aetherforge-{chunk.request_id or int(time.time())}",
                 "object": "chat.completion.chunk",
@@ -309,14 +319,14 @@ async def _openai_sse(
                 "choices": [
                     {
                         "index": 0,
-                        "delta": {"content": chunk.content},
+                        "delta": delta,
                         "finish_reason": chunk.finish_reason,
                     }
                 ],
             }
             if chunk.usage is not None:
                 payload["usage"] = dict(chunk.usage)
-            emitted = emitted or bool(chunk.content)
+            emitted = emitted or bool(chunk.content) or bool(chunk.tool_calls)
             encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
             yield f"data: {encoded}\n\n".encode()
     except OmlxcError as error:
