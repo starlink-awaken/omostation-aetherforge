@@ -580,15 +580,15 @@ async def _raise_http_error(response: httpx.Response) -> None:
         else:
             chunks: list[bytes] = []
             size = 0
+            oversized = False
             async for chunk in response.aiter_bytes():
                 size += len(chunk)
                 if size > 64 * 1024:
-                    raise OmlxcError(OmlxcErrorCode.INVALID)
+                    oversized = True
+                    break
                 chunks.append(chunk)
-            raw = b"".join(chunks)
-        body = _mapping(json.loads(raw))
-    except OmlxcError:
-        raise
+            raw = b"" if oversized else b"".join(chunks)
+        body = {} if not raw else _mapping(json.loads(raw))
     except (json.JSONDecodeError, UnicodeError, TypeError, ValueError):
         body = {}
     error = body.get("error")

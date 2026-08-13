@@ -736,3 +736,28 @@ async def test_stream_chat_preserves_typed_http_error_before_reading_sse() -> No
     assert caught.value.code is OmlxcErrorCode.NO_CAPACITY
     assert stream.closed
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_preserves_http_status_when_error_body_exceeds_limit() -> None:
+    stream = ChunkStream((b"x" * (64 * 1024 + 1),))
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            headers={"content-type": "application/json"},
+            stream=stream,
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(OmlxcError) as caught:
+        async for _chunk in client.stream_chat(
+            model="coding",
+            messages=[{"role": "user", "content": "too large"}],
+        ):
+            pass
+
+    assert caught.value.code is OmlxcErrorCode.NO_CAPACITY
+    assert stream.closed
+    await client.aclose()
