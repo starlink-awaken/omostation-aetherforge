@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aetherforge-gateway"
-version = "1.0.1"
+version = "1.0.2"
 description = "AetherForge Gateway — LLM Provider 抽象层 (Ollama/OpenAI/Anthropic/Gemini/DeepSeek/HITL)"
 requires-python = ">=3.10"
 license = {text = "MIT"}

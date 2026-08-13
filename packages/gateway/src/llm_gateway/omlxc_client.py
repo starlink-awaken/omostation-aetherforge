@@ -575,8 +575,21 @@ def _tool_call_deltas(value: object) -> tuple[Mapping[str, object], ...]:
 
 async def _raise_http_error(response: httpx.Response) -> None:
     try:
-        body = _mapping(response.json())
-    except (json.JSONDecodeError, TypeError, ValueError):
+        if response.is_stream_consumed:
+            raw = response.content
+        else:
+            chunks: list[bytes] = []
+            size = 0
+            oversized = False
+            async for chunk in response.aiter_bytes():
+                size += len(chunk)
+                if size > 64 * 1024:
+                    oversized = True
+                    break
+                chunks.append(chunk)
+            raw = b"" if oversized else b"".join(chunks)
+        body = {} if not raw else _mapping(json.loads(raw))
+    except (json.JSONDecodeError, UnicodeError, TypeError, ValueError):
         body = {}
     error = body.get("error")
     raise OmlxcError(_http_error_code(response.status_code, error))

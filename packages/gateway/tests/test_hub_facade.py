@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 from llm_gateway import openai_proxy
-from llm_gateway.gateway import GatewayResponse
+from llm_gateway.gateway import GatewayConfig, GatewayResponse, ModelGateway
 from llm_gateway.omlxc_client import OmlxcError, OmlxcErrorCode
 from openai.types import Model
 
@@ -325,6 +325,50 @@ def test_proxy_maps_pretoken_stream_error_to_http_status(monkeypatch):
 
     assert response.status == 409
     assert payload["error"]["code"] == "no_capacity"
+
+
+def test_proxy_preserves_gateway_pretoken_error_when_inner_stream_close_repeats_it(
+    monkeypatch,
+):
+    class Client:
+        async def stream_chat(self, **_kwargs):
+            if False:
+                yield
+            raise OmlxcError(OmlxcErrorCode.NO_CAPACITY)
+
+    config = GatewayConfig(
+        omlxc_mode="active",
+        aliases={},
+        model_ports={},
+        model_sizes={},
+        lmstudio_fallback={},
+        ollama_fallback={},
+        fallback_chain=["coding"],
+        complexity_chains={"simple": ["coding"], "complex": ["coding"]},
+        background_tasks_enabled=False,
+    )
+    gateway = ModelGateway(
+        SimpleNamespace(),
+        SimpleNamespace(),
+        config,
+        omlxc_client=Client(),
+    )
+    request = SimpleNamespace()
+
+    async def body():
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        }
+
+    request.json = body
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: gateway)
+
+    response = asyncio.run(openai_proxy.handle_chat_completions(request))
+
+    assert response.status == 409
+    assert json.loads(response.body)["error"]["code"] == "no_capacity"
 
 
 @pytest.mark.parametrize(
