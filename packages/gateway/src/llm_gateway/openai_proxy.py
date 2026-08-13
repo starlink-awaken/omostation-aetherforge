@@ -175,11 +175,19 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     model = body.get("model", "")
     temperature = body.get("temperature")  # None = 不指定, 用下游默认
     max_tokens = body.get("max_tokens")  # 同上
+    if max_tokens is not None and body.get("max_completion_tokens") is not None:
+        return web.json_response(
+            {"error": {"message": "Conflicting token limits", "type": "invalid_request_error"}},
+            status=400,
+        )
+    if max_tokens is None:
+        max_tokens = body.get("max_completion_tokens")
     gateway_fields = {
         "messages",
         "model",
         "temperature",
         "max_tokens",
+        "max_completion_tokens",
         "timeout",
         "task",
         "routing_mode",

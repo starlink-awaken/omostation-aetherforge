@@ -244,3 +244,60 @@ def test_openai_facade_emits_nonstream_and_stream_tool_calls(monkeypatch: pytest
     assert '"tool_calls"' in stream
     assert '"finish_reason":"tool_calls"' in stream
     assert stream.count("data: [DONE]") == 1
+
+
+def test_openai_facade_normalizes_pi_completion_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[GatewayRequest] = []
+
+    class Gateway:
+        async def generate(self, request: GatewayRequest) -> GatewayResponse:
+            captured.append(request)
+            return GatewayResponse(content="ok", model="coding", latency_ms=1)
+
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+    request = SimpleNamespace()
+
+    async def body() -> dict[str, object]:
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "inspect"}],
+            "max_completion_tokens": 321,
+            "parallel_tool_calls": True,
+            "store": False,
+            "tools": TOOLS,
+        }
+
+    request.json = body
+    response = asyncio.run(openai_proxy.handle_chat_completions(request))
+
+    assert response.status == 200
+    assert captured[0].max_tokens == 321
+    assert captured[0].extra == {
+        "parallel_tool_calls": True,
+        "store": False,
+        "tools": TOOLS,
+    }
+
+
+def test_openai_facade_rejects_conflicting_completion_token_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Gateway:
+        async def generate(self, _request: GatewayRequest) -> GatewayResponse:
+            raise AssertionError("conflicting request must not reach the gateway")
+
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+    request = SimpleNamespace()
+
+    async def body() -> dict[str, object]:
+        return {
+            "model": "coding",
+            "messages": [{"role": "user", "content": "inspect"}],
+            "max_tokens": 100,
+            "max_completion_tokens": 200,
+        }
+
+    request.json = body
+    response = asyncio.run(openai_proxy.handle_chat_completions(request))
+
+    assert response.status == 400
