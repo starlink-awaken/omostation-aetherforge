@@ -29,7 +29,7 @@ import math
 import os
 import re
 import time
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -217,6 +217,7 @@ class GatewayResponse:
     stripped_thinking: bool = False  # 是否剥离了 thinking 段
     finish_reason: str = "stop"
     error_code: OmlxcErrorCode | None = None
+    tool_calls: tuple[Mapping[str, object], ...] = ()
 
 
 # ============================================================
@@ -694,6 +695,7 @@ class ModelGateway:
         logical = request.model or self._business_model(request)
         resolved = self.resolve_alias(logical)
         t0 = time.time()
+        agent_fields = self._agent_fields(request.extra)
         try:
             result = await self._omlxc.chat(
                 model=resolved,
@@ -703,6 +705,7 @@ class ModelGateway:
                 timeout=request.timeout,
                 profile="interactive",
                 thinking=False,
+                **agent_fields,
             )
         except OmlxcError as error:
             if sensitive:
@@ -732,7 +735,12 @@ class ModelGateway:
             tokens_out=result.usage.completion_tokens,
             provider=f"omlxc:{result.backend or 'local'}",
             finish_reason=result.finish_reason,
+            tool_calls=tuple(result.tool_calls),
         )
+
+    @staticmethod
+    def _agent_fields(extra: Mapping[str, Any]) -> dict[str, Any]:
+        return {key: extra[key] for key in ("tools", "tool_choice") if key in extra and extra[key] is not None}
 
     def _business_model(self, request: GatewayRequest) -> str:
         prompt = self._extract_prompt(request.messages)
@@ -915,10 +923,11 @@ class ModelGateway:
             timeout=effective.timeout,
             profile="interactive",
             thinking=False,
+            **self._agent_fields(effective.extra),
         )
         try:
             async for chunk in source:
-                emitted = emitted or bool(chunk.content)
+                emitted = emitted or bool(chunk.content) or bool(chunk.tool_calls)
                 yield replace(chunk, model=logical)
         except OmlxcError as error:
             if sensitive:

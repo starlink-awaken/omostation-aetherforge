@@ -96,6 +96,7 @@ class OmlxcChatResult:
     request_id: str
     placement: str | None = None
     backend: str | None = None
+    tool_calls: tuple[Mapping[str, object], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,7 @@ class OmlxcStreamChunk:
     backend: str | None = None
     finish_reason: str | None = None
     usage: Mapping[str, int] | None = field(default=None)
+    tool_calls: tuple[Mapping[str, object], ...] = ()
 
 
 def default_omlxc_socket() -> Path:
@@ -245,6 +247,8 @@ class OmlxcClient:
         timeout: float = 120.0,
         profile: str = "interactive",
         thinking: bool = False,
+        tools: Sequence[Mapping[str, object]] | None = None,
+        tool_choice: object | None = None,
     ) -> OmlxcChatResult:
         payload = _chat_payload(
             model=model,
@@ -255,6 +259,8 @@ class OmlxcClient:
             profile=profile,
             thinking=thinking,
             stream=False,
+            tools=tools,
+            tool_choice=tool_choice,
         )
         response = await self._post_json("/openai/v1/chat/completions", payload, timeout)
         body = _response_mapping(response)
@@ -264,12 +270,16 @@ class OmlxcClient:
         choice = _mapping(choices[0])
         message = _mapping(choice.get("message"))
         content = _string(message.get("content"))
+        tool_calls = _tool_calls(message.get("tool_calls"))
+        if not content and not tool_calls:
+            raise OmlxcError(OmlxcErrorCode.INVALID)
         usage = _usage(body.get("usage"))
         request_id = _required_header(response, "X-OMLXC-Request-ID")
         placement = _required_header(response, "X-OMLXC-Placement")
         backend = _required_header(response, "X-OMLXC-Backend")
         return OmlxcChatResult(
             content=content,
+            tool_calls=tool_calls,
             model=_string(body.get("model")),
             finish_reason=_string(choice.get("finish_reason")),
             usage=usage,
@@ -288,6 +298,8 @@ class OmlxcClient:
         timeout: float = 120.0,
         profile: str = "interactive",
         thinking: bool = False,
+        tools: Sequence[Mapping[str, object]] | None = None,
+        tool_choice: object | None = None,
     ) -> AsyncIterator[OmlxcStreamChunk]:
         payload = _chat_payload(
             model=model,
@@ -298,6 +310,8 @@ class OmlxcClient:
             profile=profile,
             thinking=thinking,
             stream=True,
+            tools=tools,
+            tool_choice=tool_choice,
         )
         emitted = False
         saw_done = False
@@ -332,6 +346,7 @@ class OmlxcClient:
                         choices = _sequence(body.get("choices", []))
                         usage_value = body.get("usage")
                         content = ""
+                        tool_calls: tuple[Mapping[str, object], ...] = ()
                         finish_reason: str | None = None
                         if choices:
                             if len(choices) != 1:
@@ -340,6 +355,7 @@ class OmlxcClient:
                             delta = _mapping(choice.get("delta", {}))
                             raw_content = delta.get("content", "")
                             content = _string(raw_content)
+                            tool_calls = _tool_call_deltas(delta.get("tool_calls"))
                             raw_finish = choice.get("finish_reason")
                             finish_reason = None if raw_finish is None else _string(raw_finish)
                         usage = None
@@ -350,14 +366,15 @@ class OmlxcClient:
                                 "completion_tokens": parsed.completion_tokens,
                                 "total_tokens": parsed.total_tokens,
                             }
-                        if not content and usage is None and finish_reason is None:
+                        if not content and not tool_calls and usage is None and finish_reason is None:
                             continue
-                        emitted = emitted or bool(content)
+                        emitted = emitted or bool(content) or bool(tool_calls)
                         yield OmlxcStreamChunk(
                             content=content,
                             model=_string(body.get("model", model)),
                             finish_reason=finish_reason,
                             usage=usage,
+                            tool_calls=tool_calls,
                             **metadata,
                         )
                     if not saw_done:
@@ -453,7 +470,10 @@ def _chat_payload(
     profile: str,
     thinking: bool,
     stream: bool,
+    tools: Sequence[Mapping[str, object]] | None,
+    tool_choice: object | None,
 ) -> dict[str, object]:
+    _validate_agent_fields(tools, tool_choice)
     payload: dict[str, object] = {
         "model": model,
         "messages": messages,
@@ -466,7 +486,91 @@ def _chat_payload(
         payload["temperature"] = temperature
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
+    if tools:
+        payload["tools"] = list(tools)
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
     return payload
+
+
+def _validate_agent_fields(
+    tools: Sequence[Mapping[str, object]] | None,
+    tool_choice: object | None,
+) -> None:
+    if tools is not None:
+        if not tools or len(tools) > 128:
+            raise OmlxcError(OmlxcErrorCode.INVALID)
+        try:
+            encoded = json.dumps(tools, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
+        except (TypeError, ValueError) as exc:
+            raise OmlxcError(OmlxcErrorCode.INVALID) from exc
+        if len(encoded) > 512_000:
+            raise OmlxcError(OmlxcErrorCode.INVALID)
+    if tool_choice is not None and not tools:
+        raise OmlxcError(OmlxcErrorCode.INVALID)
+    if isinstance(tool_choice, str) and tool_choice not in {"auto", "none", "required"}:
+        raise OmlxcError(OmlxcErrorCode.INVALID)
+    if tool_choice is not None and not isinstance(tool_choice, (str, Mapping)):
+        raise OmlxcError(OmlxcErrorCode.INVALID)
+
+
+def _tool_calls(value: object) -> tuple[Mapping[str, object], ...]:
+    calls = _sequence(value) if value is not None else ()
+    if len(calls) > 128:
+        raise OmlxcError(OmlxcErrorCode.INVALID)
+    result: list[Mapping[str, object]] = []
+    for item in calls:
+        call = _mapping(item)
+        function = _mapping(call.get("function"))
+        call_id = call.get("id")
+        name = function.get("name")
+        arguments = function.get("arguments")
+        if (
+            not isinstance(call_id, str)
+            or not 1 <= len(call_id) <= 256
+            or call.get("type") != "function"
+            or not isinstance(name, str)
+            or not 1 <= len(name) <= 128
+            or not isinstance(arguments, str)
+            or len(arguments) > 262_144
+        ):
+            raise OmlxcError(OmlxcErrorCode.INVALID)
+        try:
+            if not isinstance(json.loads(arguments), dict):
+                raise OmlxcError(OmlxcErrorCode.INVALID)
+        except json.JSONDecodeError as exc:
+            raise OmlxcError(OmlxcErrorCode.INVALID) from exc
+        result.append(call)
+    return tuple(result)
+
+
+def _tool_call_deltas(value: object) -> tuple[Mapping[str, object], ...]:
+    calls = _sequence(value) if value is not None else ()
+    if len(calls) > 128:
+        raise OmlxcError(OmlxcErrorCode.INVALID)
+    result: list[Mapping[str, object]] = []
+    for item in calls:
+        call = _mapping(item)
+        index = call.get("index")
+        call_id = call.get("id")
+        call_type = call.get("type")
+        function = call.get("function")
+        if not isinstance(index, int) or not 0 <= index <= 127:
+            raise OmlxcError(OmlxcErrorCode.INVALID)
+        if call_id is not None and (not isinstance(call_id, str) or not 1 <= len(call_id) <= 256):
+            raise OmlxcError(OmlxcErrorCode.INVALID)
+        if call_type is not None and call_type != "function":
+            raise OmlxcError(OmlxcErrorCode.INVALID)
+        if function is not None:
+            typed_function = _mapping(function)
+            name = typed_function.get("name")
+            arguments = typed_function.get("arguments")
+            if name is not None and (not isinstance(name, str) or not 1 <= len(name) <= 128):
+                raise OmlxcError(OmlxcErrorCode.INVALID)
+            if arguments is not None and (not isinstance(arguments, str) or len(arguments) > 262_144):
+                raise OmlxcError(OmlxcErrorCode.INVALID)
+        result.append(call)
+    return tuple(result)
 
 
 async def _raise_http_error(response: httpx.Response) -> None:

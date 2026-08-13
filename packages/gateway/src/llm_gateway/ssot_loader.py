@@ -213,6 +213,8 @@ class SSOTProviderAdapter(BaseLLMProvider):
             if options.max_tokens is not None:
                 req.max_tokens = options.max_tokens
             if options.extra:
+                if req.extra is None:
+                    req.extra = {}
                 req.extra.update(options.extra)
         return req
 

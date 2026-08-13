@@ -10,13 +10,14 @@
 ## [未发布]
 
 ### 新增
-- 初始化项目
+- AetherForge active 模式现以显式白名单向 omlxcd 透传 OpenAI function tools、
+  `tool_choice`、assistant tool calls 与工具结果消息，并在流式及非流式响应中
+  保留 tool-call 数据。
 
 ### 变更
 - 无
 
 ### 修复
-- 无
+- 修复 OpenCode 等编码代理在 active 本地链路中工具定义被静默丢弃的问题。
 
 ---
-
