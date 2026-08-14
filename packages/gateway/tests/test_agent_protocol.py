@@ -125,6 +125,78 @@ async def test_omlxc_client_forwards_bounded_omp_tool_catalog() -> None:
 
 
 @pytest.mark.asyncio
+async def test_omlxc_client_omits_empty_agent_tool_catalog() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "application/json",
+                "X-OMLXC-Request-ID": "req-1",
+                "X-OMLXC-Placement": "placement-local",
+                "X-OMLXC-Backend": "backend-local",
+            },
+            json={
+                "model": "coding",
+                "choices": [{"message": {"role": "assistant", "content": "OK"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+    result = await client.chat(model="coding", messages=[{"role": "user", "content": "inspect"}], tools=[])
+
+    assert result.content == "OK"
+    assert "tools" not in captured
+
+
+@pytest.mark.asyncio
+async def test_omlxc_client_rejects_tool_choice_without_nonempty_tools() -> None:
+    client = OmlxcClient(transport=httpx.MockTransport(lambda _request: pytest.fail("request must not be sent")))
+
+    with pytest.raises(OmlxcError) as raised:
+        await client.chat(
+            model="coding",
+            messages=[{"role": "user", "content": "inspect"}],
+            tools=[],
+            tool_choice="auto",
+        )
+
+    assert raised.value.code is OmlxcErrorCode.INVALID
+
+
+@pytest.mark.asyncio
+async def test_omlxc_client_omits_empty_agent_tool_catalog_from_stream() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "text/event-stream",
+                "X-OMLXC-Request-ID": "req-1",
+                "X-OMLXC-Placement": "placement-local",
+                "X-OMLXC-Backend": "backend-local",
+            },
+            content=b"data: [DONE]\n\n",
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+    chunks = [
+        chunk
+        async for chunk in client.stream_chat(
+            model="coding", messages=[{"role": "user", "content": "inspect"}], tools=[]
+        )
+    ]
+
+    assert chunks == []
+    assert "tools" not in captured
+
+
+@pytest.mark.asyncio
 async def test_omlxc_client_parses_stream_tool_call_deltas() -> None:
     body = (
         b'data: {"model":"coding","choices":[{"index":0,"delta":{"tool_calls":['

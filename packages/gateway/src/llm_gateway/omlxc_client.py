@@ -500,7 +500,11 @@ def _validate_agent_fields(
     tool_choice: object | None,
 ) -> None:
     if tools is not None:
-        if not tools or len(tools) > _MAX_AGENT_TOOLS:
+        if not tools:
+            if tool_choice is not None:
+                raise OmlxcError(OmlxcErrorCode.INVALID)
+            return
+        if len(tools) > _MAX_AGENT_TOOLS:
             raise OmlxcError(OmlxcErrorCode.INVALID)
         try:
             encoded = json.dumps(tools, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
