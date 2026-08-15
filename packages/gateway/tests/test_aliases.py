@@ -48,10 +48,12 @@ def test_shipped_yaml_loads_and_covers_litellm_names():
         "ocr",
         "rerank",
         "vision-lite",
+        "qwen38-27b",
         "deepseek-v4-flash",
         "deepseek-v4-pro",
     ):
         assert name in table, f"缺别名: {name}"
+    assert table["qwen38-27b"] == "qwen-3.8-27b"
     assert table["deepseek-v4-flash"] == "qwen-3.5-9b-flash"
     assert table["deepseek-v4-pro"] == "qwen-3.5-9b-pro"
 

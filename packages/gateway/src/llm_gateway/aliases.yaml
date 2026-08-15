@@ -31,6 +31,7 @@ aliases:
   fast: mythos-fast
   mid: mid-local
   general: mid-local
+  qwen38-27b: qwen-3.8-27b
 
   # Catalog IDs are qwen-3.5-9b-*. DeepSeek was a leftover weight-folder
   # name and is not a logical model. Keep it as an alias only.

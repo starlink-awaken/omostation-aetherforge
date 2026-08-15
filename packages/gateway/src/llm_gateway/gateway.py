@@ -361,6 +361,7 @@ def _load_omlx_sizes() -> dict[str, float]:
         "vision": 6.0,
         "vision-large": 16.0,
         "mid-local": 16.0,
+        "qwen-3.8-27b": 22.0,
         "coder-precise": 28.0,
         "mythos-fast": 5.0,
         "mythos": 18.0,
