@@ -328,8 +328,8 @@ def _load_omlx_sizes() -> dict[str, float]:
         "mythos-fast": 5.0,
         "mythos": 18.0,
         "mistral-medium-128b": 74.0,
-        "deepseek-v4-pro": 14.0,
-        "deepseek-v4-flash": 4.0,
+        "qwen-3.5-9b-pro": 14.0,
+        "qwen-3.5-9b-flash": 4.0,
     }
     out = dict(fallback)
     if os.environ.get("AETHERFORGE_OMLXC_MODE", "legacy").lower() != "legacy":
