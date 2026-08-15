@@ -24,8 +24,8 @@ def test_builtin_defaults_resolve():
     assert aliases.resolve("coder") == "coding"
     assert aliases.resolve("reasoner") == "reasoning"
     assert aliases.resolve("embed") == "embedding"
-    assert aliases.resolve("qwen-3.5-9b-flash") == "deepseek-v4-flash"
-    assert aliases.resolve("qwen-3.5-9b-pro") == "deepseek-v4-pro"
+    assert aliases.resolve("deepseek-v4-flash") == "qwen-3.5-9b-flash"
+    assert aliases.resolve("deepseek-v4-pro") == "qwen-3.5-9b-pro"
 
 
 def test_unknown_name_passes_through():
@@ -48,12 +48,12 @@ def test_shipped_yaml_loads_and_covers_litellm_names():
         "ocr",
         "rerank",
         "vision-lite",
-        "qwen-3.5-9b-flash",
-        "qwen-3.5-9b-pro",
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
     ):
         assert name in table, f"缺别名: {name}"
-    assert table["qwen-3.5-9b-flash"] == "deepseek-v4-flash"
-    assert table["qwen-3.5-9b-pro"] == "deepseek-v4-pro"
+    assert table["deepseek-v4-flash"] == "qwen-3.5-9b-flash"
+    assert table["deepseek-v4-pro"] == "qwen-3.5-9b-pro"
 
 
 def test_ollama_names_route_through_logical_model_chain():

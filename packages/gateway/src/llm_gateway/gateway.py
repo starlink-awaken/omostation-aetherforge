@@ -316,8 +316,8 @@ OMLX_ALIAS_MAP: dict[str, str] = {
     "reasoner": "reasoning",
     "reasoner-lite": "reasoning-lite",
     "embed": "embedding",
-    "qwen-3.5-9b-flash": "deepseek-v4-flash",
-    "qwen-3.5-9b-pro": "deepseek-v4-pro",
+    "deepseek-v4-flash": "qwen-3.5-9b-flash",
+    "deepseek-v4-pro": "qwen-3.5-9b-pro",
 }
 
 
@@ -365,9 +365,8 @@ def _load_omlx_sizes() -> dict[str, float]:
         "mythos-fast": 5.0,
         "mythos": 18.0,
         "mistral-medium-128b": 74.0,
-        # omlxc #26 renamed these keys in the repo SSOT; this machine's live
-        # App library still uses the physical DeepSeek IDs. Keep both so
-        # MemoryGuard covers whichever name is actually on disk.
+        # Canonical catalog IDs. deepseek-v4-* remain only as size aliases
+        # for leftover client names; they are not App catalog keys.
         "qwen-3.5-9b-pro": 14.0,
         "qwen-3.5-9b-flash": 4.0,
         "deepseek-v4-pro": 14.0,
