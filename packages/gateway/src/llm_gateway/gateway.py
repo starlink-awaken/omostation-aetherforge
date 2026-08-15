@@ -311,11 +311,16 @@ def _load_aliases() -> dict[str, str]:
 
 # 兼容保留: 早期硬编码别名。新增别名请改 aliases.yaml, 不要动这里。
 OMLX_ALIAS_MAP: dict[str, str] = {
-    "coder": "coding",
+    "coder": "coding-next",
     "coder-fast": "coding-fast",
+    "coder-next": "coding-next",
     "reasoner": "reasoning",
     "reasoner-lite": "reasoning-lite",
     "embed": "embedding",
+    "fast": "mythos-fast",
+    "mid": "qwen-3.8-27b",
+    "general": "qwen-3.8-27b",
+    "vision-mid": "vision-large",
     "deepseek-v4-flash": "qwen-3.5-9b-flash",
     "deepseek-v4-pro": "qwen-3.5-9b-pro",
 }

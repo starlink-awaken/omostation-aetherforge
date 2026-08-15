@@ -214,7 +214,7 @@ class TestOmlxModelSizes:
 
         assert sizes["coding"] == 24.0
         assert sizes["coding-next"] == 52.0
-        assert sizes["coder"] == 24.0
+        assert sizes["coder"] == 52.0
         assert "bad-zero" not in sizes
         assert "bad-text" not in sizes
 

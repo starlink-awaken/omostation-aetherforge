@@ -21,7 +21,7 @@ from llm_gateway import aliases
 
 
 def test_builtin_defaults_resolve():
-    assert aliases.resolve("coder") == "coding"
+    assert aliases.resolve("coder") == "coding-next"
     assert aliases.resolve("reasoner") == "reasoning"
     assert aliases.resolve("embed") == "embedding"
     assert aliases.resolve("deepseek-v4-flash") == "qwen-3.5-9b-flash"
@@ -45,6 +45,8 @@ def test_shipped_yaml_loads_and_covers_litellm_names():
         "mini-9b",
         "fast",
         "mid",
+        "general",
+        "vision-mid",
         "ocr",
         "rerank",
         "vision-lite",
@@ -71,9 +73,11 @@ def test_common_intents_prefer_omlx_app_logical_models():
     assert table["triage"] == "mythos-fast"
     assert table["mini-9b"] == "mythos-fast"
     assert table["fast"] == "mythos-fast"
-    assert table["mid"] == "mid-local"
-    assert table["general"] == "mid-local"
+    assert table["mid"] == "qwen-3.8-27b"
+    assert table["general"] == "qwen-3.8-27b"
+    assert table["coder"] == "coding-next"
     assert table["coder-next"] == "coding-next"
+    assert table["vision-mid"] == "vision-large"
 
 
 # ── 2. 坏配置只能降级, 不能让网关起不来 ──────────────────
@@ -142,7 +146,7 @@ def test_gateway_config_loads_alias_table():
 
     cfg = GatewayConfig()
     assert cfg.aliases, "GatewayConfig 未加载别名表"
-    assert cfg.aliases.get("coder") == "coding"
+    assert cfg.aliases.get("coder") == "coding-next"
 
 
 if __name__ == "__main__":

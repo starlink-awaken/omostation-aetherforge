@@ -37,11 +37,16 @@ _log = logging.getLogger(__name__)
 # 远端节点(mac-mini / Y7000P)的别名不在此 —— 网关本身没有这些节点的
 # 地址, 跨机路由属 compute_mesh 的职责, 见 aliases.yaml 的 unsupported 段。
 DEFAULT_ALIASES: dict[str, str] = {
-    "coder": "coding",
+    "coder": "coding-next",
     "coder-fast": "coding-fast",
+    "coder-next": "coding-next",
     "reasoner": "reasoning",
     "reasoner-lite": "reasoning-lite",
     "embed": "embedding",
+    "fast": "mythos-fast",
+    "mid": "qwen-3.8-27b",
+    "general": "qwen-3.8-27b",
+    "vision-mid": "vision-large",
     "deepseek-v4-flash": "qwen-3.5-9b-flash",
     "deepseek-v4-pro": "qwen-3.5-9b-pro",
 }
