@@ -32,10 +32,10 @@ aliases:
   mid: mid-local
   general: mid-local
 
-  # omlxc #26 briefly renamed these catalog keys; live App IDs and weights
-  # stayed DeepSeek-V4. Keep the old names as aliases, not a second catalog.
-  qwen-3.5-9b-flash: deepseek-v4-flash
-  qwen-3.5-9b-pro: deepseek-v4-pro
+  # Catalog IDs are qwen-3.5-9b-*. DeepSeek was a leftover weight-folder
+  # name and is not a logical model. Keep it as an alias only.
+  deepseek-v4-flash: qwen-3.5-9b-flash
+  deepseek-v4-pro: qwen-3.5-9b-pro
 
   # ── 明确直达 LM Link 池的能力别名 ─────────────────────
   mini-chat: gemma-4-e4b-it-mlx
