@@ -7,6 +7,7 @@ Endpoints:
     POST /v1/chat/completions  → ModelGateway.generate()
     GET  /v1/models            → active: omlxcd logical catalog; shadow/legacy: registry
     POST /v1/embeddings        → ModelGateway.embed()
+    GET  /v1/compute           → omlxcd inventory observe (warnings only; not liveness)
     GET  /health               → simple health check
 
 Usage:
@@ -448,6 +449,12 @@ async def handle_health(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "service": "aetherforge-openai-proxy"})
 
 
+async def handle_compute(request: web.Request) -> web.Response:
+    """GET /v1/compute — omlxcd reachability + inventory_drop warnings."""
+    payload = await get_gateway().observe_omlxc_compute()
+    return web.json_response(payload)
+
+
 async def handle_ready(request: web.Request) -> web.Response:
     """GET /ready — 真生成探针，能识别“端口活着但后端卡死”。"""
     model = request.query.get("model", "mythos-fast")
@@ -512,6 +519,7 @@ def create_app(api_key: str | None = None) -> web.Application:
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
     app.router.add_get("/v1/models", handle_list_models)
     app.router.add_post("/v1/embeddings", handle_embeddings)
+    app.router.add_get("/v1/compute", handle_compute)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/ready", handle_ready)
     app.router.add_get("/", handle_health)
@@ -587,6 +595,7 @@ def serve(port: int | str = 9290, bind: str = "local") -> None:
     _log.info("Starting AetherForge OpenAI proxy on :%s", port)
     _log.info("  POST /v1/chat/completions  — LLM inference")
     _log.info("  GET  /v1/models            — list models")
+    _log.info("  GET  /v1/compute           — omlxc inventory observe")
     _log.info("  POST /v1/embeddings        — embeddings")
     import asyncio
 

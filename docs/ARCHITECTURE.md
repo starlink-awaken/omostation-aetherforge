@@ -36,7 +36,7 @@ AetherForge is part of the eCOS v6 workspace. See [`../README.md`](../README.md)
 ## Design Notes
 
 - Runtime facts (counts, ports, health) are intentionally not maintained here. Use the workspace registries and project source as the truth.
-- The authenticated `9290` OpenAI facade remains the public local entry. The optional `4000` transition listener uses the same aiohttp application and `ModelGateway` singleton, so it cannot create a second inference path.
+- The authenticated `9290` OpenAI facade remains the public local entry. The optional `4000` transition listener uses the same aiohttp application and `ModelGateway` singleton, so it cannot create a second inference path. Inventory cliffs from omlxcd (`inventory_drop`) are observed on `GET /v1/compute`; `GET /health` stays an identity-only liveness probe.
 - `legacy` is rollback-only. `shadow` adds only a read-only plan. `active` routes local work exclusively through omlxc; hybrid may enter the existing cloud chain only after typed unavailable/capacity/timeout failures, while K1 fails closed.
 - For boundaries and call chains, read [`../BOUNDARY.md`](../BOUNDARY.md) and [`../CALLCHAIN.md`](../CALLCHAIN.md).
 - For developer rules, read [`../AGENTS.md`](../AGENTS.md).

@@ -74,6 +74,41 @@ def strip_thinking(text: str) -> str:
     return text.strip()
 
 
+_INVENTORY_DROP_CODE = "inventory_drop"
+
+
+def _sanitize_inventory_warnings(warnings: object) -> list[dict[str, object]]:
+    """Forward only inventory_drop and its four identity/count fields."""
+    if not isinstance(warnings, (list, tuple)):
+        return []
+    out: list[dict[str, object]] = []
+    for item in warnings:
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("code") != _INVENTORY_DROP_CODE:
+            continue
+        node_id = item.get("node_id")
+        backend_id = item.get("backend_id")
+        baseline = item.get("baseline")
+        current = item.get("current")
+        if not isinstance(node_id, str) or not node_id:
+            continue
+        if not isinstance(backend_id, str) or not backend_id:
+            continue
+        if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
+            continue
+        if not isinstance(current, int) or isinstance(current, bool) or current < 0:
+            continue
+        out.append({
+            "code": _INVENTORY_DROP_CODE,
+            "node_id": node_id,
+            "backend_id": backend_id,
+            "baseline": baseline,
+            "current": current,
+        })
+    return out
+
+
 # ============================================================
 # K1: 敏感流判断 (SSOT: 全项目统一标准)
 # ============================================================
@@ -328,8 +363,13 @@ def _load_omlx_sizes() -> dict[str, float]:
         "mythos-fast": 5.0,
         "mythos": 18.0,
         "mistral-medium-128b": 74.0,
+        # omlxc #26 renamed these keys in the repo SSOT; this machine's live
+        # App library still uses the physical DeepSeek IDs. Keep both so
+        # MemoryGuard covers whichever name is actually on disk.
         "qwen-3.5-9b-pro": 14.0,
         "qwen-3.5-9b-flash": 4.0,
+        "deepseek-v4-pro": 14.0,
+        "deepseek-v4-flash": 4.0,
     }
     out = dict(fallback)
     if os.environ.get("AETHERFORGE_OMLXC_MODE", "legacy").lower() != "legacy":
@@ -615,6 +655,26 @@ class ModelGateway:
         if self._config.omlxc_mode != "active":
             raise OmlxcError(OmlxcErrorCode.INVALID)
         return await self._omlxc.list_models()
+
+    async def observe_omlxc_compute(self) -> dict[str, object]:
+        """Read-only inventory observe. Orthogonal to routing mode and /health."""
+        mode = self._config.omlxc_mode
+        try:
+            report = await self._omlxc.health()
+        except OmlxcError as error:
+            mapped = {
+                OmlxcErrorCode.TIMEOUT: "timeout",
+                OmlxcErrorCode.UNAVAILABLE: "unavailable",
+                OmlxcErrorCode.INVALID: "invalid",
+            }.get(error.code, "unavailable")
+            return {"omlxc": mapped, "omlxc_mode": mode, "warnings": []}
+        except Exception:
+            return {"omlxc": "unavailable", "omlxc_mode": mode, "warnings": []}
+        return {
+            "omlxc": "ok",
+            "omlxc_mode": mode,
+            "warnings": _sanitize_inventory_warnings(report.warnings),
+        }
 
     async def generate(self, request: GatewayRequest) -> GatewayResponse:
         """带端到端 deadline 的统一入口。

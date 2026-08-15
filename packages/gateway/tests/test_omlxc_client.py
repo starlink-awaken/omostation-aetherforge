@@ -258,6 +258,94 @@ async def test_route_plan_uses_versioned_envelope_and_resolved_model() -> None:
 
 
 @pytest.mark.asyncio
+async def test_health_reads_versioned_envelope_and_warnings() -> None:
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        return httpx.Response(
+            200,
+            headers={"X-OMLXC-Request-ID": "health-req"},
+            json=_envelope(
+                {
+                    "status": "ready",
+                    "degraded": False,
+                    "diagnostic": "storage_healthy",
+                    "config_identity": "sha256:abc",
+                    "warnings": [
+                        {
+                            "code": "inventory_drop",
+                            "node_id": "mbp",
+                            "backend_id": "omlx-app",
+                            "baseline": 23,
+                            "current": 0,
+                        }
+                    ],
+                },
+                request_id="health-req",
+            ),
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+    report = await client.health(timeout=2)
+
+    assert captured == {"path": "/api/v1/health"}
+    assert report.status == "ready"
+    assert report.degraded is False
+    assert report.diagnostic == "storage_healthy"
+    assert report.config_identity == "sha256:abc"
+    assert report.warnings == (
+        {
+            "code": "inventory_drop",
+            "node_id": "mbp",
+            "backend_id": "omlx-app",
+            "baseline": 23,
+            "current": 0,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_health_treats_missing_warnings_as_empty() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"X-OMLXC-Request-ID": "health-req"},
+            json=_envelope({"status": "ready", "degraded": False}, request_id="health-req"),
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+    report = await client.health(timeout=2)
+    assert report.warnings == ()
+
+
+@pytest.mark.asyncio
+async def test_health_rejects_non_mapping_warning_items() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"X-OMLXC-Request-ID": "health-req"},
+            json=_envelope({"status": "ready", "warnings": ["not-a-mapping"]}, request_id="health-req"),
+        )
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(OmlxcError) as raised:
+        await client.health(timeout=2)
+    assert raised.value.code is OmlxcErrorCode.INVALID
+
+
+@pytest.mark.asyncio
+async def test_health_maps_transport_failure_to_unavailable() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("socket missing")
+
+    client = OmlxcClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(OmlxcError) as raised:
+        await client.health(timeout=2)
+    assert raised.value.code is OmlxcErrorCode.UNAVAILABLE
+
+
+@pytest.mark.asyncio
 async def test_chat_and_embeddings_validate_shapes_and_metadata() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)

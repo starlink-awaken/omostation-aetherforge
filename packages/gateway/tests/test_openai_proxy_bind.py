@@ -65,6 +65,10 @@ class TestAuth:
         """模型发现不能成为绕过公开门面认证的侧门。"""
         assert self._run("secret", path="/v1/models").status == 401
 
+    def test_compute_observe_requires_the_same_key(self):
+        """库存观测与 /v1/models 同鉴权，不得免鉴权。"""
+        assert self._run("secret", path="/v1/compute").status == 401
+
     def test_wrong_key_rejected(self):
         assert self._run("secret", header={"Authorization": "Bearer nope"}).status == 401
 
