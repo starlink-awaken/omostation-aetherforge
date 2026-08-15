@@ -227,6 +227,7 @@ class TestOmlxModelSizes:
 
         assert sizes["coding-next"] >= 52.0
         assert sizes["reasoning"] >= 30.0
+        assert sizes["qwen-3.8-27b"] >= 22.0
         # live App IDs and omlxc #26 repo names must both have a size
         assert sizes["deepseek-v4-flash"] >= 4.0
         assert sizes["deepseek-v4-pro"] >= 14.0
