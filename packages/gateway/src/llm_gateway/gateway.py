@@ -316,6 +316,8 @@ OMLX_ALIAS_MAP: dict[str, str] = {
     "reasoner": "reasoning",
     "reasoner-lite": "reasoning-lite",
     "embed": "embedding",
+    "qwen-3.5-9b-flash": "deepseek-v4-flash",
+    "qwen-3.5-9b-pro": "deepseek-v4-pro",
 }
 
 
