@@ -90,6 +90,17 @@ class OmlxcCatalogModel:
 
 
 @dataclass(frozen=True)
+class OmlxcHealth:
+    """Typed /api/v1/health payload. Callers decide how to degrade."""
+
+    status: str
+    warnings: tuple[Mapping[str, object], ...]
+    degraded: bool = False
+    diagnostic: str = ""
+    config_identity: str = ""
+
+
+@dataclass(frozen=True)
 class OmlxcChatResult:
     content: str
     model: str
@@ -238,6 +249,28 @@ class OmlxcClient:
         except TimeoutError as exc:
             raise OmlxcError(OmlxcErrorCode.TIMEOUT) from exc
         raise OmlxcError(OmlxcErrorCode.INVALID)
+
+    async def health(self, *, timeout: float = 2.0) -> OmlxcHealth:
+        """GET /api/v1/health. Socket/timeout failures raise OmlxcError."""
+        response = await self._get_json("/api/v1/health", timeout)
+        envelope = _envelope(response)
+        if _required_header(response, "X-OMLXC-Request-ID") != envelope["request_id"]:
+            raise OmlxcError(OmlxcErrorCode.INVALID)
+        data = _mapping(envelope["data"])
+        warnings_raw = data.get("warnings", ())
+        if warnings_raw is None:
+            warnings_raw = ()
+        warnings = tuple(_mapping(item) for item in _sequence(warnings_raw))
+        status_raw = data.get("status", "ready")
+        diagnostic_raw = data.get("diagnostic", "")
+        identity_raw = data.get("config_identity", "")
+        return OmlxcHealth(
+            status=_string(status_raw) if status_raw is not None else "ready",
+            warnings=warnings,
+            degraded=_bool(data["degraded"]) if "degraded" in data else False,
+            diagnostic=_string(diagnostic_raw) if diagnostic_raw is not None else "",
+            config_identity=_string(identity_raw) if identity_raw is not None else "",
+        )
 
     async def chat(
         self,
