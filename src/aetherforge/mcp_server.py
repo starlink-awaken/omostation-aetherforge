@@ -308,6 +308,65 @@ def forge_fabric_vram(model_id: str = "coding", context_tokens: int = 32768) -> 
         return {"status": "error", "error": str(exc)}
 
 
+def forge_fabric_compact(
+    model: str = "coding",
+    tokens: int = 32768,
+    available_mb: float = 8192.0,
+) -> dict:
+    """评估 KV Cache 显存预算并模拟上下文滑动蒸馏自愈 (omlxc 上下文压缩器)."""
+    import json
+    import subprocess
+
+    from aetherforge._paths import _resolve_workspace_root
+
+    ws_root = _resolve_workspace_root()
+    omlxc_root = ws_root / "projects" / "omlxc"
+    try:
+        r = subprocess.run(
+            [
+                "uv",
+                "run",
+                "omlxc",
+                "fabric",
+                "compact",
+                "--model",
+                model,
+                "--tokens",
+                str(tokens),
+                "--available-mb",
+                str(available_mb),
+                "--json",
+            ],
+            cwd=str(omlxc_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode == 0:
+            return json.loads(r.stdout)
+        return {"status": "error", "error": r.stderr}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
+
+def forge_swarm_run(
+    goal: str,
+    workflow_run_id: str | None = None,
+    trace_id: str | None = None,
+) -> dict:
+    """使用 AetherForge Swarm 多智能体有向图工作流执行目标。"""
+    try:
+        from aetherforge.swarm.rpc import run_swarm_workflow
+
+        return run_swarm_workflow(
+            goal=goal,
+            workflow_run_id=workflow_run_id,
+            trace_id=trace_id,
+        )
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
+
 mcp.tool(name="forge_triage")(forge_triage)
 mcp.tool(name="forge_triage_consensus")(forge_triage_consensus)
 mcp.tool(name="forge_triage_batch")(forge_triage_batch)
@@ -315,6 +374,8 @@ mcp.tool(name="forge_triage_status")(forge_triage_status)
 mcp.tool(name="forge_fabric_inspect")(forge_fabric_inspect)
 mcp.tool(name="forge_fabric_warm")(forge_fabric_warm)
 mcp.tool(name="forge_fabric_vram")(forge_fabric_vram)
+mcp.tool(name="forge_fabric_compact")(forge_fabric_compact)
+mcp.tool(name="forge_swarm_run")(forge_swarm_run)
 
 
 def main() -> None:
