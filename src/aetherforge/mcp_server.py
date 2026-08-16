@@ -236,10 +236,85 @@ def forge_triage_status() -> dict:
     return status
 
 
+def forge_fabric_inspect() -> dict:
+    """采集异构节点温控、模型架构与两级缓存状态 (omlxc 数据面)."""
+    import json
+    import subprocess
+
+    from aetherforge._paths import _resolve_workspace_root
+
+    ws_root = _resolve_workspace_root()
+    omlxc_root = ws_root / "projects" / "omlxc"
+    try:
+        r = subprocess.run(
+            ["uv", "run", "omlxc", "fabric", "inspect", "--json"],
+            cwd=str(omlxc_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode == 0:
+            return json.loads(r.stdout)
+        return {"status": "error", "error": r.stderr}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
+
+def forge_fabric_warm(model_id: str = "coding") -> dict:
+    """预热常用系统 Prompt 前缀以实现 0ms TTFT (omlxc 前缀预热引擎)."""
+    import json
+    import subprocess
+
+    from aetherforge._paths import _resolve_workspace_root
+
+    ws_root = _resolve_workspace_root()
+    omlxc_root = ws_root / "projects" / "omlxc"
+    try:
+        r = subprocess.run(
+            ["uv", "run", "omlxc", "fabric", "warm", "--model", model_id, "--json"],
+            cwd=str(omlxc_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode == 0:
+            return json.loads(r.stdout)
+        return {"status": "error", "error": r.stderr}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
+
+def forge_fabric_vram(model_id: str = "coding", context_tokens: int = 32768) -> dict:
+    """计算模型动态 KV Cache 显存预算与准入/压缩建议 (omlxc 显存估算器)."""
+    import json
+    import subprocess
+
+    from aetherforge._paths import _resolve_workspace_root
+
+    ws_root = _resolve_workspace_root()
+    omlxc_root = ws_root / "projects" / "omlxc"
+    try:
+        r = subprocess.run(
+            ["uv", "run", "omlxc", "fabric", "vram", model_id, str(context_tokens), "--json"],
+            cwd=str(omlxc_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode == 0:
+            return json.loads(r.stdout)
+        return {"status": "error", "error": r.stderr}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
+
 mcp.tool(name="forge_triage")(forge_triage)
 mcp.tool(name="forge_triage_consensus")(forge_triage_consensus)
 mcp.tool(name="forge_triage_batch")(forge_triage_batch)
 mcp.tool(name="forge_triage_status")(forge_triage_status)
+mcp.tool(name="forge_fabric_inspect")(forge_fabric_inspect)
+mcp.tool(name="forge_fabric_warm")(forge_fabric_warm)
+mcp.tool(name="forge_fabric_vram")(forge_fabric_vram)
 
 
 def main() -> None:
