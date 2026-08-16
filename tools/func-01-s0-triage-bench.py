@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import json
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 
 LMSTUDIO_URL = "http://localhost:1234/v1/chat/completions"
 
@@ -65,7 +65,7 @@ def triage(model: str, text: str) -> tuple[str, float]:
     req = urllib.request.Request(LMSTUDIO_URL, data=payload, headers={"Content-Type": "application/json"})
     t0 = time.time()
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 — internal gateway
             d = json.loads(resp.read())
         latency = time.time() - t0
         content = d["choices"][0]["message"]["content"].strip()
@@ -129,7 +129,7 @@ def main():
         cheapest = min(good, key=lambda x: x["avg_latency"])  # 延迟最低 = 最便宜(本地无金钱成本, 延迟=算力)
         print(f"\n✅ 推荐: {cheapest['model']} (准确率 {cheapest['accuracy']:.0%} ≥80%, 延迟 {cheapest['avg_latency']:.2f}s 最低)")
     else:
-        print(f"\n🔴 本地模型都撑不住分诊 (准确率 <80%) → 如实降级 DeepSeek")
+        print("\n🔴 本地模型都撑不住分诊 (准确率 <80%) → 如实降级 DeepSeek")
 
 
 if __name__ == "__main__":

@@ -13,10 +13,9 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 
 GATEWAY_URL = "http://127.0.0.1:9000/v1/chat/completions"
 GATEWAY_KEY = os.environ.get("OMLX_GATEWAY_KEY", "sk-omlx-admin")
@@ -81,7 +80,7 @@ def triage_gateway(model: str, text: str) -> tuple[str, float]:
     )
     t0 = time.time()
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 — internal gateway
             d = json.loads(resp.read())
         latency = time.time() - t0
         content = d["choices"][0]["message"]["content"].strip()
@@ -100,7 +99,7 @@ def list_gateway_models() -> list[str]:
             "http://127.0.0.1:9000/v1/models",
             headers={"Authorization": f"Bearer {GATEWAY_KEY}"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 — internal gateway
             return [m["id"] for m in json.loads(resp.read()).get("data", [])]
     except Exception:
         return []
@@ -141,7 +140,7 @@ def main():
     print(f"分诊实测: {len(SAMPLES)} 样本, 三档 (丢弃{sum(1 for s in SAMPLES if s['expected']=='丢弃')}/"
           f"沉淀{sum(1 for s in SAMPLES if s['expected']=='沉淀')}/"
           f"提醒{sum(1 for s in SAMPLES if s['expected']=='提醒')})")
-    print(f"判据: 准确率 ≥80% 且延迟 <2s")
+    print("判据: 准确率 ≥80% 且延迟 <2s")
     print(f"{'='*60}\n")
 
     results = []

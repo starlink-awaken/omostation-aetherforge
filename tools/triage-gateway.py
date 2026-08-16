@@ -18,7 +18,7 @@ from pathlib import Path
 # 添加 src 到路径
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from aetherforge.triage import TriageRouter, TriageResult, ConsensusResult, TriageTracker
+from aetherforge.triage import TriageRouter, TriageTracker
 
 
 def main():
@@ -37,7 +37,7 @@ def main():
         run_consensus(args.text, args.gateway, args.key)
         return
 
-    tracker = TriageTracker(log_path=Path(args.log) if args.log else None)
+    tracker = TriageTracker(log_path=Path(args.log) if args.log else None)  # noqa: F841 — 预留适配接口
     # TODO: 适配 ModelGateway 接口
     # router = TriageRouter(gateway=gw, tracker=tracker)
 
@@ -48,7 +48,7 @@ def main():
         # run_batch(args.batch, router, tracker)
         print("batch: 使用 --consensus 模式")
     elif args.text:
-        result = router.triage_one(args.text)  # type: ignore[reportUndefinedVariable]
+        result = router.triage_one(args.text)  # type: ignore[reportUndefinedVariable]  # noqa: F821 — 占位适配
         print(json.dumps({
             "verdict": result.verdict,
             "model": result.model,
@@ -64,9 +64,8 @@ def run_consensus(text: str, gateway: str, key: str):
     import urllib.request
     from concurrent.futures import ThreadPoolExecutor
 
-    MODELS = [("mid-local", True), ("mini-9b", True), ("deepseek-chat", False)]
-
-    PROMPT = """你是信息分诊助手。判断: 丢弃 / 沉淀 / 提醒 三选一。
+    MODELS = [("mid-local", True), ("mini-9b", True), ("deepseek-chat", False)]  # noqa: N806 — 函数内常量
+    prompt = """你是信息分诊助手。判断: 丢弃 / 沉淀 / 提醒 三选一。
 标准:
 - 丢弃: 营销/广告/促销/社交动态/APP推送/续费推销
 - 沉淀: 技术文章/知识教程/研究分析/笔记同步/课程更新 (有价值内容)
@@ -78,25 +77,25 @@ def run_consensus(text: str, gateway: str, key: str):
     def call(model, needs_off):
         payload = {
             "model": model,
-            "messages": [{"role": "user", "content": PROMPT.format(text=text)}],
+            "messages": [{"role": "user", "content": prompt.format(text=text)}],
             "max_tokens": 20, "temperature": 0,
         }
         if needs_off:
             payload["extra_body"] = {"reasoning_effort": "none"}
         data = json.dumps(payload).encode()
-        req = urllib.request.Request(gateway, data=data, headers={
+        req = urllib.request.Request(gateway, data=data, headers={  # noqa: S310 — internal gateway
             "Content-Type": "application/json", "Authorization": f"Bearer {key}"
         })
         t0 = time.time()
         try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
+            with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310 — internal gateway
                 d = json.loads(resp.read())
             content = d["choices"][0]["message"]["content"].strip()
             for v in ("丢弃", "沉淀", "提醒"):
                 if v in content:
                     return {"model": model, "verdict": v, "latency": time.time() - t0}
             return {"model": model, "verdict": "未知", "latency": time.time() - t0}
-        except Exception as e:
+        except Exception:
             return {"model": model, "verdict": "错误", "latency": time.time() - t0}
 
     with ThreadPoolExecutor(max_workers=3) as pool:

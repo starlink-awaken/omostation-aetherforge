@@ -33,7 +33,8 @@ _gw_p = str(_af_dir / "packages" / "gateway" / "src")
 if _gw_p not in sys.path:
     sys.path.insert(0, _gw_p)
 
-from llm_gateway.gateway import is_sensitive as _gateway_is_sensitive, run_async, strip_thinking
+from llm_gateway.gateway import is_sensitive as _gateway_is_sensitive
+from llm_gateway.gateway import run_async, strip_thinking
 
 # 导出 strip_thinking 供外部直接使用
 __all__ = ["strip_thinking", "classify_sensitivity", "is_reminder", "route", "hard_block_external", "embed_texts"]
@@ -201,7 +202,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         RuntimeError: 所有 embedding 提供者都失败
     """
     try:
-        from llm_gateway.gateway import ModelGateway, get_gateway
+        from llm_gateway.gateway import ModelGateway, get_gateway  # noqa: F401 — 探测可用性
         gateway = get_gateway()
         return run_async(gateway.embed(texts))
     except ImportError:
@@ -211,8 +212,8 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 
 def _embed_via_omlc(texts: list[str]) -> list[list[float]]:
     """直接调 omlx embedding API (无 gateway 时的 fallback)."""
-    import urllib.request
     import json
+    import urllib.request
 
     # 降级链: 8183 → 8188
     ports = [8183, 8188]
@@ -227,12 +228,12 @@ def _embed_via_omlc(texts: list[str]) -> list[list[float]]:
                 data=payload,
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310 — internal omlx API
                 data = json.loads(resp.read())
                 embeddings = [item["embedding"] for item in data.get("data", [])]
                 if embeddings:
                     return embeddings
-        except Exception:
+        except Exception:  # noqa: S112 — probe next port
             continue
 
     raise RuntimeError("所有 embedding 提供者失败 (8183, 8188)")
