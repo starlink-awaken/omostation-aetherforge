@@ -44,6 +44,14 @@ def gateway_config():
     )
 
 
+@pytest.fixture(autouse=True)
+def stable_memory_budget(monkeypatch):
+    """Keep gateway tests independent from the host machine's free memory."""
+    from llm_gateway.gateway import MemoryGuard
+
+    monkeypatch.setattr(MemoryGuard, "_get_free_memory_gb", lambda self: 100.0)
+
+
 @pytest.fixture
 def mock_registry():
     """Mock ModelRegistry."""
