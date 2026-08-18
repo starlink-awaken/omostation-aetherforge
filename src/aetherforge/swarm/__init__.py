@@ -1,6 +1,5 @@
-"""AetherForge Swarm — compatibility shim exposing swarm_engine via aetherforge.swarm."""
+"""AetherForge Swarm — fail-closed shim (Y1Q4-T6-01)."""
 
-from swarm_engine import __version__
-from swarm_engine.graph_workflow import GraphWorkflow
+SWARM_REMOVED_MSG = "swarm_engine removed (Y1Q4-T6-01)"
 
-__all__ = ["__version__", "GraphWorkflow"]
+__all__: list[str] = []

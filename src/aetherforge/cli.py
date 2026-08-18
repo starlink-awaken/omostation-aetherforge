@@ -125,121 +125,17 @@ def cmd_mesh(argv: list[str]) -> int:
 
 
 def cmd_swarm(argv: list[str]) -> int:
-    """Swarm CLI — 打通 C2G / ECOS Workflow Subprocess 调用。"""
-    parser = argparse.ArgumentParser(description="AetherForge Swarm CLI")
+    """Swarm CLI — fail-closed shim (Y1Q4-T6-01)."""
+    import argparse
+    import json
+    import sys
+    parser = argparse.ArgumentParser(description="AetherForge Swarm CLI (disabled, Y1Q4-T6-01)")
     subparsers = parser.add_subparsers(dest="command")
-
-    run_parser = subparsers.add_parser("run", help="Run a multi-agent task workflow")
-    run_parser.add_argument("--goal", required=False, help="Task goal to execute")
-    run_parser.add_argument("--json", action="store_true", help="Print outputs in JSON format")
-    run_parser.add_argument("--workflow-run-id", default=None, help="Workflow Mesh run identity")
-    run_parser.add_argument("--trace-id", default=None, help="Workflow Mesh trace identity")
-    run_parser.add_argument("--admission-json", default=None, help="Workflow Mesh admission grant JSON")
-
+    subparsers.add_parser("run", help="DISABLED: swarm_engine removed (Y1Q4-T6-01)")
     args = parser.parse_args(argv)
-
-    if args.command == "run":
-        import json
-        import select
-        import sys
-
-        goal = args.goal
-        is_json_output = args.json
-
-        # Fallback to stdin JSON (Agora StdioAdapter support)
-        if not goal:
-            # Check if stdin has data
-            if select.select([sys.stdin], [], [], 0.0)[0]:
-                try:
-                    payload = json.loads(sys.stdin.read())
-                    kwargs = payload.get("kwargs", {})
-                    goal = kwargs.get("goal", "")
-                    is_json_output = True  # Force JSON output for adapter
-                except Exception:  # defensive fallback
-                    pass
-
-        if not goal:
-            print("❌ Error: --goal is required or must be provided via stdin JSON.", file=sys.stderr)
-            return 1
-
-        from swarm_engine import GraphWorkflow
-        from swarm_engine.intelligent_agent import IntelligentAgent
-
-        admission = None
-        if args.admission_json:
-            try:
-                admission = json.loads(args.admission_json)
-            except json.JSONDecodeError as exc:
-                print(f"Invalid --admission-json: {exc}", file=sys.stderr)
-                return 1
-
-        # 1. 初始化工作流 — nodes powered by IntelligentAgent
-        wf = GraphWorkflow()
-
-        @wf.node("任务规划", description="分析并分解任务目标")
-        def plan_task(state):
-            goal = state.get("goal", "")
-            agent = IntelligentAgent("planner", "work")
-            result = agent.decide(
-                question=f"将以下任务目标拆解为3步，仅输出简短文本：{goal}",
-                context={"goal": goal},
-                action={"type": "classify", "target": "self", "domain": "work"},
-            )
-            return {"plan": result.get("response") or f"分析目标: {goal}"}
-
-        @wf.node("任务执行", description="协同智能体执行具体计划")
-        def execute_task(state):
-            plan = state.get("plan", "")
-            agent = IntelligentAgent("executor", "work")
-            result = agent.decide(
-                question=f"根据计划执行任务，简洁回答：{plan[:200]}",
-                context={"plan": plan[:500]},
-                action={"type": "generate", "target": "self", "domain": "work"},
-            )
-            return {"output": result.get("response") or f"成功执行计划:\n{plan}"}
-
-        wf.add_edge("任务规划", "任务执行")
-        wf.set_entry("任务规划")
-
-        # 2. 运行
-        initial_state = {"goal": goal}
-        state = wf.run(
-            initial_state,
-            workflow_run_id=args.workflow_run_id,
-            trace_id=args.trace_id,
-            admission=admission,
-        )
-
-        # 3. 结果输出
-        if is_json_output:
-            import json
-
-            output_data = {
-                "goal": goal,
-                "status": "success" if not state.get("_errors") else "failed",
-                "steps": [
-                    {
-                        "name": step["node"],
-                        "status": "ok" if step["status"] == "ok" else "failed",
-                        "error": step.get("error"),
-                    }
-                    for step in state.get("_history", [])
-                ],
-                "result": state.get("output", ""),
-                "workflow_run_id": state.get("_workflow_run_id"),
-                "trace_id": state.get("_trace_id"),
-            }
-            print(json.dumps(output_data, ensure_ascii=False, indent=2))
-        else:
-            print(f"🎯 Swarm Goal: {args.goal}")
-            print(f"📄 Plan: {state.get('plan')}")
-            print(f"💡 Result: {state.get('output')}")
-
-        return 1 if state.get("_errors") else 0
-
-    else:
-        parser.print_help()
-        return 1
+    msg = "swarm_engine removed (Y1Q4-T6-01); swarm CLI disabled"
+    print(json.dumps({"status": "failed", "error": msg}), file=sys.stderr)
+    return 1
 
 
 def cmd_triage(argv: list[str]) -> int:

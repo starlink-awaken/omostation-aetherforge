@@ -1,6 +1,7 @@
 """aetherforge bus adapter (R60, Month 2).
 
-AetherForge is a compute-mesh + LLM-gateway + swarm-engine fusion stack.
+AetherForge is a compute-mesh + LLM-gateway fusion stack.
+(swarm_engine 已于 Y1Q4-T6-01 删除)
 It produces pipeline / agent-runtime / mesh-routing events that need to
 flow into the agora I0 bus so other eCOS projects (omo, metaos, runtime)
 can subscribe without aetherforge having to know about each consumer.
@@ -66,7 +67,7 @@ def emit_event(
 
 
 # Convenience helpers for the most common aetherforge event types.
-# Call sites in aetherforge's swarm_engine / mesh can use these to
+# Call sites in aetherforge's mesh (compute_mesh) can use these to
 # keep type strings consistent and discoverable.
 def emit_mesh_route(peer_id: str, hop_count: int, **extra: Any) -> str | None:
     return emit_event(
