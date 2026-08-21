@@ -430,66 +430,10 @@ def test_mesh_auto_scale():
     print(f"    workers={result['total']} reason={result['reason']}")
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# 4. Swarm
-# ══════════════════════════════════════════════════════════════════════════
-
-
-@register_test("Swarm: GatewaySynapse")
-def test_swarm_synapse():
-    from swarm_engine import GatewaySynapse
-
-    synapse = GatewaySynapse()
-    health = synapse.health()
-    assert health["status"] == "active"
-    models = synapse.discover_models()
-    assert isinstance(models, list)
-    print(f"    active providers={health['total_available']} models={len(models)}")
-
-
-@register_test("Swarm: HierarchicalProcess parse")
-def test_swarm_hp_parse():
-    from swarm_engine.hierarchical_process import HierarchicalProcess
-
-    hp = HierarchicalProcess()
-    # Test JSON parsing
-    subtasks = hp._parse_subtasks('[{"id":"s1","description":"Research","agent_role":"researcher","depends_on":[]}]')
-    assert len(subtasks) == 1
-    assert subtasks[0].id == "s1"
-    assert subtasks[0].agent_role == "researcher"
-
-    # Test with code fences
-    subtasks2 = hp._parse_subtasks(
-        '```\n[{"id":"t1","description":"Write","agent_role":"writer","depends_on":[]}]\n```'
-    )
-    assert len(subtasks2) == 1
-    assert subtasks2[0].id == "t1"
-    print(f"    parse_json={len(subtasks)} parse_fence={len(subtasks2)}")
-
-
-@register_test("Swarm: HierarchicalProcess DAG")
-def test_swarm_hp_dag():
-    from swarm_engine.hierarchical_process import SubTask
-
-    subtasks = [
-        SubTask(id="a", agent_role="w"),
-        SubTask(id="b", agent_role="w", depends_on=["a"]),
-        SubTask(id="c", agent_role="w", depends_on=["a"]),
-        SubTask(id="d", agent_role="w", depends_on=["b", "c"]),
-    ]
-    executed = []
-    remaining = {s.id for s in subtasks}
-    for _ in range(10):
-        for s in subtasks:
-            if s.id not in remaining:
-                continue
-            if all(dep in executed for dep in s.depends_on):
-                executed.append(s.id)
-                remaining.discard(s.id)
-    assert len(executed) == 4
-    assert "a" == executed[0]
-    assert "d" == executed[-1]
-    print(f"    order={executed}")
+# NOTE: the previous "4. Swarm" section was removed (Y1Q4-T6-01): swarm_engine
+# was deleted and replaced with a fail-closed shim (src/aetherforge/swarm),
+# so the old GatewaySynapse / HierarchicalProcess / SubTask APIs no longer
+# exist and their tests cannot run.
 
 
 # ══════════════════════════════════════════════════════════════════════════
