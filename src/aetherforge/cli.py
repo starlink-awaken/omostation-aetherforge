@@ -132,7 +132,8 @@ def cmd_swarm(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="AetherForge Swarm CLI (disabled, Y1Q4-T6-01)")
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("run", help="DISABLED: swarm_engine removed (Y1Q4-T6-01)")
-    args = parser.parse_args(argv)
+    # args is unused: this fail-closed shim always exits 1 (F841).
+    parser.parse_args(argv)
     msg = "swarm_engine removed (Y1Q4-T6-01); swarm CLI disabled"
     print(json.dumps({"status": "failed", "error": msg}), file=sys.stderr)
     return 1
