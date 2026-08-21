@@ -6,7 +6,6 @@ import asyncio
 import json
 import math
 import os
-import sys
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -128,8 +127,6 @@ def default_omlxc_socket() -> Path:
     override = os.environ.get("OMLXC_SOCKET")
     if override:
         return Path(override).expanduser()
-    if sys.platform == "darwin":
-        return Path.home() / "Library/Application Support/omlxc/omlxcd.sock"
     return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "omlxc/omlxcd.sock"
 
 
