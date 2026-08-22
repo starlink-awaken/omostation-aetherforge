@@ -283,6 +283,27 @@ _ENGINE_PREFERENCE = (
     "ENG-OLLAMA-Y7000P",
 )
 
+# 2026-08-23: 云端引擎前缀, 与 projects/ecos/.../mof/m1/compute_engine/*.yaml
+# 里 status: active 的 ENG-*-CLOUD 系条目对应。_resolve_model_id() 此前只
+# 尝试 _ENGINE_PREFERENCE(清一色本地) + ENG-CC-SWITCH 拼接匹配, 任何客户端
+# 传"业务名"(如 "deepseek-chat")而非完整 "ENG-DEEPSEEK-CLOUD/deepseek-chat"
+# 的云端模型请求都会因为拼不出匹配而判定 "not in registry" 失败 —— 已配置
+# 好的 openrouter/deepseek 等 provider 因此从未被真正路由到, 是本轮诊断链
+# 路故障的根本原因。这是静态列表, 需要与 SSOT 保持同步(理想是从 registry
+# 动态枚举, 但那涉及排序/确定性重构, 超出本次修复范围)。
+_CLOUD_ENGINE_IDS = (
+    "ENG-DEEPSEEK-CLOUD",
+    "ENG-OPENROUTER-CLOUD",
+    "ENG-ANTHROPIC-CLOUD",
+    "ENG-AZURE-OPENAI",
+    "ENG-BEDROCK",
+    "ENG-VERTEX-AI",
+    "ENG-KIMI-CLOUD",
+    "ENG-MINIMAX-CLOUD",
+    "ENG-ZHIPU-CLOUD",
+    "ENG-SILICONFLOW-CLOUD",
+)
+
 
 def _id_tail(model_id: str) -> str:
     """去掉 `ENG-XXX/` 引擎前缀, 留下模型自己的名字。
@@ -1860,7 +1881,7 @@ class ModelGateway:
 
         if reg.get(model_name) and _allowed(model_name):
             return model_name
-        direct_engines = _ENGINE_PREFERENCE + ("ENG-CC-SWITCH",)
+        direct_engines = _ENGINE_PREFERENCE + ("ENG-CC-SWITCH",) + _CLOUD_ENGINE_IDS
         for engine in direct_engines:
             candidate = f"{engine}/{model_name}"
             if _allowed(candidate) and reg.get(candidate):
