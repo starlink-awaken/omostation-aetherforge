@@ -525,9 +525,15 @@ class GatewayConfig:
     warm_pool_ttl: int = 300
     # 健康检查间隔 (秒)
     health_check_interval: int = 60
-    # 首次/周期模型发现的单 provider 上限。物理节点都在 loopback/tailnet，
-    # 2 秒足够；云端和离线节点不能拖住本地首 token。
-    registry_discover_timeout: float = 2.0
+    # 首次/周期模型发现的单 provider 上限。
+    # 2026-08-23: 原为 2.0s(本地 loopback/tailnet 足够, 但实测云端 provider
+    # 的真实网络往返经常超时被静默跳过 —— 结合上面两个 404/引擎前缀修复,
+    # 这是"云端资源紧张"表象的最后一块拼图: discover 数据没进 registry,
+    # 前面两个修复再对也无济于事)。调到 8.0s: 实测 15s 能完整 discover 全部
+    # 197 个模型, 8s 留足真实余量; 只在首次/registry 为空时触发一次(见
+    # _ensure_registry_ready, 成功后 _registry_ready=True 不再重跑), 代价
+    # 只是首次触发多等几秒, 不是持续性开销。
+    registry_discover_timeout: float = 8.0
     # 是否启用后台任务 (warm pool sweep + health check)
     background_tasks_enabled: bool = True
 
