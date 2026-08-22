@@ -571,6 +571,11 @@ async def test_stream_cancellation_closes_response() -> None:
         (409, "insufficient_capacity", OmlxcErrorCode.NO_CAPACITY),
         (504, "timeout", OmlxcErrorCode.TIMEOUT),
         (400, "unsupported_feature", OmlxcErrorCode.INVALID),
+        # 404 = 本地没有这个逻辑模型/别名, 是"本地不可用"的业务语义, 不是协议
+        # 层面的"响应格式无效" —— 必须映射到 UNAVAILABLE(cloud_fallback_
+        # allowed=True), 否则任何未映射到本地 placement 的模型名(典型如云端
+        # provider 的模型名)在 hybrid 模式下永远无法 fallback 到云端。
+        (404, "model_not_found", OmlxcErrorCode.UNAVAILABLE),
         (403, "security", OmlxcErrorCode.SECURITY),
         (503, "backend_unavailable", OmlxcErrorCode.UNAVAILABLE),
         (500, "internal", OmlxcErrorCode.INTERNAL),

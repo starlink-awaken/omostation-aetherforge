@@ -638,7 +638,14 @@ def _http_error_code(status: int, error: object) -> OmlxcErrorCode:
         return OmlxcErrorCode.TIMEOUT
     if status == 409:
         return OmlxcErrorCode.NO_CAPACITY
-    if status in {400, 404, 413, 422}:
+    if status == 404:
+        # omlxcd 返回 404 意味着"这个逻辑模型/别名在本地没有配置", 是业务语义
+        # 的"本地不可用", 不是协议层面的"响应格式无效" —— 之前和 400/413/422
+        # 归在一起会导致 cloud_fallback_allowed 恒为 False, 任何未映射到本地
+        # placement 的模型名(典型如云端 provider 的模型名)在 hybrid 模式下
+        # 永远无法 fallback 到云端, 网关实质上退化成"只能用本地模型"。
+        return OmlxcErrorCode.UNAVAILABLE
+    if status in {400, 413, 422}:
         return OmlxcErrorCode.INVALID
     if status == 503:
         return _payload_error_code(error)
