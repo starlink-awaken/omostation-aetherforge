@@ -259,6 +259,11 @@ class SSOTProviderAdapter(BaseLLMProvider):
         get_key 每次都读库, provider 却把 key 缓存死了, 两者根本没对上。
         """
         cred = _get_credentials_for(self._cred_token)
+        if cred and cred.get("api_key"):
+            # 真实命中名必须在 early return 之前更新 —— 构造时已拿过 key 的
+            # 引擎, sync 走"key 未变"提前返回, 放在后面永远不执行(实测踩过:
+            # 淘汰一直在用 token 名标死, 静默无效)。
+            self._cred_provider = str(cred.get("provider") or self._cred_token)
         if not cred or not cred.get("api_key"):
             # 凭据彻底出局(全部 key 被判死): 清空底层 key 让 is_available
             # 转 False, discover 停止注册该引擎的模型(死引擎退出调度视野)。
@@ -271,7 +276,6 @@ class SSOTProviderAdapter(BaseLLMProvider):
         if cred["api_key"] == (self._credentials or {}).get("api_key"):
             return
         self._credentials = cred
-        self._cred_provider = str(cred.get("provider") or self._cred_token)
         underlying = self._underlying
         if underlying is None:
             return
