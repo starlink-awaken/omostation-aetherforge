@@ -1089,20 +1089,35 @@ class ModelGateway:
         model_id = self._resolve_model_id(resolved)
         if not model_id or self._provider_is_self(model_id):
             raise _StreamUnsupported(resolved)
+        # 已学到"必须关 thinking 才出正文"的模型(聚合路径的 _needs_no_think
+        # 学习成果), 流式直接带上, 省掉注定空产出的首发。
+        extra = (
+            dict(self._config.no_think_param)
+            if model_id in self._needs_no_think and self._config.no_think_param
+            else None
+        )
         source = self._registry.chat_stream(
             model_id,
             request.messages,
-            ChatOptions(temperature=request.temperature, max_tokens=request.max_tokens, stream=True),
+            ChatOptions(
+                temperature=request.temperature, max_tokens=request.max_tokens, stream=True, extra=extra
+            ),
         )
+        produced = False
         finish_emitted = False
         async for chunk in source:
-            if not chunk.content and chunk.finish_reason is None:
-                continue
-            yield OmlxcStreamChunk(content=chunk.content, model=logical, finish_reason=chunk.finish_reason)
-            if chunk.finish_reason:
-                finish_emitted = True
+            if chunk.content:
+                produced = True
+                yield OmlxcStreamChunk(content=chunk.content, model=logical)
+            elif chunk.finish_reason:
+                finish_emitted = True  # 终止块延后统一吐, 给空产出回退留余地
+        if not produced:
+            # 全部预算耗在 thinking 段(text_delta 零产出, LongCat-2.0 默认开
+            # 思考时实测如此) —— 抛回退信号, 让聚合路径(自带关-thinking 重试
+            # 链)接管; 此时尚未 yield 任何块, 调用方 emitted=False 可安全回退。
+            raise _StreamUnsupported(f"{model_id}: stream produced no content")
         if not finish_emitted:
-            # provider 基类默认实现(一-shot)不带 finish_reason, 补上终止块。
+            # 真流式 provider 只吐 text 不带 finish —— 补终止块。
             yield OmlxcStreamChunk(model=logical, finish_reason="stop")
 
     @staticmethod
