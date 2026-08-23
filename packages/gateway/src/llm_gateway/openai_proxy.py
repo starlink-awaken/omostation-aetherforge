@@ -363,7 +363,12 @@ async def _chain_stream(first_chunks, source):
 
 
 async def handle_list_models(request: web.Request) -> web.Response:
-    """GET /v1/models — list models executable in the current gateway mode."""
+    """GET /v1/models — list models executable in the current gateway mode.
+
+    active 模式默认只列 omlxc 本地模型(既有消费者依赖此契约); ?scope=all
+    额外合并 registry 云端引擎清单(owned_by=引擎id) —— 否则 22 引擎 369
+    模型对客户端完全不可见, 只能手写完整 ID。本地与 registry 重名时本地优先。
+    """
     gw = get_gateway()
     if gw._config.omlxc_mode == "active":
         try:
@@ -373,20 +378,32 @@ async def handle_list_models(request: web.Request) -> web.Response:
                 _openai_error_payload(error.code),
                 status=_omlxc_http_status(error.code),
             )
-        return web.json_response(
+        data = [
             {
-                "object": "list",
-                "data": [
-                    {
-                        "id": model.id,
-                        "object": "model",
-                        "created": int(time.time()),
-                        "owned_by": "omlxc",
-                    }
-                    for model in models
-                ],
+                "id": model.id,
+                "object": "model",
+                "created": int(time.time()),
+                "owned_by": "omlxc",
             }
-        )
+            for model in models
+        ]
+        # 显式 opt-in 才碰 legacy registry(默认路径保持 fail-closed 契约:
+        # active 目录不刷新 registry); getattr 兼容无 query 的最小 request。
+        query = getattr(request, "query", None)
+        if query is not None and query.get("scope") == "all":
+            await gw._ensure_registry_ready()
+            seen = {item["id"] for item in data}
+            data.extend(
+                {
+                    "id": m.id,
+                    "object": "model",
+                    "created": int(time.time()),
+                    "owned_by": m.provider,
+                }
+                for m in gw._registry.list_models()
+                if m.id not in seen
+            )
+        return web.json_response({"object": "list", "data": data})
     await gw._ensure_registry_ready()
 
     models = gw._registry.list_models()

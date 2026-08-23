@@ -75,6 +75,40 @@ def test_active_model_directory_only_exposes_omlxc_logical_models(monkeypatch):
     assert Model.model_validate(payload["data"][0]).id == "coding"
 
 
+def test_active_model_directory_scope_all_merges_registry_cloud_models(monkeypatch):
+    """?scope=all 显式 opt-in: 合并 registry 云端清单(本地重名优先), 并允许刷新 registry。"""
+
+    class Gateway:
+        _config = SimpleNamespace(omlxc_mode="active")
+        _registry = SimpleNamespace(
+            list_models=lambda: [
+                SimpleNamespace(id="coding", provider="omlxc"),
+                SimpleNamespace(id="ENG-LONGCAT-CLOUD/LongCat-2.0", provider="ENG-LONGCAT-CLOUD"),
+            ]
+        )
+
+        async def _ensure_registry_ready(self):
+            return None  # scope=all 时允许刷新
+
+        async def list_omlxc_models(self):
+            return [SimpleNamespace(id="coding", capabilities=frozenset({"chat"}))]
+
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+
+    response = asyncio.run(
+        openai_proxy.handle_list_models(SimpleNamespace(query={"scope": "all"}))
+    )
+    payload = json.loads(response.body)
+
+    assert response.status == 200
+    ids = [item["id"] for item in payload["data"]]
+    assert ids.count("coding") == 1  # 本地重名优先, registry 的 coding 不重复
+    assert "ENG-LONGCAT-CLOUD/LongCat-2.0" in ids
+    by_id = {item["id"]: item for item in payload["data"]}
+    assert by_id["coding"]["owned_by"] == "omlxc"
+    assert by_id["ENG-LONGCAT-CLOUD/LongCat-2.0"]["owned_by"] == "ENG-LONGCAT-CLOUD"
+
+
 def test_active_model_directory_fails_closed_when_omlxc_catalog_is_unavailable(monkeypatch):
     class Gateway:
         _config = SimpleNamespace(omlxc_mode="active")
