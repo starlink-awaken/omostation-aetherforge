@@ -268,6 +268,31 @@ class SSOTProviderAdapter(BaseLLMProvider):
             if hasattr(underlying, attr):
                 setattr(underlying, attr, None)
 
+    def _report_auth_failure(self) -> None:
+        """请求驱动淘汰: 真实调用 401 时把当前 key 标死。
+
+        主动探测(reverify)有盲区: 部分端点(实测 kimi coding)对无效 key
+        的 /models 不返回 401, 死 key 判不出来; 真实生成请求的 401 是
+        最权威信号。标死后 get_key 出局, 下次 sync 引擎退出调度。
+        """
+        try:
+            from .credentials import CredentialsManager
+
+            key = (self._credentials or {}).get("api_key")
+            if key:
+                CredentialsManager().mark_key_active(self._cred_token, key, active=False)
+                _log.warning("credential disabled by auth failure: %s", self._name)
+        except Exception:
+            return
+
+    @staticmethod
+    def _is_auth_error(exc: Exception) -> bool:
+        name = type(exc).__name__
+        if name in ("AuthenticationError", "PermissionDeniedError"):
+            return True
+        text = str(exc)
+        return "401" in text and ("auth" in text.lower() or "token" in text.lower() or "api key" in text.lower())
+
     async def chat(
         self,
         model: str,
@@ -279,7 +304,12 @@ class SSOTProviderAdapter(BaseLLMProvider):
 
         self._sync_credentials()
         req = self._build_request(model, messages, options)
-        resp = await self._underlying.generate(req)
+        try:
+            resp = await self._underlying.generate(req)
+        except Exception as exc:
+            if self._is_auth_error(exc):
+                self._report_auth_failure()
+            raise
 
         return ChatResult(
             id="",
