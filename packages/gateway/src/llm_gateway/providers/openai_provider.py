@@ -235,3 +235,63 @@ class OpenAIProvider(LLMProvider):
         except Exception as exc:
             _log.error("OpenAIProvider.stream_generate failed: %s", exc)
             raise
+
+    async def stream_generate_detailed(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+        """带 usage/finish_reason 的真流式(openai SDK stream_options)。
+
+        OpenAI 系引擎(openrouter/siliconflow/opencode-go 等)此前流式走基类
+        默认包装(真流式但无元数据) —— usage 记账与终止块 finish 全缺。
+        兼容性防御: 部分 OpenAI 兼容网关不认 stream_options(400), 检测到
+        后降级为不带该参数重试(usage 缺失可容忍, 流式内容不丢)。
+        """
+        from ..provider import LLMStreamEvent
+
+        try:
+            client = self._get_async_client()
+            messages: list[dict] = []
+            if request.system_prompt:
+                messages.append({"role": "system", "content": request.system_prompt})
+            messages.extend(request.context)
+            messages.append({"role": "user", "content": request.prompt})
+
+            model = request.model or self.default_model
+            common = dict(
+                model=model,
+                messages=messages,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                stream=True,
+            )
+            try:
+                stream = await client.chat.completions.create(  # type: ignore[attr-defined]
+                    **common, stream_options={"include_usage": True}
+                )
+            except Exception as exc:
+                if type(exc).__name__ == "BadRequestError" or "stream_options" in str(exc):
+                    _log.debug("stream_options unsupported by gateway, streaming without usage")
+                    stream = await client.chat.completions.create(**common)  # type: ignore[attr-defined]
+                else:
+                    raise
+            finish_reason: str | None = None
+            async for chunk in stream:
+                usage = getattr(chunk, "usage", None)
+                if usage is not None:
+                    # include_usage 的最后块: choices 为空, usage 齐全
+                    yield LLMStreamEvent(
+                        finish_reason=finish_reason or "stop",
+                        usage={
+                            "prompt_tokens": usage.prompt_tokens or 0,
+                            "completion_tokens": usage.completion_tokens or 0,
+                            "total_tokens": usage.total_tokens or 0,
+                        },
+                    )
+                    continue
+                if chunk.choices:
+                    choice = chunk.choices[0]
+                    if choice.finish_reason:
+                        finish_reason = choice.finish_reason
+                    if choice.delta and choice.delta.content:
+                        yield LLMStreamEvent(text=choice.delta.content)
+        except Exception as exc:
+            _log.error("OpenAIProvider.stream_generate_detailed failed: %s", exc)
+            raise
