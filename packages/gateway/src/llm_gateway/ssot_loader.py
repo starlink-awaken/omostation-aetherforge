@@ -72,8 +72,16 @@ def _get_credentials_for(provider_name: str) -> dict | None:
         if not api_key:
             return None
 
-        keys = cm.list_keys(provider_name)
-        base_url = keys[0].get("note", "") if keys else ""
+        # 2026-08-23 修复两处: (1) 原来取的是 note 字段(复制粘贴错误), base_url
+        # 实际拿到 "from cc-switch: xxx" 这种字符串, YAML 里没写 base_url 的引擎
+        # 会静默拿到一个非法 URL; (2) list_keys 用的是未解析别名的原始名, 别名
+        # 命中 key 时这里反而取不到行。两处都改成与 _find_key 相同的解析顺序。
+        base_url = ""
+        for name in [provider_name, _PROVIDER_ALIASES.get(provider_name, provider_name)]:
+            rows = cm.list_keys(name)
+            if rows:
+                base_url = str(rows[0].get("base_url") or "")
+                break
 
         return {"api_key": api_key, "base_url": base_url}
     except Exception as e:
@@ -94,6 +102,9 @@ _PROVIDER_ALIASES: dict[str, str] = {
     "nvidia": "nvidia",
     "longcat": "longcat",
     "kimi": "kimi_for_coding",
+    # 2026-08-23: ENG-OPENCODE-GO 引擎名解析出的 token 是 "opencode",
+    # credentials.db 里的 provider 名是 "opencode-go"(cc-switch 同步写入)
+    "opencode": "opencode-go",
 }
 
 
