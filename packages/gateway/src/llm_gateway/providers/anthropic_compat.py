@@ -194,6 +194,73 @@ class AnthropicCompatProvider(LLMProvider):
                     if isinstance(delta, dict) and delta.get("type") == "text_delta" and delta.get("text"):
                         yield str(delta["text"])
 
+    async def stream_generate_detailed(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+        """带 usage/finish_reason 的真流式(Anthropic Messages SSE 全解析)。
+
+        message_start 的 input_tokens + message_delta 的 output_tokens/stop_reason
+        聚合在流的结束块上 —— 成本记账(CostTracker)与 OpenAI 流式协议的
+        usage 字段都靠它, 此前真流式路径完全不带 usage, 记账失真。
+        """
+        import json
+
+        import httpx
+
+        from ..provider import LLMStreamEvent
+
+        body = self._build_body(request)
+        body["stream"] = True
+        input_tokens = 0
+        output_tokens = 0
+        finish_reason: str | None = None
+        async with httpx.AsyncClient(timeout=120) as client:
+            async with client.stream(
+                "POST",
+                f"{self._base_url}/messages",
+                headers=self._build_headers(),
+                json=body,
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if not payload or payload == "[DONE]":
+                        continue
+                    try:
+                        event = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(event, dict):
+                        continue
+                    kind = event.get("type")
+                    if kind == "content_block_delta":
+                        delta = event.get("delta")
+                        if isinstance(delta, dict) and delta.get("type") == "text_delta" and delta.get("text"):
+                            yield LLMStreamEvent(text=str(delta["text"]))
+                    elif kind == "message_start":
+                        message = event.get("message")
+                        if isinstance(message, dict):
+                            usage = message.get("usage")
+                            if isinstance(usage, dict):
+                                input_tokens = int(usage.get("input_tokens") or 0)
+                    elif kind == "message_delta":
+                        delta = event.get("delta")
+                        if isinstance(delta, dict) and delta.get("stop_reason"):
+                            finish_reason = {
+                                "end_turn": "stop",
+                                "stop_sequence": "stop",
+                                "max_tokens": "length",
+                                "tool_use": "tool_calls",
+                            }.get(str(delta["stop_reason"]), "stop")
+                        usage = event.get("usage")
+                        if isinstance(usage, dict):
+                            output_tokens = int(usage.get("output_tokens") or 0)
+        yield LLMStreamEvent(
+            finish_reason=finish_reason or "stop",
+            usage={"prompt_tokens": input_tokens, "completion_tokens": output_tokens,
+                   "total_tokens": input_tokens + output_tokens},
+        )
+
     async def generate(self, request: LLMRequest) -> LLMResponse:
         import httpx
 

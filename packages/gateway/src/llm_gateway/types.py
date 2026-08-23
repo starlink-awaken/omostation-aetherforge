@@ -44,6 +44,9 @@ class StreamChunk:
     model: str = ""
     content: str = ""
     finish_reason: str | None = None
+    # 2026-08-23: 流结束块可带 token 用量(provider 层 detailed 流透传),
+    # 默认 None 向后兼容 —— 此前真流式路径完全不带 usage, 成本记账失真。
+    usage: dict[str, int] | None = None
 
 
 @dataclass

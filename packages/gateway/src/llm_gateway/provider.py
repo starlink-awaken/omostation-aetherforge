@@ -15,7 +15,7 @@ import logging
 import os
 import time as _time
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -122,6 +122,18 @@ def _with_llm_retry(
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class LLMStreamEvent:
+    """带元数据的流式事件(见 LLMProvider.stream_generate_detailed)。
+
+    text 非空为内容块; usage/finish_reason 在流结束块上(meta 块 text 为空)。
+    """
+
+    text: str = ""
+    finish_reason: str | None = None
+    usage: Mapping[str, int] | None = None
 
 
 @dataclass
@@ -282,6 +294,16 @@ class LLMProvider(ABC):
         """
         resp = await self.generate(request)
         yield resp.content
+
+    async def stream_generate_detailed(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
+        """带元数据(usage/finish_reason)的流式输出。
+
+        2026-08-23: stream_generate 的 AsyncIterator[str] 契约已有很多实现,
+        不动它; 需要把 token 用量带出流(成本记账/OpenAI 流式协议 usage 字段)
+        的 provider 覆盖此方法。默认包装 stream_generate, 无元数据。
+        """
+        async for text in self.stream_generate(request):
+            yield LLMStreamEvent(text=text)
 
     def health_check(self) -> str:
         """Run a health probe.

@@ -266,6 +266,19 @@ class SSOTProviderAdapter(BaseLLMProvider):
 
         req = self._build_request(model, messages, options)
 
+        # 优先带元数据的流(usage/finish_reason); underlying 未覆盖 detailed
+        # 时基类默认包装 stream_generate, 行为不变。
+        detailed = getattr(self._underlying, "stream_generate_detailed", None)
+        if detailed is not None:
+            async for event in detailed(req):
+                yield StreamChunk(
+                    model=model,
+                    content=event.text,
+                    finish_reason=event.finish_reason,
+                    usage=event.usage,
+                )
+            return
+
         async for chunk_text in self._underlying.stream_generate(req):
             yield StreamChunk(
                 model=model,
