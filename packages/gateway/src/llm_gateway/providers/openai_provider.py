@@ -34,15 +34,20 @@ class OpenAIProvider(LLMProvider):
 
     def available_models(self) -> list[str]:
         # 本地端点（localhost/127.0.0.1）和 Tailscale（100.x.x.x）：查询真实模型列表
-        if self.base_url and (
-            any(host in self.base_url for host in ["localhost", "127.0.0.1"]) or self.base_url.startswith("http://100.")
-        ):
+        # 2026-08-23: 公网 OpenAI 兼容聚合网关(openrouter/opencode-go/siliconflow
+        # 等)此前无差别拿到硬编码 gpt 静态清单 —— 对这些网关是错的模型名
+        # (opencode-go 真实清单是 glm/kimi/minimax 系, 29 个)。有真实 api_key
+        # 的远端现在用真实 key 查真实清单; 静态清单只作为查询失败时的回退。
+        if self.base_url:
+            headers = {"Authorization": "Bearer ignore"}
+            if self._api_key and self._api_key != "MOCK_KEY":
+                headers["Authorization"] = f"Bearer {self._api_key}"
             try:
                 import httpx
 
                 resp = httpx.get(
                     f"{self.base_url.rstrip('/')}/models",
-                    headers={"Authorization": "Bearer ignore"},
+                    headers=headers,
                     timeout=5,
                 )
                 if resp.status_code == 200:
@@ -52,7 +57,11 @@ class OpenAIProvider(LLMProvider):
                         return models
             except Exception:
                 pass
-            return [self.default_model]
+            if any(host in self.base_url for host in ["localhost", "127.0.0.1"]) or self.base_url.startswith(
+                "http://100."
+            ):
+                return [self.default_model]
+            return ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
         return ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
 
     def __init__(
