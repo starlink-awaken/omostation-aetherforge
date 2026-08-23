@@ -131,13 +131,24 @@ class AnthropicCompatProvider(LLMProvider):
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
 
+        # Anthropic stop_reason -> OpenAI finish_reason 映射: 透传 "end_turn"
+        # 这类 Anthropic 词汇会穿透到 /v1/chat/completions 响应体, 严格按
+        # OpenAI 协议判 finish_reason 的客户端(如某些 agent 框架只在
+        # "stop"/"length" 上继续)会当成未知值。
+        stop_reason = data.get("stop_reason", "stop")
+        finish_reason = {
+            "end_turn": "stop",
+            "stop_sequence": "stop",
+            "max_tokens": "length",
+            "tool_use": "tool_calls",
+        }.get(stop_reason, "stop")
         return LLMResponse(
             content=content or data.get("content", {}).get("text", ""),
             provider=self._name,
             model=model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            finish_reason=data.get("stop_reason", "stop"),
+            finish_reason=finish_reason,
         )
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
