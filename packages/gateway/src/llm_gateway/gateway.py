@@ -509,6 +509,11 @@ class GatewayConfig:
     warm_pool_ttl: int = 300
     # 健康检查间隔 (秒)
     health_check_interval: int = 60
+    # registry 全量 discover 的节奏(独立于 health_check_interval): 此前
+    # 每个周期都全量刷全部引擎(含 5+ 外网 HTTP), 一分钟一轮与免费池
+    # 速率限制(openrouter 20/min)直接打架, 429 有部分就是 discover 自己
+    # 吃出来的。模型清单变化低频, 5 分钟足够。
+    registry_refresh_interval: int = 300
     # 首次/周期模型发现的单 provider 上限。
     # 2026-08-23: 原为 2.0s(本地 loopback/tailnet 足够, 但实测云端 provider
     # 的真实网络往返经常超时被静默跳过 —— 结合上面两个 404/引擎前缀修复,
@@ -1089,18 +1094,18 @@ class ModelGateway:
         model_id = self._resolve_model_id(resolved)
         if not model_id or self._provider_is_self(model_id):
             raise _StreamUnsupported(resolved)
-        # 已学到"必须关 thinking 才出正文"的模型(聚合路径的 _needs_no_think
-        # 学习成果), 流式直接带上, 省掉注定空产出的首发。
-        extra = (
-            dict(self._config.no_think_param)
-            if model_id in self._needs_no_think and self._config.no_think_param
-            else None
-        )
+        # extra 构造与聚合路径(_generate_via_registry 的 merged_extra)对齐:
+        # no_think 学习成果 + tools/tool_choice 透传 —— 此前流式只带前者,
+        # agent 客户端带工具的流式请求会静默丢掉全部工具定义。
+        extra: dict[str, Any] = {}
+        if model_id in self._needs_no_think and self._config.no_think_param:
+            extra.update(self._config.no_think_param)
+        extra.update(self._agent_fields(request.extra))
         source = self._registry.chat_stream(
             model_id,
             request.messages,
             ChatOptions(
-                temperature=request.temperature, max_tokens=request.max_tokens, stream=True, extra=extra
+                temperature=request.temperature, max_tokens=request.max_tokens, stream=True, extra=extra or None
             ),
         )
         produced = False
@@ -1687,10 +1692,14 @@ class ModelGateway:
                     _log.exception("[ModelGateway] warm pool sweep error")
 
         async def _health_loop() -> None:
+            last_refresh = 0.0
             while True:
                 await asyncio.sleep(self._config.health_check_interval)
                 try:
-                    await self._registry.refresh(self._config.registry_discover_timeout)
+                    now = time.monotonic()
+                    if now - last_refresh >= self._config.registry_refresh_interval:
+                        await self._registry.refresh(self._config.registry_discover_timeout)
+                        last_refresh = now
                     await self.health()
                 except Exception:
                     _log.exception("[ModelGateway] health check error")
