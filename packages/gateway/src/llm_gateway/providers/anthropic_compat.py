@@ -27,6 +27,30 @@ from ..provider import LLMProvider, LLMRequest, LLMResponse
 _log = logging.getLogger(__name__)
 
 
+
+
+def _append_user(messages: list[dict[str, Any]], content: object, as_blocks: bool = False) -> None:
+    """追加 user turn; 与上一条 user 相邻时合并(部分 Anthropic 兼容网关
+    不接受相邻同 role 消息)。"""
+    if messages and messages[-1]["role"] == "user":
+        prev = messages[-1]["content"]
+        blocks = prev if isinstance(prev, list) else ([{"type": "text", "text": prev}] if prev else [])
+        if as_blocks and isinstance(content, list):
+            blocks.extend(content)
+        else:
+            import json as _json
+
+            text = content if isinstance(content, str) else _json.dumps(content, ensure_ascii=False)
+            if text:
+                blocks.append({"type": "text", "text": text})
+        messages[-1]["content"] = blocks
+        return
+    if as_blocks and isinstance(content, list):
+        messages.append({"role": "user", "content": content})
+    else:
+        messages.append({"role": "user", "content": content})
+
+
 class AnthropicCompatProvider(LLMProvider):
     """通用 Anthropic 兼容 API Provider。
 
@@ -100,16 +124,111 @@ class AnthropicCompatProvider(LLMProvider):
             **self._auth_headers(),
         }
 
+    def _convert_messages(self, request: LLMRequest) -> list[dict[str, Any]]:
+        """OpenAI 格式对话历史(context) → Anthropic messages 协议转换。
+
+        2026-08-23 前的严重缺陷: _build_body 只用 prompt 构造单条 user 消息,
+        request.context 整个丢弃 —— Anthropic 系引擎的多轮对话全部失忆,
+        且 assistant 的 tool_calls / role=tool 的工具结果无法回传, agent
+        链路第二轮就断。本方法做完整转换:
+          - assistant.tool_calls → content 里的 tool_use blocks
+          - role=tool → 紧随 user turn 里的 tool_result blocks(Anthropic
+            协议要求; 连续多条 tool 结果合并进同一 user turn)
+          - 连续 user 消息合并(Anthropic 部分兼容网关不接受同 role 相邻)
+        """
+        import json
+
+        messages: list[dict[str, Any]] = []
+
+        def _text(value: object) -> str:
+            if isinstance(value, str):
+                return value
+            if value is None:
+                return ""
+            return json.dumps(value, ensure_ascii=False)
+
+        pending_results: list[dict[str, Any]] = []
+
+        def _flush_results(next_role: str | None, next_content: object = None) -> None:
+            """把积压的 tool_result 合成一个 user turn(或并入下一条 user)。"""
+            nonlocal pending_results
+            if not pending_results:
+                return
+            if next_role == "user":
+                blocks = list(pending_results)
+                text = _text(next_content)
+                if text:
+                    blocks.append({"type": "text", "text": text})
+                messages.append({"role": "user", "content": blocks})
+                pending_results = []
+                # 标记: 消费方需跳过原消息(已并入)
+                _flush_results.consumed_next = True
+            else:
+                messages.append({"role": "user", "content": pending_results})
+                pending_results = []
+
+        _flush_results.consumed_next = False
+
+        for raw in request.context:
+            if not isinstance(raw, dict):
+                continue
+            role = str(raw.get("role") or "user")
+            content = raw.get("content")
+            _flush_results.consumed_next = False
+            if role == "tool":
+                pending_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": str(raw.get("tool_call_id") or raw.get("id") or ""),
+                        "content": _text(content),
+                    }
+                )
+                continue
+            _flush_results(role, content)
+            if _flush_results.consumed_next:
+                continue
+            if role == "assistant":
+                blocks: list[dict[str, Any]] = []
+                text = _text(content)
+                if text:
+                    blocks.append({"type": "text", "text": text})
+                for tc in raw.get("tool_calls") or []:
+                    if not isinstance(tc, dict):
+                        continue
+                    fn = tc.get("function") or {}
+                    try:
+                        args = json.loads(fn.get("arguments") or "{}")
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                    blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": str(tc.get("id") or ""),
+                            "name": str(fn.get("name") or ""),
+                            "input": args,
+                        }
+                    )
+                messages.append({"role": "assistant", "content": blocks or text})
+            else:
+                _append_user(messages, _text(content))
+        # 尾部残留 tool_result
+        if pending_results:
+            _append_user(messages, pending_results, as_blocks=True)
+        # 本轮 prompt(与尾部 user 合并, 避免相邻同 role)
+        _append_user(messages, request.prompt or " ")
+        return messages
+
     def _build_body(self, request: LLMRequest) -> dict[str, Any]:
-        messages = [{"role": "user", "content": request.prompt}]
-        if request.system_prompt:
-            messages.insert(0, {"role": "system", "content": request.system_prompt})
+        messages = self._convert_messages(request)
 
         body: dict[str, Any] = {
             "model": request.model or self._default_model,
             "messages": messages,
             "max_tokens": request.max_tokens,
         }
+        if request.system_prompt:
+            # Anthropic 协议的 system 是顶层参数, 不是 messages 里的角色
+            body["system"] = request.system_prompt
         if request.temperature:
             body["temperature"] = request.temperature
         # extra 里的 tools/tool_choice(OpenAI 协议形状)转换为 Anthropic 格式
