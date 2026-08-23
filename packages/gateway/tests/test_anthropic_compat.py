@@ -106,3 +106,92 @@ async def test_parse_response_empty_content_no_crash() -> None:
     result = p._parse_response({"content": [], "stop_reason": "end_turn"}, "test-model")
     assert result.content == ""
     assert result.finish_reason == "stop"
+
+
+def test_parse_response_tool_use_becomes_openai_tool_calls() -> None:
+    p = _provider()
+    result = p._parse_response(
+        {
+            "content": [
+                {"type": "text", "text": "我需要查天气"},
+                {"type": "tool_use", "id": "toolu_01", "name": "get_weather", "input": {"city": "北京"}},
+            ],
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        },
+        "test-model",
+    )
+    assert result.finish_reason == "tool_calls"
+    assert len(result.tool_calls) == 1
+    tc = result.tool_calls[0]
+    assert tc["id"] == "toolu_01"
+    assert tc["type"] == "function"
+    assert tc["function"]["name"] == "get_weather"
+    assert json.loads(tc["function"]["arguments"]) == {"city": "北京"}
+
+
+def test_build_body_converts_openai_tools_to_anthropic() -> None:
+    p = _provider()
+    req = LLMRequest(
+        prompt="hi",
+        extra={
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "description": "查天气",
+                        "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    )
+    body = p._build_body(req)
+    assert body["tools"] == [
+        {
+            "name": "get_weather",
+            "description": "查天气",
+            "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}},
+        }
+    ]
+    assert body["tool_choice"] == {"type": "auto"}
+
+
+@pytest.mark.asyncio
+async def test_stream_detailed_aggregates_tool_use_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    # 事件行用 json.dumps 构造 —— 手拼转义第一版就拼出了畸形 JSON, 被解析器
+    # 静默跳过导致分片丢失, 白查一轮。
+    events = [
+        json.dumps({"type": "message_start", "message": {"usage": {"input_tokens": 9}}}),
+        json.dumps({"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "toolu_02", "name": "search", "input": {}}}),
+        json.dumps({"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": '{"q":'}}),
+        json.dumps({"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": '"x"}'}}),
+        json.dumps({"type": "content_block_stop", "index": 0}),
+        json.dumps({"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 4}}),
+        json.dumps({"type": "message_stop"}),
+    ]
+    sse = "".join(f"event: e\ndata: {e}\n\n" for e in events)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=sse, headers={"content-type": "text/event-stream"})
+
+    transport = httpx.MockTransport(handler)
+    original_init = httpx.AsyncClient.__init__
+
+    def patched_init(client: httpx.AsyncClient, **kwargs: object) -> None:
+        kwargs["transport"] = transport  # type: ignore[assignment]
+        original_init(client, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_init)
+    events_out = [e async for e in _provider().stream_generate_detailed(LLMRequest(prompt="hi"))]
+    assert len(events_out) == 1  # 无文本块, 只有 meta
+    meta = events_out[0]
+    assert meta.finish_reason == "tool_calls"
+    assert len(meta.tool_calls) == 1
+    assert meta.tool_calls[0]["function"]["name"] == "search"
+    assert json.loads(meta.tool_calls[0]["function"]["arguments"]) == {"q": "x"}
+    assert meta.usage is not None and meta.usage["prompt_tokens"] == 9

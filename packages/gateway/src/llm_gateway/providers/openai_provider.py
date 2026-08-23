@@ -173,6 +173,17 @@ class OpenAIProvider(LLMProvider):
                 input_tokens=resp.usage.prompt_tokens if resp.usage else 0,
                 output_tokens=resp.usage.completion_tokens if resp.usage else 0,
                 finish_reason=choice.finish_reason or "stop",
+                tool_calls=tuple(
+                    {
+                        "id": tc.id or "",
+                        "type": "function",
+                        "function": {
+                            "name": (tc.function.name if tc.function else "") or "",
+                            "arguments": (tc.function.arguments if tc.function else None) or "{}",
+                        },
+                    }
+                    for tc in (choice.message.tool_calls or [])
+                ),
             )
         except Exception as exc:
             _log.error("OpenAIProvider.generate failed: %s", exc)
@@ -228,6 +239,7 @@ class OpenAIProvider(LLMProvider):
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 stream=True,
+                **({"extra_body": request.extra} if request.extra else {}),
             )
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:
@@ -261,6 +273,8 @@ class OpenAIProvider(LLMProvider):
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 stream=True,
+                # extra(tools 等)经 extra_body 顶层合并进请求体, 与 generate 对齐
+                **({"extra_body": request.extra} if request.extra else {}),
             )
             try:
                 stream = await client.chat.completions.create(  # type: ignore[attr-defined]
@@ -273,25 +287,50 @@ class OpenAIProvider(LLMProvider):
                 else:
                     raise
             finish_reason: str | None = None
+            pending_calls: dict[int, dict[str, Any]] = {}
             async for chunk in stream:
                 usage = getattr(chunk, "usage", None)
                 if usage is not None:
                     # include_usage 的最后块: choices 为空, usage 齐全
                     yield LLMStreamEvent(
-                        finish_reason=finish_reason or "stop",
+                        finish_reason="tool_calls" if pending_calls else (finish_reason or "stop"),
                         usage={
                             "prompt_tokens": usage.prompt_tokens or 0,
                             "completion_tokens": usage.completion_tokens or 0,
                             "total_tokens": usage.total_tokens or 0,
                         },
+                        tool_calls=tuple(pending_calls[i] for i in sorted(pending_calls)),
                     )
                     continue
                 if chunk.choices:
                     choice = chunk.choices[0]
                     if choice.finish_reason:
                         finish_reason = choice.finish_reason
-                    if choice.delta and choice.delta.content:
-                        yield LLMStreamEvent(text=choice.delta.content)
+                    delta = choice.delta
+                    if delta and delta.content:
+                        yield LLMStreamEvent(text=delta.content)
+                    if delta and getattr(delta, "tool_calls", None):
+                        # OpenAI 流式工具调用分片: 按 index 聚合, id/name 只在
+                        # 首片带, arguments 增量拼接, 流尾统一吐完整调用。
+                        for tc in delta.tool_calls:
+                            idx = tc.index or 0
+                            entry = pending_calls.setdefault(
+                                idx,
+                                {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
+                            )
+                            if tc.id:
+                                entry["id"] = tc.id
+                            if tc.function and tc.function.name:
+                                entry["function"]["name"] = tc.function.name
+                            if tc.function and tc.function.arguments:
+                                entry["function"]["arguments"] += tc.function.arguments
+            # 降级路径兜底: 网关不认 stream_options(无 usage 终块)时, 聚合中的
+            # 工具调用在流尾统一吐出, 不因降级丢失。
+            if pending_calls:
+                yield LLMStreamEvent(
+                    finish_reason="tool_calls",
+                    tool_calls=tuple(pending_calls[i] for i in sorted(pending_calls)),
+                )
         except Exception as exc:
             _log.error("OpenAIProvider.stream_generate_detailed failed: %s", exc)
             raise
