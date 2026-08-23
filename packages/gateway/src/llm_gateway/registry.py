@@ -178,7 +178,11 @@ class ModelRegistry:
         provider, provider_name = p
         try:
             try:
-                async for chunk in provider.stream(model_id, messages, options):  # type: ignore[attr-defined]
+                # 2026-08-23: 原来调 provider.stream(...) —— BaseLLMProvider 的
+                # 接口是 stream_chat, SSOTProviderAdapter 没有 stream 方法,
+                # 这条流式路径对所有 SSOT 引擎一直 AttributeError 进 circuit
+                # breaker 记失败, 是死链。
+                async for chunk in provider.stream_chat(model_id, messages, options):
                     yield chunk
             except NotImplementedError:
                 result = await provider.chat(model_id, messages, options)

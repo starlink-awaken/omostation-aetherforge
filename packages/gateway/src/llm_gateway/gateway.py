@@ -284,6 +284,10 @@ _ENGINE_PREFERENCE = (
 )
 
 
+class _StreamUnsupported(Exception):
+    """Registry 真流式不适用(本地专属端口模型/未注册名/自指端点), 调用方回退聚合。"""
+
+
 
 def _id_tail(model_id: str) -> str:
     """去掉 `ENG-XXX/` 引擎前缀, 留下模型自己的名字。
@@ -1034,7 +1038,30 @@ class ModelGateway:
                 await close()
 
     async def _generate_legacy_stream(self, request: GatewayRequest) -> AsyncGenerator[OmlxcStreamChunk]:
-        """Rollback-only legacy stream boundary; exactly one legacy inference."""
+        """Legacy stream boundary; 优先 registry 真流式, 回退到聚合单块。
+
+        真流式只覆盖 registry 路径(云端/LM Link 池引擎): provider 层
+        AnthropicCompat/OpenAI 均已支持 SSE 逐块输出。本地 omlx 专属端口
+        模型、registry 未命中的名字、以及首块之前的任何失败, 全部回退到
+        与旧实现语义一致的聚合路径(自带完整 fallback 链)。已吐出内容后
+        的失败无法回退, 如实上抛 —— 与 active 模式 omlxc 流式行为对齐。
+        """
+        stream = self._try_registry_stream(request)
+        emitted = False
+        try:
+            async for chunk in stream:
+                emitted = True
+                yield chunk
+            return
+        except _StreamUnsupported:
+            pass
+        except Exception:
+            if emitted:
+                raise
+            _log.info("[ModelGateway] true-stream unavailable before first chunk, aggregating")
+        finally:
+            await stream.aclose()
+
         response = await self._generate_legacy(request)
         if response.error and not response.content:
             raise OmlxcError(OmlxcErrorCode.UNAVAILABLE)
@@ -1048,6 +1075,32 @@ class ModelGateway:
                 "total_tokens": response.tokens_in + response.tokens_out,
             },
         )
+
+    async def _try_registry_stream(self, request: GatewayRequest) -> AsyncGenerator[OmlxcStreamChunk]:
+        """Registry 引擎的真流式(异步生成器: 所有不支持判断在首个 __anext__ 冒出)。"""
+        logical = request.model or self._business_model(request)
+        resolved = self.resolve_alias(logical)
+        if resolved in self._config.model_ports:
+            # 本地 omlx 专属端口走 ensure+直连(A 分支), 不属于 registry 流式。
+            raise _StreamUnsupported(resolved)
+        model_id = self._resolve_model_id(resolved)
+        if not model_id or self._provider_is_self(model_id):
+            raise _StreamUnsupported(resolved)
+        source = self._registry.chat_stream(
+            model_id,
+            request.messages,
+            ChatOptions(temperature=request.temperature, max_tokens=request.max_tokens, stream=True),
+        )
+        finish_emitted = False
+        async for chunk in source:
+            if not chunk.content and chunk.finish_reason is None:
+                continue
+            yield OmlxcStreamChunk(content=chunk.content, model=logical, finish_reason=chunk.finish_reason)
+            if chunk.finish_reason:
+                finish_emitted = True
+        if not finish_emitted:
+            # provider 基类默认实现(一-shot)不带 finish_reason, 补上终止块。
+            yield OmlxcStreamChunk(model=logical, finish_reason="stop")
 
     @staticmethod
     async def _relay_stream(

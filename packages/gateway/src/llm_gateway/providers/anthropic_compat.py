@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 from ..provider import LLMProvider, LLMRequest, LLMResponse
@@ -143,13 +144,55 @@ class AnthropicCompatProvider(LLMProvider):
             "tool_use": "tool_calls",
         }.get(stop_reason, "stop")
         return LLMResponse(
-            content=content or data.get("content", {}).get("text", ""),
+            # 2026-08-23 修复: 原 fallback 是 data.get("content", {}).get("text", "")
+            # —— Anthropic 响应的 content 是 block 数组(list), 一旦拼接结果为空
+            # (空 content 响应, 如限流/异常路径), 对 list 调 .get 直接
+            # AttributeError 把 provider 炸掉, 掩盖真实响应状态。
+            content=content,
             provider=self._name,
             model=model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             finish_reason=finish_reason,
         )
+
+    async def stream_generate(self, request: LLMRequest) -> AsyncIterator[str]:
+        """真流式: Anthropic Messages SSE (content_block_delta 逐 token 透传)。
+
+        此前继承基类默认(非流式 generate 聚合后一次性吐), 走 Anthropic 协议
+        的全部引擎(deepseek/longcat/火山/minimax/zhipu 等)流式 TTFT 等于
+        整个生成时长。SSE 解析只认 text_delta, 其余事件(message_start/
+        message_delta/usage)按需后续扩展。
+        """
+        import json
+
+        import httpx
+
+        body = self._build_body(request)
+        body["stream"] = True
+        async with httpx.AsyncClient(timeout=120) as client:
+            async with client.stream(
+                "POST",
+                f"{self._base_url}/messages",
+                headers=self._build_headers(),
+                json=body,
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if not payload or payload == "[DONE]":
+                        continue
+                    try:
+                        event = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(event, dict) or event.get("type") != "content_block_delta":
+                        continue
+                    delta = event.get("delta")
+                    if isinstance(delta, dict) and delta.get("type") == "text_delta" and delta.get("text"):
+                        yield str(delta["text"])
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
         import httpx
