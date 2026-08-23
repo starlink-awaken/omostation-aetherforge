@@ -416,9 +416,27 @@ class CredentialsManager:
         weight: int = 100,
         note: str = "",
     ) -> None:
-        """Add an API key for a provider."""
+        """Add an API key for a provider.
+
+        Idempotent on (provider, api_key): re-adding the same pair updates its
+        metadata in place instead of inserting a duplicate row. 2026-08-23:
+        import_from_cc_switch() calls this unconditionally on every gateway
+        start with no de-dup, which had produced 748 duplicate rows for a
+        single kimi_for_coding key over ~2 months of restarts before this was
+        caught by chance while debugging an unrelated routing issue.
+        """
         with self._lock:
             with _get_connection(self._db_path) as conn:
+                existing = conn.execute(
+                    "SELECT id FROM credentials WHERE provider = ? AND api_key = ?",
+                    (provider, api_key),
+                ).fetchone()
+                if existing is not None:
+                    conn.execute(
+                        "UPDATE credentials SET base_url = ?, weight = ?, note = ?, is_active = 1 WHERE id = ?",
+                        (base_url, weight, note, existing[0]),
+                    )
+                    return
                 conn.execute(
                     """INSERT INTO credentials
                        (provider, api_key, base_url, weight, is_active, note, created_at)
