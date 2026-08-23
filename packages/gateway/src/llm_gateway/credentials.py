@@ -478,8 +478,12 @@ class CredentialsManager:
 
         dead: dict[str, int] = {}
         with _get_connection(self._db_path) as conn:
+            # 2026-08-23: 从"仅多 key provider"扩展为全量 —— 单 key 过期(如
+            # kimi)同样 401 判死; 死 key 出局后 get_key 返回 None, provider
+            # is_available 转 False, discover 不再注册该引擎模型(见
+            # SSOTProviderAdapter.discover 准入), scheduler 不再选中死模型。
             rows = conn.execute(
-                "SELECT provider, api_key, base_url FROM credentials GROUP BY provider HAVING COUNT(*) > 1"
+                "SELECT DISTINCT provider, api_key, base_url FROM credentials WHERE is_active = 1"
             ).fetchall()
         for provider, api_key, base_url in rows:
             if not base_url:
@@ -497,6 +501,24 @@ class CredentialsManager:
                 # 曾被标死的 key 复验通过则复活(自动恢复)
                 self.mark_key_active(str(provider), str(api_key), active=True)
         return dead
+
+    def budget_blocked(self, provider: str) -> bool:
+        """该凭据名是否已超月预算且动作为 block(请求路径轻量查询, 不走 codexbar)。
+
+        codexbar 遗产的"预算拦截"此前从未接线: budgets 表有配置(如
+        deepseek 月限 $50/block)但无任何请求路径读取它 —— 超支无保护。
+        """
+        with self._lock:
+            with _get_connection(self._db_path) as conn:
+                row = conn.execute(
+                    "SELECT monthly_limit, month_spend FROM budgets "
+                    "WHERE provider = ? AND action = 'block'",
+                    (provider,),
+                ).fetchone()
+        if not row:
+            return False
+        limit, spend = row
+        return bool(limit) and (spend or 0.0) >= float(limit)
 
     def get_key(self, provider: str) -> str | None:
         """Get an API key for *provider*, with weighted random selection.

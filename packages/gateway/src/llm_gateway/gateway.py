@@ -1094,6 +1094,7 @@ class ModelGateway:
         model_id = self._resolve_model_id(resolved)
         if not model_id or self._provider_is_self(model_id):
             raise _StreamUnsupported(resolved)
+        self._budget_guard(model_id)
         # extra 构造与聚合路径(_generate_via_registry 的 merged_extra)对齐:
         # no_think 学习成果 + tools/tool_choice 透传 —— 此前流式只带前者,
         # agent 客户端带工具的流式请求会静默丢掉全部工具定义。
@@ -1152,6 +1153,7 @@ class ModelGateway:
             cost=0.0,  # 与聚合路径一致(cost_usd 从未参与计算, 恒 0)
             tokens=int((final_usage or {}).get("total_tokens") or 0),
         )
+        self._record_cloud_usage(model_id, final_usage)
         yield OmlxcStreamChunk(
             model=logical,
             finish_reason="tool_calls" if final_tool_calls else (final_reason or "stop"),
@@ -1279,6 +1281,49 @@ class ModelGateway:
 
         raise RuntimeError(f"Model {model_name} not in registry")
 
+    @staticmethod
+    def _cred_token_for(model_id: str) -> str:
+        """引擎 ID → 凭据名 token(与 _PROVIDER_ALIASES 同规则)。"""
+        return model_id.partition("/")[0].replace("ENG-", "").split("-")[0].lower()
+
+    def _budget_guard(self, model_id: str) -> None:
+        """预算拦截(codexbar 遗产接线): 超月限且 action=block 则拒绝。
+
+        budgets 表此前有配置无执行 —— 超支无保护。抛 RuntimeError 进
+        fallback 链换下一个模型, 与其它失败同路径。
+        """
+        try:
+            from .credentials import CredentialsManager
+
+            if CredentialsManager().budget_blocked(self._cred_token_for(model_id)):
+                raise RuntimeError(f"{model_id}: monthly budget exhausted (block)")
+        except RuntimeError:
+            raise
+        except Exception:
+            return  # 预算系统故障不挡请求(记账缺失≠拒绝服务)
+
+    def _record_cloud_usage(self, model_id: str, usage: Mapping[str, int] | None) -> None:
+        """云端调用记账: usage_log + month_spend 累计(PricingRegistry 定价)。
+
+        record_usage 方法自创建以来零调用 —— usage_log 空表, month_spend
+        恒 0, 预算拦截永远无数据可依。
+        """
+        try:
+            from .budget import estimate_cost
+            from .credentials import CredentialsManager
+
+            tokens_in = int((usage or {}).get("prompt_tokens") or 0)
+            tokens_out = int((usage or {}).get("completion_tokens") or 0)
+            CredentialsManager().record_usage(
+                self._cred_token_for(model_id),
+                estimate_cost(model_id, tokens_in, tokens_out),
+                model=model_id,
+                tokens_input=tokens_in,
+                tokens_output=tokens_out,
+            )
+        except Exception:
+            return  # 记账失败不影响请求
+
     async def _generate_via_registry(
         self,
         model_id: str,
@@ -1286,6 +1331,7 @@ class ModelGateway:
         request: GatewayRequest,
         t0: float,
     ) -> GatewayResponse:
+        self._budget_guard(model_id)
         """经 registry/provider 链生成。display_name 是消费者原本要的名字。"""
 
         async def _call(max_tokens: int | None, extra: dict | None = None):
@@ -1369,6 +1415,7 @@ class ModelGateway:
         provider = self._registry.get_provider(model_id)
         provider_name = provider.name if provider else ""
 
+        self._record_cloud_usage(model_id, usage)
         return GatewayResponse(
             content=stripped,
             model=display_name,

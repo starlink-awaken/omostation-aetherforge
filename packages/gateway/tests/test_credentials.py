@@ -81,3 +81,26 @@ def test_sync_credentials_hot_swaps_key_and_resets_cached_clients(monkeypatch) -
 
     assert adapter._underlying._api_key == "new-key"
     assert adapter._underlying._async_client is None  # 旧 key 的 client 已重置
+
+
+def test_budget_blocked_matches_config_and_boundary(tmp_path: Path) -> None:
+    """预算拦截查询: 超限且 action=block 才拦; 未配置/未超/动作非 block 均放行。"""
+    cm = _manager(tmp_path)
+    # 未配置: 放行
+    assert cm.budget_blocked("nobody") is False
+    with _get_connection(tmp_path / "credentials.db") as conn:
+        conn.execute(
+            "INSERT INTO budgets (provider, monthly_limit, action, month, month_spend) VALUES (?, ?, ?, ?, ?)",
+            ("paid-provider", 50.0, "block", "2026-08", 50.0),  # 恰好触顶
+        )
+        conn.execute(
+            "INSERT INTO budgets (provider, monthly_limit, action, month, month_spend) VALUES (?, ?, ?, ?, ?)",
+            ("warn-provider", 50.0, "warn", "2026-08", 99.0),  # 超了但只 warn
+        )
+        conn.execute(
+            "INSERT INTO budgets (provider, monthly_limit, action, month, month_spend) VALUES (?, ?, ?, ?, ?)",
+            ("ok-provider", 50.0, "block", "2026-08", 12.0),  # 未超
+        )
+    assert cm.budget_blocked("paid-provider") is True
+    assert cm.budget_blocked("warn-provider") is False
+    assert cm.budget_blocked("ok-provider") is False

@@ -166,6 +166,11 @@ class SSOTProviderAdapter(BaseLLMProvider):
 
     async def discover(self) -> list[ModelDescriptor]:
         """Discover models: use M1 model defs first, fall back to underlying API."""
+        # 准入闸: 凭据无效(如单 key 过期被复验判死)的引擎不注册任何模型
+        # —— 静态 model_defs 会让死 key 引擎的模型永远留在 registry 被
+        # scheduler 反复选中(实测 k2p5: 过期 key 每轮 401 白烧一次)。
+        if self._underlying is None or not self._underlying.is_available():
+            return []
         if self._model_defs:
             descriptors = []
             for m in self._model_defs:
@@ -243,6 +248,13 @@ class SSOTProviderAdapter(BaseLLMProvider):
         """
         cred = _get_credentials_for(self._cred_token)
         if not cred or not cred.get("api_key"):
+            # 凭据彻底出局(全部 key 被判死): 清空底层 key 让 is_available
+            # 转 False, discover 停止注册该引擎的模型(死引擎退出调度视野)。
+            if self._underlying is not None and getattr(self._underlying, "_api_key", ""):
+                self._underlying._api_key = ""
+                for attr in ("_client", "_async_client"):
+                    if hasattr(self._underlying, attr):
+                        setattr(self._underlying, attr, None)
             return
         if cred["api_key"] == (self._credentials or {}).get("api_key"):
             return
