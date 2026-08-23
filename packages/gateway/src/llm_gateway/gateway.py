@@ -1106,20 +1106,39 @@ class ModelGateway:
         produced = False
         final_reason: str | None = None
         final_usage: Mapping[str, int] | None = None
-        async for chunk in source:
-            if chunk.content:
-                produced = True
-                yield OmlxcStreamChunk(content=chunk.content, model=logical)
-            elif chunk.finish_reason or chunk.usage:
-                # meta 块(detailed 流的结束块): 记住 finish_reason/usage,
-                # 统一在终止块吐出 —— 成本记账与 OpenAI 流式 usage 靠它。
-                final_reason = chunk.finish_reason
-                final_usage = chunk.usage
+        t0 = time.time()
+        try:
+            async for chunk in source:
+                if chunk.content:
+                    produced = True
+                    yield OmlxcStreamChunk(content=chunk.content, model=logical)
+                elif chunk.finish_reason or chunk.usage:
+                    # meta 块(detailed 流的结束块): 记住 finish_reason/usage,
+                    # 统一在终止块吐出 —— 成本记账与 OpenAI 流式 usage 靠它。
+                    final_reason = chunk.finish_reason
+                    final_usage = chunk.usage
+        except Exception:
+            if produced:
+                # 已吐内容的失败无法回退(调用方会如实上抛), 记一次健康失败,
+                # 与聚合路径 _try_generate 的异常分支对齐。
+                self._health_failures[logical] = self._health_failures.get(logical, 0) + 1
+            raise
         if not produced:
             # 全部预算耗在 thinking 段(text_delta 零产出, LongCat-2.0 默认开
             # 思考时实测如此) —— 抛回退信号, 让聚合路径(自带关-thinking 重试
             # 链)接管; 此时尚未 yield 任何块, 调用方 emitted=False 可安全回退。
             raise _StreamUnsupported(f"{model_id}: stream produced no content")
+        # 记账三件套(与聚合路径成功分支对齐): 此前真流式从未经过
+        # record_generation / _last_used / 健康重置 —— metrics 对流式请求
+        # 完全失明, warm-pool 也看不到流式模型在用。
+        self._last_used[logical] = time.time()
+        self._health_failures.pop(logical, None)
+        self._metrics.record_generation(
+            model=logical,
+            latency_ms=(time.time() - t0) * 1000,
+            cost=0.0,  # 与聚合路径一致(cost_usd 从未参与计算, 恒 0)
+            tokens=int((final_usage or {}).get("total_tokens") or 0),
+        )
         yield OmlxcStreamChunk(model=logical, finish_reason=final_reason or "stop", usage=final_usage)
 
     @staticmethod
