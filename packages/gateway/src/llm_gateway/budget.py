@@ -46,9 +46,24 @@ def get_remaining_budget() -> float | None:
 
 
 def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float:
-    """Estimate cost using the new PricingRegistry."""
+    """Estimate cost using the new PricingRegistry.
+
+    2026-08-23 修复: model_id 是网关内部的完整限定形式
+    (如 "ENG-DEEPSEEK-CLOUD/deepseek-chat"), 但 PricingRegistry 从
+    MODEL-BREW yaml 加载时按 "{短provider名}/{裸model_id}" 建索引
+    (如 "deepseek/deepseek-chat") —— 直接传全限定 id 且不给 provider,
+    精确匹配和后缀匹配都对不上, get_price 恒返回 None。实测: deepseek
+    等已有真实定价数据的 provider, estimate_cost 一直恒 0, budgets 表
+    的月限配置形同虚设。拆分规则与 ssot_loader._get_credentials_for
+    推导 provider 短名一致(engine_ref 去 ENG- 前缀取第一段小写)。
+    """
     registry = PricingRegistry()
-    price = registry.get_price(model_id)
+    provider = ""
+    bare_model_id = model_id
+    if "/" in model_id:
+        engine_part, bare_model_id = model_id.split("/", 1)
+        provider = engine_part.replace("ENG-", "").split("-")[0].lower()
+    price = registry.get_price(bare_model_id, provider=provider) or registry.get_price(model_id)
     if not price:
         return 0.0
 

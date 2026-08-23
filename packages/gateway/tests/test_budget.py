@@ -31,6 +31,22 @@ class TestEstimateCost:
         cost = estimate_cost("nonexistent-model-xyz", input_tokens=1000, output_tokens=500)
         assert cost == 0.0
 
+    def test_estimate_cost_resolves_fully_qualified_engine_id(self):
+        """网关内部传的是 "ENG-XXX-CLOUD/model" 全限定形式, 此前不拆分/不带
+        provider 精确匹配, PricingRegistry(按"{短provider}/{裸model}"建索引)
+        恒对不上 —— deepseek 等真实计费 provider 的 estimate_cost 一直恒 0,
+        budgets 表月限配置形同虚设(2026-08-23 实测发现)。"""
+        cost = estimate_cost("ENG-DEEPSEEK-CLOUD/deepseek-chat", input_tokens=1000, output_tokens=500)
+        # deepseek-chat: cost_per_1k_input=0.00014, cost_per_1k_output=0.00028
+        assert cost == pytest.approx(1000 / 1000 * 0.00014 + 500 / 1000 * 0.00028)
+
+    def test_estimate_cost_free_tier_engine_stays_zero(self):
+        """免费层/扁平订阅引擎(longcat/opencode-go 等 cost_multiplier=0, SSOT
+        明确标注)本来就该是 0 成本 —— 修复不能把"真实无定价数据"和"设计上
+        免费"这两种情况混为一谈, 免费引擎不该被误判出非零成本。"""
+        cost = estimate_cost("ENG-LONGCAT-CLOUD/LongCat-2.0", input_tokens=1000, output_tokens=500)
+        assert cost == 0.0
+
 
 class TestCheckBudgetLimit:
     def test_budget_not_exceeded(self):
