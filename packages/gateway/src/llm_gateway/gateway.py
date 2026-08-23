@@ -1111,17 +1111,25 @@ class ModelGateway:
         produced = False
         final_reason: str | None = None
         final_usage: Mapping[str, int] | None = None
+        final_tool_calls: tuple[Mapping[str, object], ...] = ()
         t0 = time.time()
         try:
             async for chunk in source:
                 if chunk.content:
                     produced = True
                     yield OmlxcStreamChunk(content=chunk.content, model=logical)
+                elif chunk.tool_calls:
+                    # 纯工具调用响应没有文本块: tool_calls 是有效产出 —— 不计
+                    # 入 produced 判定会被误判空产出而回退聚合。
+                    produced = True
+                    final_tool_calls = tuple(chunk.tool_calls)
                 elif chunk.finish_reason or chunk.usage:
                     # meta 块(detailed 流的结束块): 记住 finish_reason/usage,
                     # 统一在终止块吐出 —— 成本记账与 OpenAI 流式 usage 靠它。
                     final_reason = chunk.finish_reason
                     final_usage = chunk.usage
+                    if chunk.tool_calls:
+                        final_tool_calls = tuple(chunk.tool_calls)
         except Exception:
             if produced:
                 # 已吐内容的失败无法回退(调用方会如实上抛), 记一次健康失败,
@@ -1144,7 +1152,12 @@ class ModelGateway:
             cost=0.0,  # 与聚合路径一致(cost_usd 从未参与计算, 恒 0)
             tokens=int((final_usage or {}).get("total_tokens") or 0),
         )
-        yield OmlxcStreamChunk(model=logical, finish_reason=final_reason or "stop", usage=final_usage)
+        yield OmlxcStreamChunk(
+            model=logical,
+            finish_reason="tool_calls" if final_tool_calls else (final_reason or "stop"),
+            usage=final_usage,
+            tool_calls=final_tool_calls,
+        )
 
     @staticmethod
     async def _relay_stream(
@@ -1363,6 +1376,7 @@ class ModelGateway:
             provider=provider_name,
             stripped_thinking=was_stripped,
             finish_reason=result.finish_reason or "stop",
+            tool_calls=tuple(result.tool_calls or ()),
         )
 
     def _lmstudio_fallback(self, local_key: str) -> str | None:

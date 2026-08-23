@@ -253,6 +253,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
                 "prompt_tokens": resp.input_tokens,
                 "completion_tokens": resp.output_tokens,
             },
+            tool_calls=tuple(dict(tc) for tc in resp.tool_calls),
         )
 
     async def stream_chat(
@@ -276,6 +277,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
                     content=event.text,
                     finish_reason=event.finish_reason,
                     usage=event.usage,
+                    tool_calls=tuple(dict(tc) for tc in event.tool_calls),
                 )
             return
 

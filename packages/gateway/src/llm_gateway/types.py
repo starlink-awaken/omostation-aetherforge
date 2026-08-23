@@ -34,6 +34,8 @@ class ChatResult:
     content: str = ""
     finish_reason: str = "stop"
     usage: dict[str, int] | None = None
+    # OpenAI 协议形状的工具调用, 空 tuple 表示无。
+    tool_calls: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass
@@ -47,6 +49,8 @@ class StreamChunk:
     # 2026-08-23: 流结束块可带 token 用量(provider 层 detailed 流透传),
     # 默认 None 向后兼容 —— 此前真流式路径完全不带 usage, 成本记账失真。
     usage: dict[str, int] | None = None
+    # 聚合完成的工具调用(OpenAI 协议形状), provider 层块级聚合后吐出。
+    tool_calls: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass

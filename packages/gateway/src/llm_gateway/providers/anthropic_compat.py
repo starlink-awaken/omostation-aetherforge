@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from ..provider import LLMProvider, LLMRequest, LLMResponse
@@ -112,6 +112,25 @@ class AnthropicCompatProvider(LLMProvider):
         }
         if request.temperature:
             body["temperature"] = request.temperature
+        # extra 里的 tools/tool_choice(OpenAI 协议形状)转换为 Anthropic 格式
+        # —— 此前 extra 被整个丢弃, 工具定义到不了引擎, agent 链路断裂。
+        if request.extra:
+            tools = request.extra.get("tools")
+            if isinstance(tools, list) and tools:
+                body["tools"] = [
+                    {
+                        "name": str((t.get("function") or {}).get("name") or ""),
+                        "description": str((t.get("function") or {}).get("description") or ""),
+                        "input_schema": (t.get("function") or {}).get("parameters") or {"type": "object"},
+                    }
+                    for t in tools
+                    if isinstance(t, dict)
+                ]
+            choice = request.extra.get("tool_choice")
+            if choice == "auto":
+                body["tool_choice"] = {"type": "auto"}
+            elif isinstance(choice, dict) and (choice.get("function") or {}).get("name"):
+                body["tool_choice"] = {"type": "tool", "name": choice["function"]["name"]}
         return body
 
     def _parse_response(self, data: dict[str, Any], model: str) -> LLMResponse:
@@ -119,11 +138,29 @@ class AnthropicCompatProvider(LLMProvider):
         input_tokens = 0
         output_tokens = 0
 
+        tool_calls: list[Mapping[str, Any]] = []
         content_blocks = data.get("content", [])
         if isinstance(content_blocks, list):
             for block in content_blocks:
-                if isinstance(block, dict) and block.get("type") == "text":
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "text":
                     content += block.get("text", "")
+                elif block.get("type") == "tool_use":
+                    # Anthropic tool_use block -> OpenAI 协议形状; input 是已
+                    # 解析的对象, arguments 序列化回字符串(OpenAI 协议约定)。
+                    import json
+
+                    tool_calls.append(
+                        {
+                            "id": str(block.get("id") or ""),
+                            "type": "function",
+                            "function": {
+                                "name": str(block.get("name") or ""),
+                                "arguments": json.dumps(block.get("input") or {}, ensure_ascii=False),
+                            },
+                        }
+                    )
         else:
             content = str(content_blocks)
 
@@ -154,6 +191,7 @@ class AnthropicCompatProvider(LLMProvider):
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             finish_reason=finish_reason,
+            tool_calls=tuple(tool_calls),
         )
 
     async def stream_generate(self, request: LLMRequest) -> AsyncIterator[str]:
@@ -212,6 +250,8 @@ class AnthropicCompatProvider(LLMProvider):
         input_tokens = 0
         output_tokens = 0
         finish_reason: str | None = None
+        pending_tools: dict[int, dict[str, Any]] = {}
+        tool_calls: list[Mapping[str, Any]] = []
         async with httpx.AsyncClient(timeout=120) as client:
             async with client.stream(
                 "POST",
@@ -237,6 +277,33 @@ class AnthropicCompatProvider(LLMProvider):
                         delta = event.get("delta")
                         if isinstance(delta, dict) and delta.get("type") == "text_delta" and delta.get("text"):
                             yield LLMStreamEvent(text=str(delta["text"]))
+                        elif (
+                            isinstance(delta, dict)
+                            and delta.get("type") == "input_json_delta"
+                            and event.get("index") in pending_tools
+                        ):
+                            pending_tools[int(event["index"])]["json"] += str(delta.get("partial_json") or "")
+                    elif kind == "content_block_start":
+                        block = event.get("content_block")
+                        if isinstance(block, dict) and block.get("type") == "tool_use":
+                            # 工具调用块开始: 记 id/name, arguments 分片在后续
+                            # input_json_delta 里增量到达, content_block_stop 时聚合完成。
+                            pending_tools[int(event.get("index") or 0)] = {
+                                "id": str(block.get("id") or ""),
+                                "name": str(block.get("name") or ""),
+                                "json": "",
+                            }
+                    elif kind == "content_block_stop":
+                        idx = event.get("index")
+                        if idx in pending_tools:
+                            spec = pending_tools.pop(int(idx))
+                            tool_calls.append(
+                                {
+                                    "id": spec["id"],
+                                    "type": "function",
+                                    "function": {"name": spec["name"], "arguments": spec["json"] or "{}"},
+                                }
+                            )
                     elif kind == "message_start":
                         message = event.get("message")
                         if isinstance(message, dict):
@@ -259,10 +326,20 @@ class AnthropicCompatProvider(LLMProvider):
                             # input_tokens 在 message_delta 里一并给出(实测)。
                             if usage.get("input_tokens"):
                                 input_tokens = int(usage["input_tokens"])
+        # 异常容错: content_block_stop 未到的残留 pending 一并补齐
+        for spec in pending_tools.values():
+            tool_calls.append(
+                {
+                    "id": spec["id"],
+                    "type": "function",
+                    "function": {"name": spec["name"], "arguments": spec["json"] or "{}"},
+                }
+            )
         yield LLMStreamEvent(
-            finish_reason=finish_reason or "stop",
+            finish_reason="tool_calls" if tool_calls else (finish_reason or "stop"),
             usage={"prompt_tokens": input_tokens, "completion_tokens": output_tokens,
                    "total_tokens": input_tokens + output_tokens},
+            tool_calls=tuple(tool_calls),
         )
 
     async def generate(self, request: LLMRequest) -> LLMResponse:

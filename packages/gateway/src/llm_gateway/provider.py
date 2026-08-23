@@ -134,6 +134,8 @@ class LLMStreamEvent:
     text: str = ""
     finish_reason: str | None = None
     usage: Mapping[str, int] | None = None
+    # 聚合完成的工具调用(OpenAI 协议形状), 随流的 meta 块或独立块吐出。
+    tool_calls: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass
@@ -205,6 +207,9 @@ class LLMResponse:
     output_tokens: int = 0
     finish_reason: str = "stop"
     metadata: dict[str, Any] = field(default_factory=dict)
+    # OpenAI 协议形状的工具调用({"id","type","function":{"name","arguments"}}),
+    # 空 tuple 表示无工具调用。2026-08-23: agent 工具链路响应方向贯通。
+    tool_calls: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass
