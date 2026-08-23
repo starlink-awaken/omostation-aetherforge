@@ -65,6 +65,41 @@ async def test_stream_generate_yields_only_text_deltas_in_order(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
+async def test_stream_detailed_carries_usage_and_finish(monkeypatch: pytest.MonkeyPatch) -> None:
+    """detailed 流: 文本块 + 结束块带 usage(prompt/completion/total)与 finish_reason。"""
+    import httpx
+
+    body_events = [
+        '{"type":"message_start","message":{"usage":{"input_tokens":16}}}',
+        '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"你"}}',
+        '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"好"}}',
+        '{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}',
+        '{"type":"message_stop"}',
+    ]
+    sse = "".join(f"event: e\ndata: {e}\n\n" for e in body_events)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=sse, headers={"content-type": "text/event-stream"})
+
+    transport = httpx.MockTransport(handler)
+    original_init = httpx.AsyncClient.__init__
+
+    def patched_init(client: httpx.AsyncClient, **kwargs: object) -> None:
+        kwargs["transport"] = transport  # type: ignore[assignment]
+        original_init(client, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_init)
+    from llm_gateway.provider import LLMRequest
+
+    events = [e async for e in _provider().stream_generate_detailed(LLMRequest(prompt="hi"))]
+    assert [(e.text, e.finish_reason, e.usage) for e in events] == [
+        ("你", None, None),
+        ("好", None, None),
+        ("", "stop", {"prompt_tokens": 16, "completion_tokens": 7, "total_tokens": 23}),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_parse_response_empty_content_no_crash() -> None:
     """空 content 数组(限流/异常路径)不得 AttributeError —— 2026-08-23 真实故障。"""
     p = _provider()

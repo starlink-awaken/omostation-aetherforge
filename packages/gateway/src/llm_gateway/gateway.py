@@ -1104,21 +1104,23 @@ class ModelGateway:
             ),
         )
         produced = False
-        finish_emitted = False
+        final_reason: str | None = None
+        final_usage: Mapping[str, int] | None = None
         async for chunk in source:
             if chunk.content:
                 produced = True
                 yield OmlxcStreamChunk(content=chunk.content, model=logical)
-            elif chunk.finish_reason:
-                finish_emitted = True  # 终止块延后统一吐, 给空产出回退留余地
+            elif chunk.finish_reason or chunk.usage:
+                # meta 块(detailed 流的结束块): 记住 finish_reason/usage,
+                # 统一在终止块吐出 —— 成本记账与 OpenAI 流式 usage 靠它。
+                final_reason = chunk.finish_reason
+                final_usage = chunk.usage
         if not produced:
             # 全部预算耗在 thinking 段(text_delta 零产出, LongCat-2.0 默认开
             # 思考时实测如此) —— 抛回退信号, 让聚合路径(自带关-thinking 重试
             # 链)接管; 此时尚未 yield 任何块, 调用方 emitted=False 可安全回退。
             raise _StreamUnsupported(f"{model_id}: stream produced no content")
-        if not finish_emitted:
-            # 真流式 provider 只吐 text 不带 finish —— 补终止块。
-            yield OmlxcStreamChunk(model=logical, finish_reason="stop")
+        yield OmlxcStreamChunk(model=logical, finish_reason=final_reason or "stop", usage=final_usage)
 
     @staticmethod
     async def _relay_stream(
