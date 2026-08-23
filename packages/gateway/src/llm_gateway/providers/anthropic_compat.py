@@ -255,6 +255,10 @@ class AnthropicCompatProvider(LLMProvider):
                         usage = event.get("usage")
                         if isinstance(usage, dict):
                             output_tokens = int(usage.get("output_tokens") or 0)
+                            # longcat 等兼容实现 message_start.usage 为空, 真实
+                            # input_tokens 在 message_delta 里一并给出(实测)。
+                            if usage.get("input_tokens"):
+                                input_tokens = int(usage["input_tokens"])
         yield LLMStreamEvent(
             finish_reason=finish_reason or "stop",
             usage={"prompt_tokens": input_tokens, "completion_tokens": output_tokens,
