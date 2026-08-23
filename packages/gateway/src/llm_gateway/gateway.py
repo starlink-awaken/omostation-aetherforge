@@ -1078,6 +1078,9 @@ class ModelGateway:
 
     async def _try_registry_stream(self, request: GatewayRequest) -> AsyncGenerator[OmlxcStreamChunk]:
         """Registry 引擎的真流式(异步生成器: 所有不支持判断在首个 __anext__ 冒出)。"""
+        # 懒 discover 与 _generate_legacy 同规: 没这一步, 重启后首个流式
+        # 请求会因 registry 为空查无此模型而静默回退聚合(实测踩过)。
+        await self._ensure_registry_ready()
         logical = request.model or self._business_model(request)
         resolved = self.resolve_alias(logical)
         if resolved in self._config.model_ports:
