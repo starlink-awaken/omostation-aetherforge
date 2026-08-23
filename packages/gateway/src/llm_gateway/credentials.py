@@ -451,6 +451,53 @@ class CredentialsManager:
                 conn.execute("DELETE FROM credentials WHERE provider = ? AND api_key = ?", (provider, api_key))
                 return conn.total_changes > 0
 
+    def mark_key_active(self, provider: str, api_key: str, active: bool) -> bool:
+        """标记某个 key 的存活状态(401 验证死/复验活)。
+
+        get_key 只在 is_active=1 的行里选, 死 key 标 0 后自动出局。
+        返回是否有行被更新。
+        """
+        with self._lock:
+            with _get_connection(self._db_path) as conn:
+                conn.execute(
+                    "UPDATE credentials SET is_active = ? WHERE provider = ? AND api_key = ?",
+                    (1 if active else 0, provider, api_key),
+                )
+                return conn.total_changes > 0
+
+    def reverify_provider_keys(self, timeout: float = 8.0) -> dict[str, int]:
+        """对所有多 key provider 逐 key 验证(GET base_url/models), 标活/死。
+
+        判定保守: 仅 401/403 判死(明确凭据失效), 200 且清单非空判活,
+        其余(404/超时/网络错)不动 —— 网关没实现 models 端点或暂时网络
+        问题不该淘汰可能好的 key。单 key provider 的 key 死活由真实请求
+        的 401 反馈处理(此处验也会因无对照而无收益)。
+        返回 {provider: dead_count}。
+        """
+        import httpx
+
+        dead: dict[str, int] = {}
+        with _get_connection(self._db_path) as conn:
+            rows = conn.execute(
+                "SELECT provider, api_key, base_url FROM credentials GROUP BY provider HAVING COUNT(*) > 1"
+            ).fetchall()
+        for provider, api_key, base_url in rows:
+            if not base_url:
+                continue
+            url = f"{str(base_url).rstrip('/')}/models"
+            try:
+                resp = httpx.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout)
+            except Exception:
+                continue
+            if resp.status_code in (401, 403):
+                if self.mark_key_active(str(provider), str(api_key), active=False):
+                    dead[str(provider)] = dead.get(str(provider), 0) + 1
+                    _log.warning("credential disabled: %s key failed auth (401/403)", provider)
+            elif resp.status_code == 200:
+                # 曾被标死的 key 复验通过则复活(自动恢复)
+                self.mark_key_active(str(provider), str(api_key), active=True)
+        return dead
+
     def get_key(self, provider: str) -> str | None:
         """Get an API key for *provider*, with weighted random selection.
 

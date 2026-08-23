@@ -131,7 +131,8 @@ class SSOTProviderAdapter(BaseLLMProvider):
         self._underlying = None
 
         # Try to inject credentials from CredentialsManager
-        cred = _get_credentials_for(self._name.replace("ENG-", "").split("-")[0].lower())
+        self._cred_token = self._name.replace("ENG-", "").split("-")[0].lower()
+        cred = _get_credentials_for(self._cred_token)
         if cred:
             self._credentials = cred
             # Override base_url from credentials if not set in config
@@ -232,6 +233,29 @@ class SSOTProviderAdapter(BaseLLMProvider):
                 req.extra.update(options.extra)
         return req
 
+    def _sync_credentials(self) -> None:
+        """惰性凭据同步: 每次调用前重取活 key, 变化时热更新底层 provider。
+
+        背景(2026-08-23 实证): siliconflow 双 key 一活一死, provider 实例
+        常驻 + __init__ 只取一次 key —— 死 key 被锁进实例, db 标记也不生效,
+        get_key 五五开选中死 key 导致请求随机 401。多 key 轮转的意义就在
+        get_key 每次都读库, provider 却把 key 缓存死了, 两者根本没对上。
+        """
+        cred = _get_credentials_for(self._cred_token)
+        if not cred or not cred.get("api_key"):
+            return
+        if cred["api_key"] == (self._credentials or {}).get("api_key"):
+            return
+        self._credentials = cred
+        underlying = self._underlying
+        if underlying is None:
+            return
+        underlying._api_key = cred["api_key"]
+        # OpenAIProvider 缓存了以旧 key 构造的 SDK client, 必须一并重置
+        for attr in ("_client", "_async_client"):
+            if hasattr(underlying, attr):
+                setattr(underlying, attr, None)
+
     async def chat(
         self,
         model: str,
@@ -241,6 +265,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
         if not self._underlying:
             raise RuntimeError(f"Provider {self.name} has no underlying implementation.")
 
+        self._sync_credentials()
         req = self._build_request(model, messages, options)
         resp = await self._underlying.generate(req)
 
@@ -265,6 +290,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
         if not self._underlying:
             raise RuntimeError(f"Provider {self.name} has no underlying implementation.")
 
+        self._sync_credentials()
         req = self._build_request(model, messages, options)
 
         # 优先带元数据的流(usage/finish_reason); underlying 未覆盖 detailed

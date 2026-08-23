@@ -1713,6 +1713,16 @@ class ModelGateway:
                     now = time.monotonic()
                     if now - last_refresh >= self._config.registry_refresh_interval:
                         await self._registry.refresh(self._config.registry_discover_timeout)
+                        # 多 key provider 的凭据复验(401 判死/200 复活), 与
+                        # registry 同节奏; httpx 同步调用放线程避免阻塞 loop。
+                        try:
+                            from .credentials import CredentialsManager
+
+                            dead = await asyncio.to_thread(CredentialsManager().reverify_provider_keys)
+                            if dead:
+                                _log.warning("credentials auto-disabled: %s", dead)
+                        except Exception as exc:
+                            _log.debug("credential reverify skipped: %s", exc)
                         last_refresh = now
                     await self.health()
                 except Exception:

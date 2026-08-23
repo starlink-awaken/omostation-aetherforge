@@ -55,3 +55,29 @@ def test_add_key_supports_multiple_distinct_keys_per_provider(tmp_path: Path) ->
             ("test-provider",),
         ).fetchall()
     assert [r[0] for r in rows] == ["sk-key-a", "sk-key-b"]
+
+
+def test_sync_credentials_hot_swaps_key_and_resets_cached_clients(monkeypatch) -> None:
+    """惰性凭据同步: key 变化时热更新 underlying 并重置 SDK client 缓存。
+
+    背景(2026-08-23 实证): siliconflow 双 key 一活一死, provider 常驻 +
+    __init__ 只取一次 key, 死 key 被锁进实例, db 标记不生效。
+    """
+    from types import SimpleNamespace
+
+    from llm_gateway import ssot_loader
+    from llm_gateway.ssot_loader import SSOTProviderAdapter
+
+    keys = {"current": "old-key"}
+    monkeypatch.setattr(
+        ssot_loader, "_get_credentials_for", lambda token: {"api_key": keys["current"], "base_url": "https://x/v1"}
+    )
+    adapter = SSOTProviderAdapter({"id": "ENG-TEST-CLOUD", "supported_protocols": ["openai"]})
+    assert adapter._underlying._api_key == "old-key"
+    adapter._underlying._async_client = object()  # 模拟已缓存的 SDK client
+
+    keys["current"] = "new-key"  # db 侧换 key(如死 key 出局后 get_key 改选)
+    adapter._sync_credentials()
+
+    assert adapter._underlying._api_key == "new-key"
+    assert adapter._underlying._async_client is None  # 旧 key 的 client 已重置
