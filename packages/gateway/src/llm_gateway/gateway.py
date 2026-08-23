@@ -283,26 +283,6 @@ _ENGINE_PREFERENCE = (
     "ENG-OLLAMA-Y7000P",
 )
 
-# 2026-08-23: 云端引擎前缀, 与 projects/ecos/.../mof/m1/compute_engine/*.yaml
-# 里 status: active 的 ENG-*-CLOUD 系条目对应。_resolve_model_id() 此前只
-# 尝试 _ENGINE_PREFERENCE(清一色本地) + ENG-CC-SWITCH 拼接匹配, 任何客户端
-# 传"业务名"(如 "deepseek-chat")而非完整 "ENG-DEEPSEEK-CLOUD/deepseek-chat"
-# 的云端模型请求都会因为拼不出匹配而判定 "not in registry" 失败 —— 已配置
-# 好的 openrouter/deepseek 等 provider 因此从未被真正路由到, 是本轮诊断链
-# 路故障的根本原因。这是静态列表, 需要与 SSOT 保持同步(理想是从 registry
-# 动态枚举, 但那涉及排序/确定性重构, 超出本次修复范围)。
-_CLOUD_ENGINE_IDS = (
-    "ENG-DEEPSEEK-CLOUD",
-    "ENG-OPENROUTER-CLOUD",
-    "ENG-ANTHROPIC-CLOUD",
-    "ENG-AZURE-OPENAI",
-    "ENG-BEDROCK",
-    "ENG-VERTEX-AI",
-    "ENG-KIMI-CLOUD",
-    "ENG-MINIMAX-CLOUD",
-    "ENG-ZHIPU-CLOUD",
-    "ENG-SILICONFLOW-CLOUD",
-)
 
 
 def _id_tail(model_id: str) -> str:
@@ -678,7 +658,20 @@ class ModelGateway:
             return
         try:
             if not self._registry.list_models():
-                await self._registry.refresh(self._config.registry_discover_timeout)
+                discovered = await self._registry.refresh(self._config.registry_discover_timeout)
+                # 2026-08-23: discover 返回 0 个模型和返回几百个模型此前日志级别
+                # 完全一样(静默), 一次真实故障(启动脚本里 AETHERFORGE_M1_DIR
+                # 指向一个已被清理的 worktree, SSOT 路径 exists=False, discover
+                # 立即返回 0 个模型且不报错)排查了很久才定位到 —— 这类"配置生效
+                # 但数据是空的"情况必须比日常的 provider discover 失败更显眼。
+                if not discovered:
+                    _log.error(
+                        "[ModelGateway] registry discover returned 0 models — "
+                        "check M1_MODEL_DIR/M1_COMPUTE_ENGINE_DIR resolve to a real, "
+                        "populated SSOT path (see AETHERFORGE_M1_DIR / "
+                        "AETHERFORGE_M1_COMPUTE_DIR env overrides); cloud providers "
+                        "will be silently unreachable until this is fixed"
+                    )
             self._registry_ready = True  # only set on success
         except Exception as e:
             _log.warning("[ModelGateway] registry refresh failed: %s", e)
@@ -1887,7 +1880,16 @@ class ModelGateway:
 
         if reg.get(model_name) and _allowed(model_name):
             return model_name
-        direct_engines = _ENGINE_PREFERENCE + ("ENG-CC-SWITCH",) + _CLOUD_ENGINE_IDS
+        # 2026-08-23: 曾经是手写静态列表(_ENGINE_PREFERENCE + 几个硬编码云端
+        # 前缀), SSOT 新增引擎时必须记得同步更新, 否则那个引擎下的所有模型都
+        # 会"not in registry"而不是走到下面的 tail 匹配兜底 —— 一次真实故障
+        # 就是这么产生的(10 个云端引擎当时全部缺失)。改为动态枚举 registry 里
+        # 实际注册的全部引擎: 本地引擎仍按 _ENGINE_PREFERENCE 定义的顺序优先
+        # (保持既有的确定性排序语义), 其余(含云端/CC-SWITCH/未来任何新引擎)
+        # 按 provider_names() 的字母序补在后面, 不需要再手工维护第二份清单。
+        direct_engines = _ENGINE_PREFERENCE + tuple(
+            name for name in reg.provider_names() if name not in _ENGINE_PREFERENCE
+        )
         for engine in direct_engines:
             candidate = f"{engine}/{model_name}"
             if _allowed(candidate) and reg.get(candidate):

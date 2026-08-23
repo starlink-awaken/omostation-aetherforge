@@ -43,6 +43,19 @@ class ModelRegistry:
         for p in providers:
             self.register(p)
 
+    def provider_names(self) -> tuple[str, ...]:
+        """All registered provider/engine ids, sorted for deterministic iteration.
+
+        2026-08-23: exists so callers building candidate model-id prefixes
+        (see gateway._resolve_model_id) can enumerate what's actually
+        registered instead of maintaining a hand-written engine list that
+        silently drifts out of sync with SSOT (a real incident: 10 cloud
+        engines were missing from such a list, so any client requesting a
+        cloud model by its short name got "not in registry" even though the
+        provider and model were correctly configured).
+        """
+        return tuple(sorted(self._providers))
+
     # ------------------------------------------------------------------
     # Model discovery
     # ------------------------------------------------------------------
