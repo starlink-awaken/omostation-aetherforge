@@ -1318,7 +1318,8 @@ class ModelGateway:
 
         # 预算耗尽在思考段: finish_reason=length 且剥离后没正文。
         # 这不是模型不行, 是给的额度不够 —— 补足再来一次, 只补一次。
-        if not stripped.strip() and result.finish_reason == "length":
+        # 有 tool_calls 时 content 为空是正常形态(模型决定调工具), 豁免。
+        if not stripped.strip() and not (result.tool_calls or ()) and result.finish_reason == "length":
             # 第一手: 直接把 thinking 关掉。实测 qwen/qwen3.5-9b 从
             # 8.2s/64token 空回复变成 0.6s/2token 正常回答, 比抬预算划算得多。
             if self._config.no_think_param:
@@ -1340,7 +1341,7 @@ class ModelGateway:
 
             # 第二手: 下游不认这个参数(或认了仍不出正文)时才抬预算。
             budget = self._config.thinking_retry_budget
-            if not stripped.strip() and budget and (request.max_tokens or 0) < budget:
+            if not stripped.strip() and not (result.tool_calls or ()) and budget and (request.max_tokens or 0) < budget:
                 _log.info("[ModelGateway] %s 仍无正文, 预算提到 %d 再试一次", display_name, budget)
                 result = await _call(budget)
                 content = (result.content or "") if result else ""
@@ -1348,8 +1349,9 @@ class ModelGateway:
 
         was_stripped = stripped != content
         # 到这儿还空, 就是真没回答。返回空的 200 会让上层以为成功, 必须当失败,
-        # 好让 fallback 链继续往下走。
-        if not stripped.strip():
+        # 好让 fallback 链继续往下走。工具调用响应(content 空 + tool_calls
+        # 非空)是合法形态, 豁免。
+        if not stripped.strip() and not (result.tool_calls or ()):
             raise RuntimeError(
                 f"{display_name} via {model_id}: 回复为空"
                 + (
