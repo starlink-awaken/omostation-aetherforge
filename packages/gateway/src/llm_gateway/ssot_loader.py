@@ -105,6 +105,9 @@ _PROVIDER_ALIASES: dict[str, str] = {
     # 2026-08-23: ENG-OPENCODE-GO 引擎名解析出的 token 是 "opencode",
     # credentials.db 里的 provider 名是 "opencode-go"(cc-switch 同步写入)
     "opencode": "opencode-go",
+    # 2026-08-23: ENG-VOLCANO-CLOUD 引擎 token 是 "volcano",
+    # credentials.db 里的 provider 名是中文 "火山agentplan"(cc-switch 同步写入)
+    "volcano": "火山agentplan",
 }
 
 

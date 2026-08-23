@@ -54,16 +54,49 @@ class AnthropicCompatProvider(LLMProvider):
         return self._default_model
 
     def available_models(self) -> list[str]:
+        # 2026-08-23: 有 base_url 的网关查询真实清单(longcat/火山方舟实测
+        # /v1/models 200, 此前静态只回 default_model 一个 —— 没有 MODEL-BREW
+        # yaml 的 anthropic 系引擎因此只能"看见"一个模型)。带 status 字段的
+        # 条目(火山方舟)过滤掉 Shutdown 等非 active 状态。查询失败回退旧行为。
+        if self._base_url:
+            try:
+                import httpx
+
+                resp = httpx.get(
+                    f"{self._base_url.rstrip('/')}/models",
+                    headers=self._auth_headers(),
+                    timeout=5,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    models = [
+                        m["id"]
+                        for m in data.get("data", [])
+                        if isinstance(m, dict) and m.get("id") and m.get("status") in (None, "", "active")
+                    ]
+                    if models:
+                        return models
+            except Exception:
+                pass
         return [self._default_model]
 
     def is_available(self) -> bool:
         return bool(self._api_key) and bool(self._base_url)
 
+    def _auth_headers(self) -> dict[str, str]:
+        # 双头发送: 标准 Anthropic 风格 x-api-key + Bearer。longcat/火山方舟
+        # 实测只认 Bearer(x-api-key 401), 官方及多数兼容网关两者皆收 ——
+        # 多发一个头对任何一家都无害, 少发则直接 401。
+        return {
+            "x-api-key": self._api_key,
+            "Authorization": f"Bearer {self._api_key}",
+        }
+
     def _build_headers(self) -> dict[str, str]:
         return {
             "Content-Type": "application/json",
-            "x-api-key": self._api_key,
             "anthropic-version": "2023-06-01",
+            **self._auth_headers(),
         }
 
     def _build_body(self, request: LLMRequest) -> dict[str, Any]:
