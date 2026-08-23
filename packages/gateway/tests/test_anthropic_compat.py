@@ -195,3 +195,57 @@ async def test_stream_detailed_aggregates_tool_use_blocks(monkeypatch: pytest.Mo
     assert meta.tool_calls[0]["function"]["name"] == "search"
     assert json.loads(meta.tool_calls[0]["function"]["arguments"]) == {"q": "x"}
     assert meta.usage is not None and meta.usage["prompt_tokens"] == 9
+
+
+def test_convert_messages_full_tool_round_trip() -> None:
+    """多轮 agent 对话(含工具结果回传) → Anthropic messages 协议。
+
+    此前 context 整个被丢: Anthropic 系引擎多轮失忆 + tool_result 无法
+    回传, agent 第二轮就断。
+    """
+    p = _provider()
+    req = LLMRequest(
+        prompt="总结结果",
+        context=[
+            {"role": "user", "content": "北京天气?"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "get_weather", "arguments": '{"city": "北京"}'},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "晴, 30度"},
+        ],
+    )
+    msgs = p._convert_messages(req)
+    assert [m["role"] for m in msgs] == ["user", "assistant", "user"]
+    assert msgs[0]["content"] == "北京天气?"
+    assistant_blocks = msgs[1]["content"]
+    assert isinstance(assistant_blocks, list) and assistant_blocks[0]["type"] == "tool_use"
+    assert assistant_blocks[0]["input"] == {"city": "北京"}
+    user_blocks = msgs[2]["content"]
+    assert isinstance(user_blocks, list)
+    assert user_blocks[0] == {"type": "tool_result", "tool_use_id": "call_1", "content": "晴, 30度"}
+    assert user_blocks[1] == {"type": "text", "text": "总结结果"}  # prompt 并入同一 user turn
+
+
+def test_convert_messages_merges_adjacent_user_turns() -> None:
+    p = _provider()
+    req = LLMRequest(prompt="继续", context=[{"role": "user", "content": "第一句"}])
+    msgs = p._convert_messages(req)
+    assert len(msgs) == 1  # 相邻 user 合并, 不产生相邻同 role
+    blocks = msgs[0]["content"]
+    assert [b["text"] for b in blocks] == ["第一句", "继续"]
+
+
+def test_build_body_uses_system_param_and_context() -> None:
+    p = _provider()
+    req = LLMRequest(prompt="hi", system_prompt="你是助手", context=[{"role": "user", "content": "早"}])
+    body = p._build_body(req)
+    assert body["system"] == "你是助手"  # 顶层参数, 不是 messages 里的 system 角色
+    assert all(m["role"] != "system" for m in body["messages"])
