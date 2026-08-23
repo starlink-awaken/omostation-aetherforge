@@ -68,6 +68,17 @@ def _get_credentials_for(provider_name: str) -> dict | None:
                     return key
             return None
 
+        resolved = None
+
+        def _find_key(prov: str) -> str | None:
+            nonlocal resolved
+            for name in [prov, _PROVIDER_ALIASES.get(prov, prov)]:
+                key = cm.get_key(name)
+                if key:
+                    resolved = name  # 真实命中的凭据名(如 kimi → kimi_for_coding)
+                    return key
+            return None
+
         api_key = _find_key(provider_name)
         if not api_key:
             return None
@@ -83,7 +94,7 @@ def _get_credentials_for(provider_name: str) -> dict | None:
                 base_url = str(rows[0].get("base_url") or "")
                 break
 
-        return {"api_key": api_key, "base_url": base_url}
+        return {"api_key": api_key, "base_url": base_url, "provider": resolved or provider_name}
     except Exception as e:
         _log.debug("Credentials lookup failed for %s: %s", provider_name, e)
     return None
@@ -132,6 +143,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
 
         # Try to inject credentials from CredentialsManager
         self._cred_token = self._name.replace("ENG-", "").split("-")[0].lower()
+        self._cred_provider = self._cred_token  # 真实命中的凭据名, sync 时更新
         cred = _get_credentials_for(self._cred_token)
         if cred:
             self._credentials = cred
@@ -259,6 +271,7 @@ class SSOTProviderAdapter(BaseLLMProvider):
         if cred["api_key"] == (self._credentials or {}).get("api_key"):
             return
         self._credentials = cred
+        self._cred_provider = str(cred.get("provider") or self._cred_token)
         underlying = self._underlying
         if underlying is None:
             return
@@ -280,7 +293,9 @@ class SSOTProviderAdapter(BaseLLMProvider):
 
             key = (self._credentials or {}).get("api_key")
             if key:
-                CredentialsManager().mark_key_active(self._cred_token, key, active=False)
+                # 用真实命中的凭据名(kimi→kimi_for_coding), token 名在 db 里
+                # 无行可匹配, 标死会静默无效(实测踩过)。
+                CredentialsManager().mark_key_active(self._cred_provider, key, active=False)
                 _log.warning("credential disabled by auth failure: %s", self._name)
         except Exception:
             return
