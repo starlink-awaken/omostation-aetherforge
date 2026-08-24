@@ -31,6 +31,7 @@ import re
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Any
 
 from .complexity import TaskComplexityScorer
@@ -284,7 +285,7 @@ _ENGINE_PREFERENCE = (
 )
 
 
-class _StreamUnsupported(Exception):
+class _StreamUnsupportedError(Exception):
     """Registry 真流式不适用(本地专属端口模型/未注册名/自指端点), 调用方回退聚合。"""
 
 
@@ -596,6 +597,16 @@ class MemoryGuard:
 # ============================================================
 # ModelGateway — 统一入口
 # ============================================================
+def _daily_report_safely() -> None:
+    """health loop 的报告钩子(异常不外溢)。"""
+    try:
+        from .daily_report import generate_daily_report
+
+        generate_daily_report()
+    except Exception as exc:
+        _log.debug("daily report skipped: %s", exc)
+
+
 class ModelGateway:
     """统一模型网关 — 所有 LLM 调用的唯一入口.
 
@@ -1092,7 +1103,7 @@ class ModelGateway:
                 emitted = True
                 yield chunk
             return
-        except _StreamUnsupported:
+        except _StreamUnsupportedError:
             pass
         except Exception:
             if emitted:
@@ -1124,10 +1135,10 @@ class ModelGateway:
         resolved = self.resolve_alias(logical)
         if resolved in self._config.model_ports:
             # 本地 omlx 专属端口走 ensure+直连(A 分支), 不属于 registry 流式。
-            raise _StreamUnsupported(resolved)
+            raise _StreamUnsupportedError(resolved)
         model_id = self._resolve_model_id(resolved)
         if not model_id or self._provider_is_self(model_id):
-            raise _StreamUnsupported(resolved)
+            raise _StreamUnsupportedError(resolved)
         self._budget_guard(model_id)
         # extra 构造与聚合路径(_generate_via_registry 的 merged_extra)对齐:
         # no_think 学习成果 + tools/tool_choice 透传 —— 此前流式只带前者,
@@ -1178,7 +1189,7 @@ class ModelGateway:
             from .events import emit
 
             emit("stream_fallback", {"model": model_id, "reason": "no_content"})
-            raise _StreamUnsupported(f"{model_id}: stream produced no content")
+            raise _StreamUnsupportedError(f"{model_id}: stream produced no content")
         # 记账三件套(与聚合路径成功分支对齐): 此前真流式从未经过
         # record_generation / _last_used / 健康重置 —— metrics 对流式请求
         # 完全失明, warm-pool 也看不到流式模型在用。
@@ -1826,9 +1837,15 @@ class ModelGateway:
 
         async def _health_loop() -> None:
             last_refresh = 0.0
+            last_report_day = ""
             while True:
                 await asyncio.sleep(self._config.health_check_interval)
                 try:
+                    # 每日运营报告(P2.2): 当日首 tick 生成, 幂等跳过
+                    today = datetime.now().strftime("%Y-%m-%d")
+                    if today != last_report_day:
+                        last_report_day = today
+                        await asyncio.to_thread(_daily_report_safely)
                     now = time.monotonic()
                     if now - last_refresh >= self._config.registry_refresh_interval:
                         await self._registry.refresh(self._config.registry_discover_timeout)
@@ -1842,6 +1859,18 @@ class ModelGateway:
                                 _log.warning("credentials auto-disabled: %s", dead)
                         except Exception as exc:
                             _log.debug("credential reverify skipped: %s", exc)
+                        # 免费源发现闭环(治理 P1.2): 候选池探测+diff, 新信号
+                        # 发 provider_discovered 事件 —— 能力内建, 不再外挂。
+                        try:
+                            from .free_pool import FreePoolScanner
+
+                            if not hasattr(self, "_free_pool_scanner"):
+                                self._free_pool_scanner = FreePoolScanner()
+                            fp = await asyncio.to_thread(self._free_pool_scanner.scan)
+                            if fp.get("new_signals"):
+                                _log.info("[ModelGateway] free pool new signals: %s", fp)
+                        except Exception as exc:
+                            _log.debug("free pool scan skipped: %s", exc)
                         last_refresh = now
                     await self.health()
                 except Exception:

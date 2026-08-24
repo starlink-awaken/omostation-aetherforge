@@ -85,3 +85,46 @@ class TestClassifyError:
         r = m.report()
         assert r["error_breakdown"] == {"cloud_auth": 2, "cloud_timeout": 1}
         assert r["total_errors"] == 3
+
+
+class TestDailyReport:
+    """P2.2 日报: 聚合当日事件, 幂等跳过。"""
+
+    def test_report_aggregates_and_is_idempotent(self, tmp_path, monkeypatch) -> None:
+        import time
+
+        from llm_gateway import events
+        from llm_gateway.daily_report import generate_daily_report
+
+        f = tmp_path / "events.jsonl"
+        monkeypatch.setattr(events, "_EVENTS_FILE", f)
+        monkeypatch.setattr("llm_gateway.daily_report._REPORTS_DIR", tmp_path / "reports")
+        today = time.strftime("%Y-%m-%d")
+        events.emit("request_complete", {"model": "m1", "tokens_in": 10, "tokens_out": 5})
+        events.emit("request_failed", {"model": "m1", "code": "cloud_auth"})
+        events.emit("credential_evicted", {"provider": "p1", "reason": "probe_401_403"})
+
+        out = generate_daily_report(today)
+        assert out is not None and out.exists()
+        text = out.read_text()
+        assert "请求完成: **1**" in text and "cloud_auth=1" in text and "p1" in text
+        assert generate_daily_report(today) is None  # 幂等
+
+
+class TestNonstandardAuthSniff:
+    """P2.1 嗅探特征表: 宁漏勿杀的白名单。"""
+
+    def test_signature_list_is_conservative(self) -> None:
+        # 特征必须都是明确凭据语义, 避免误杀正常清单响应
+        sigs = [
+            "invalid api key",
+            "invalid_api_key",
+            "unauthorized",
+            "authentication failed",
+            "invalid token",
+            "api key not valid",
+        ]
+        normal_bodies = ['{"data": [{"id": "gpt-4"}]}', '{"object": "list", "data": []}']
+        for nb in normal_bodies:
+            low = nb.lower()
+            assert not any(s in low for s in sigs), f"正常响应被特征误中: {nb}"

@@ -9,6 +9,7 @@ credentials.db 里 kimi_for_coding 这一个 provider 积累了 748 条完全相
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from llm_gateway.credentials import CredentialsManager, _get_connection
@@ -63,7 +64,6 @@ def test_sync_credentials_hot_swaps_key_and_resets_cached_clients(monkeypatch) -
     背景(2026-08-23 实证): siliconflow 双 key 一活一死, provider 常驻 +
     __init__ 只取一次 key, 死 key 被锁进实例, db 标记不生效。
     """
-    from types import SimpleNamespace
 
     from llm_gateway import ssot_loader
     from llm_gateway.ssot_loader import SSOTProviderAdapter
@@ -104,3 +104,23 @@ def test_budget_blocked_matches_config_and_boundary(tmp_path: Path) -> None:
     assert cm.budget_blocked("paid-provider") is True
     assert cm.budget_blocked("warn-provider") is False
     assert cm.budget_blocked("ok-provider") is False
+
+
+def test_reverify_probe_failure_does_not_log_credential_material(tmp_path: Path, monkeypatch, caplog) -> None:
+    cm = _manager(tmp_path)
+    api_key = "API_KEY_DO_NOT_LOG"
+    base_url = "https://example.invalid/v1?token=BASE_URL_SECRET"
+    provider = "PROVIDER_SECRET_DO_NOT_LOG"
+    cm.add_key(provider, api_key, base_url=base_url)
+
+    def fail_probe(url, *, headers, timeout):
+        raise RuntimeError(f"probe failed url={url} authorization={headers['Authorization']} timeout={timeout}")
+
+    monkeypatch.setattr("httpx.get", fail_probe)
+    with caplog.at_level(logging.DEBUG, logger="llm_gateway.credentials"):
+        assert cm.reverify_provider_keys(timeout=0.01) == {}
+
+    assert "RuntimeError" in caplog.text
+    assert provider not in caplog.text
+    assert api_key not in caplog.text
+    assert "BASE_URL_SECRET" not in caplog.text

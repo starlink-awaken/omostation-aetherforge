@@ -491,7 +491,33 @@ class CredentialsManager:
             url = f"{str(base_url).rstrip('/')}/models"
             try:
                 resp = httpx.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout)
-            except Exception:
+            except Exception as exc:
+                _log.debug("credential probe failed (%s)", type(exc).__name__)
+                continue
+            # P2.1 非标失效嗅探: 部分网关凭据失效时不回 401 而是 200 +
+            # body 塞错误(openrouter/部分聚合网关实测如此)。特征表白名单式
+            # 保守匹配(宁漏勿杀), 命中即与 401 同路径判死。
+            body_text = ""
+            if resp.status_code == 200:
+                try:
+                    body_text = resp.text[:2000].lower()
+                except Exception:
+                    body_text = ""
+            nonstandard_auth_failures = (
+                "invalid api key",
+                "invalid_api_key",
+                "unauthorized",
+                "authentication failed",
+                "invalid token",
+                "api key not valid",
+            )
+            if any(sig in body_text for sig in nonstandard_auth_failures) and '"data"' not in body_text and "model" not in body_text[:200]:
+                if self.mark_key_active(str(provider), str(api_key), active=False):
+                    dead[str(provider)] = dead.get(str(provider), 0) + 1
+                    _log.warning("credential disabled: %s key nonstandard auth failure (200+body)", provider)
+                    from .events import emit
+
+                    emit("credential_evicted", {"provider": str(provider), "reason": "probe_200_body_auth_error"})
                 continue
             if resp.status_code in (401, 403):
                 if self.mark_key_active(str(provider), str(api_key), active=False):
@@ -501,11 +527,13 @@ class CredentialsManager:
 
                     emit("credential_evicted", {"provider": str(provider), "reason": "probe_401_403"})
             elif resp.status_code == 200:
-                # 曾被标死的 key 复验通过则复活(自动恢复)
-                self.mark_key_active(str(provider), str(api_key), active=True)
-                from .events import emit
+                # 曾被标死的 key 复验通过则复活(自动恢复)。mark 返回
+                # "是否有行被更新" —— 仅真正从死变活时才发事件, 否则每轮
+                # 复验都会对全部健康 key 刷屏(2026-08-24 日报实测暴露)。
+                if self.mark_key_active(str(provider), str(api_key), active=True):
+                    from .events import emit
 
-                emit("credential_revived", {"provider": str(provider)})
+                    emit("credential_revived", {"provider": str(provider)})
         return dead
 
     def health_snapshot(self) -> list[dict[str, object]]:

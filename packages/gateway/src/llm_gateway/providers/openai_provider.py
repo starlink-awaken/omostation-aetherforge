@@ -19,6 +19,7 @@ from ..provider import (
     LLMProvider,
     LLMRequest,
     LLMResponse,
+    LLMStreamEvent,
     _with_llm_retry,
 )
 
@@ -256,8 +257,6 @@ class OpenAIProvider(LLMProvider):
         兼容性防御: 部分 OpenAI 兼容网关不认 stream_options(400), 检测到
         后降级为不带该参数重试(usage 缺失可容忍, 流式内容不丢)。
         """
-        from ..provider import LLMStreamEvent
-
         try:
             client = self._get_async_client()
             messages: list[dict] = []
