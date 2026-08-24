@@ -76,6 +76,25 @@ _DEFAULT_PRICING: list[dict[str, Any]] = [
         "ctx": 262144,
         "caps": ["chat", "vision", "tools", "thinking"],
     },
+    # DeepSeek V4 Flash official standard pricing, expressed per 1K tokens.
+    # Keep the retired deepseek-chat name as a pricing-only compatibility alias
+    # so older engine IDs remain budgeted during route migration.
+    {
+        "model_id": "deepseek-v4-flash",
+        "provider": "deepseek",
+        "cost_in": 0.00014,
+        "cost_out": 0.00028,
+        "ctx": 1_000_000,
+        "caps": ["chat", "tools", "thinking"],
+    },
+    {
+        "model_id": "deepseek-chat",
+        "provider": "deepseek",
+        "cost_in": 0.00014,
+        "cost_out": 0.00028,
+        "ctx": 1_000_000,
+        "caps": ["chat", "tools"],
+    },
     # HITL (human-in-the-loop — special, never in M1)
     {
         "model_id": "human-expert",
