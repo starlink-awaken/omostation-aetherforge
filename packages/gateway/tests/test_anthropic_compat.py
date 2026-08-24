@@ -12,9 +12,8 @@ from __future__ import annotations
 import json
 
 import pytest
-
-from llm_gateway.providers.anthropic_compat import AnthropicCompatProvider
 from llm_gateway.provider import LLMRequest
+from llm_gateway.providers.anthropic_compat import AnthropicCompatProvider
 
 
 def _provider() -> AnthropicCompatProvider:

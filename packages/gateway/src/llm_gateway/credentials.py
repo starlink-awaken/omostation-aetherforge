@@ -491,7 +491,8 @@ class CredentialsManager:
             url = f"{str(base_url).rstrip('/')}/models"
             try:
                 resp = httpx.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout)
-            except Exception:
+            except Exception as exc:
+                _log.debug("credential probe failed (%s)", type(exc).__name__)
                 continue
             # P2.1 非标失效嗅探: 部分网关凭据失效时不回 401 而是 200 +
             # body 塞错误(openrouter/部分聚合网关实测如此)。特征表白名单式
@@ -502,7 +503,7 @@ class CredentialsManager:
                     body_text = resp.text[:2000].lower()
                 except Exception:
                     body_text = ""
-            _NONSTD_AUTH_FAILURE = (
+            nonstandard_auth_failures = (
                 "invalid api key",
                 "invalid_api_key",
                 "unauthorized",
@@ -510,7 +511,7 @@ class CredentialsManager:
                 "invalid token",
                 "api key not valid",
             )
-            if any(sig in body_text for sig in _NONSTD_AUTH_FAILURE) and '"data"' not in body_text and "model" not in body_text[:200]:
+            if any(sig in body_text for sig in nonstandard_auth_failures) and '"data"' not in body_text and "model" not in body_text[:200]:
                 if self.mark_key_active(str(provider), str(api_key), active=False):
                     dead[str(provider)] = dead.get(str(provider), 0) + 1
                     _log.warning("credential disabled: %s key nonstandard auth failure (200+body)", provider)

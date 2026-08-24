@@ -22,7 +22,7 @@ import logging
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
-from ..provider import LLMProvider, LLMRequest, LLMResponse
+from ..provider import LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent
 
 _log = logging.getLogger(__name__)
 
@@ -361,8 +361,6 @@ class AnthropicCompatProvider(LLMProvider):
         import json
 
         import httpx
-
-        from ..provider import LLMStreamEvent
 
         body = self._build_body(request)
         body["stream"] = True

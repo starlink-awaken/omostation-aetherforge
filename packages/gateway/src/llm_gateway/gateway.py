@@ -285,7 +285,7 @@ _ENGINE_PREFERENCE = (
 )
 
 
-class _StreamUnsupported(Exception):
+class _StreamUnsupportedError(Exception):
     """Registry 真流式不适用(本地专属端口模型/未注册名/自指端点), 调用方回退聚合。"""
 
 
@@ -603,7 +603,7 @@ def _daily_report_safely() -> None:
         from .daily_report import generate_daily_report
 
         generate_daily_report()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.debug("daily report skipped: %s", exc)
 
 
@@ -1103,7 +1103,7 @@ class ModelGateway:
                 emitted = True
                 yield chunk
             return
-        except _StreamUnsupported:
+        except _StreamUnsupportedError:
             pass
         except Exception:
             if emitted:
@@ -1135,10 +1135,10 @@ class ModelGateway:
         resolved = self.resolve_alias(logical)
         if resolved in self._config.model_ports:
             # 本地 omlx 专属端口走 ensure+直连(A 分支), 不属于 registry 流式。
-            raise _StreamUnsupported(resolved)
+            raise _StreamUnsupportedError(resolved)
         model_id = self._resolve_model_id(resolved)
         if not model_id or self._provider_is_self(model_id):
-            raise _StreamUnsupported(resolved)
+            raise _StreamUnsupportedError(resolved)
         self._budget_guard(model_id)
         # extra 构造与聚合路径(_generate_via_registry 的 merged_extra)对齐:
         # no_think 学习成果 + tools/tool_choice 透传 —— 此前流式只带前者,
@@ -1189,7 +1189,7 @@ class ModelGateway:
             from .events import emit
 
             emit("stream_fallback", {"model": model_id, "reason": "no_content"})
-            raise _StreamUnsupported(f"{model_id}: stream produced no content")
+            raise _StreamUnsupportedError(f"{model_id}: stream produced no content")
         # 记账三件套(与聚合路径成功分支对齐): 此前真流式从未经过
         # record_generation / _last_used / 健康重置 —— metrics 对流式请求
         # 完全失明, warm-pool 也看不到流式模型在用。

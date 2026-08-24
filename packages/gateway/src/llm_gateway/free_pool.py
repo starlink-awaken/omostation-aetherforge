@@ -62,7 +62,7 @@ class FreePoolScanner:
         snap = PoolSnapshot(provider=name)
         try:
             resp = httpx.get(url, timeout=8)
-        except Exception as exc:  # noqa: BLE001 — 探测失败是常态, 不上抛
+        except Exception as exc:
             _log.debug("free pool probe %s failed: %s", name, exc)
             return snap
         if resp.status_code in (401, 403):
@@ -73,7 +73,7 @@ class FreePoolScanner:
         try:
             data = resp.json()
             models = [m.get("id", "") for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
-        except Exception:  # noqa: BLE001
+        except Exception:
             return snap
         if not models:
             return snap

@@ -13,7 +13,6 @@ import json
 from types import SimpleNamespace
 
 import pytest
-
 from llm_gateway.provider import LLMRequest
 from llm_gateway.providers.anthropic_compat import AnthropicCompatProvider
 
