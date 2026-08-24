@@ -506,6 +506,27 @@ async def handle_ready(request: web.Request) -> web.Response:
 
 
 @web.middleware
+async def trace_middleware(request: web.Request, handler):
+    """P2.3 可追溯: 每请求生成短 trace_id, 响应头返回 + 事件留痕。
+
+    客户端报障时提供 X-Request-ID, 从 events.jsonl 按 trace 检索即可
+    对齐该请求的路由与记账(request_complete/request_failed 的 ts+model
+    关联), 不再靠时间戳猜。
+    """
+    import uuid
+
+    from .events import emit
+
+    trace_id = uuid.uuid4().hex[:12]
+    request["trace_id"] = trace_id
+    resp = await handler(request)
+    resp.headers["X-Request-ID"] = trace_id
+    if request.path.startswith("/v1/") and request.method == "POST":
+        emit("http_request", {"trace": trace_id, "path": request.path, "method": request.method})
+    return resp
+
+
+@web.middleware
 async def auth_middleware(request: web.Request, handler):
     """Bearer 鉴权。未配 key 时整体放行(仅 loopback 场景, 见 serve 的守卫)。"""
     key = request.app.get(API_KEY)
@@ -527,7 +548,7 @@ async def auth_middleware(request: web.Request, handler):
 
 def create_app(api_key: str | None = None) -> web.Application:
     """Create the aiohttp application."""
-    app = web.Application(middlewares=[auth_middleware])
+    app = web.Application(middlewares=[trace_middleware, auth_middleware])
     if api_key:
         app[API_KEY] = api_key
 
