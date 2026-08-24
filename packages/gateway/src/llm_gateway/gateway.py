@@ -976,7 +976,13 @@ class ModelGateway:
             except Exception as e:
                 last_error = str(e)[:100]
                 self._health_failures[model_name] = self._health_failures.get(model_name, 0) + 1
-                _log.warning("[ModelGateway] %s failed: %s", model_name, last_error)
+                # 治理 P1: 失败按 CloudErrorCode 分类入 metrics + 事件流
+                code = self._classify_error(e)
+                self._metrics.record_error(model=model_name, error_type=code)
+                from .events import emit
+
+                emit("request_failed", {"model": model_name, "code": code})
+                _log.warning("[ModelGateway] %s failed [%s]: %s", model_name, code, last_error)
                 continue
 
         return GatewayResponse(
@@ -1311,6 +1317,28 @@ class ModelGateway:
             return await self._generate_via_registry(model_id, model_name, request, t0)
 
         raise RuntimeError(f"Model {model_name} not in registry")
+
+    @staticmethod
+    def _classify_error(exc: Exception) -> str:
+        """异常 → CloudErrorCode(治理 P1: fallback 链失败可分类统计)。"""
+        from .types import CloudErrorCode
+
+        name = type(exc).__name__
+        text = str(exc)
+        lowered = text.lower()
+        if name in ("AuthenticationError", "PermissionDeniedError"):
+            return CloudErrorCode.AUTH
+        if "budget exhausted" in text:
+            return CloudErrorCode.BUDGET
+        if "429" in text or "rate limit" in lowered:
+            return CloudErrorCode.RATE_LIMIT
+        if "回复为空" in text:
+            return CloudErrorCode.EMPTY
+        if isinstance(exc, TimeoutError) or "timeout" in lowered or "timed out" in lowered:
+            return CloudErrorCode.TIMEOUT
+        if "401" in text or "403" in text or "auth" in lowered or "invalid token" in lowered:
+            return CloudErrorCode.AUTH
+        return CloudErrorCode.UPSTREAM
 
     @staticmethod
     def _cred_token_for(model_id: str) -> str:

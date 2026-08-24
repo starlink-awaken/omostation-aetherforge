@@ -1,7 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
+
+
+class CloudErrorCode(StrEnum):
+    """云端 provider 错误分类(治理 P1: 结构化错误码替代 RuntimeError 字符串)。
+
+    与 OmlxcErrorCode(本地语义) 平行; /stats 的 error_breakdown 按此聚合。
+    """
+
+    AUTH = "cloud_auth"             # 401/403 凭据失效(死 key)
+    RATE_LIMIT = "cloud_rate_limit" # 429 限流
+    BUDGET = "cloud_budget"         # 预算拦截触发
+    EMPTY = "cloud_empty"           # 空回复(预算耗尽思考段等)
+    TIMEOUT = "cloud_timeout"       # 上游超时
+    UPSTREAM = "cloud_upstream"     # 其他上游错误
 
 
 @dataclass
