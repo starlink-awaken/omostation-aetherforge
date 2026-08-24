@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from llm_gateway.budget import BudgetExhaustedError, estimate_cost
+from llm_gateway.budget import BudgetExhaustedError, check_budget_limit, estimate_cost
 
 
 class TestBudgetExhaustedError:
@@ -31,14 +31,30 @@ class TestEstimateCost:
         cost = estimate_cost("nonexistent-model-xyz", input_tokens=1000, output_tokens=500)
         assert cost == 0.0
 
-    def test_estimate_cost_resolves_fully_qualified_engine_id(self):
+    def test_estimate_cost_resolves_current_deepseek_engine_id(self):
         """网关内部传的是 "ENG-XXX-CLOUD/model" 全限定形式, 此前不拆分/不带
         provider 精确匹配, PricingRegistry(按"{短provider}/{裸model}"建索引)
         恒对不上 —— deepseek 等真实计费 provider 的 estimate_cost 一直恒 0,
         budgets 表月限配置形同虚设(2026-08-23 实测发现)。"""
-        cost = estimate_cost("ENG-DEEPSEEK-CLOUD/deepseek-chat", input_tokens=1000, output_tokens=500)
-        # deepseek-chat: cost_per_1k_input=0.00014, cost_per_1k_output=0.00028
+        cost = estimate_cost("ENG-DEEPSEEK-CLOUD/deepseek-v4-flash", input_tokens=1000, output_tokens=500)
+        # V4 Flash: cost_per_1k_input=0.00014, cost_per_1k_output=0.00028
         assert cost == pytest.approx(1000 / 1000 * 0.00014 + 500 / 1000 * 0.00028)
+
+    def test_estimate_cost_keeps_legacy_deepseek_alias_budgeted(self):
+        cost = estimate_cost("ENG-DEEPSEEK-CLOUD/deepseek-chat", input_tokens=1000, output_tokens=500)
+        assert cost == pytest.approx(1000 / 1000 * 0.00014 + 500 / 1000 * 0.00028)
+
+    def test_current_deepseek_engine_is_rejected_over_local_budget(self):
+        with pytest.raises(BudgetExhaustedError) as caught:
+            check_budget_limit(
+                model_id="ENG-DEEPSEEK-CLOUD/deepseek-v4-flash",
+                input_tokens=1000,
+                max_output_tokens=500,
+                local_budget_limit=0.00027,
+            )
+
+        assert caught.value.spent == pytest.approx(0.00028)
+        assert caught.value.cap == pytest.approx(0.00027)
 
     def test_estimate_cost_free_tier_engine_stays_zero(self):
         """免费层/扁平订阅引擎(longcat/opencode-go 等 cost_multiplier=0, SSOT
