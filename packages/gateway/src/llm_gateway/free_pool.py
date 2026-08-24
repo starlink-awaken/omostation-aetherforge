@@ -52,9 +52,32 @@ class PoolSnapshot:
 class FreePoolScanner:
     """周期扫描候选源, diff 出新信号发事件(线程化调用, 自带内存状态)。"""
 
+    _STATE_FILE = Path.home() / ".aetherforge" / "state" / "free_pool_last_seen.json"
+
     def __init__(self, candidates: dict[str, str] | None = None) -> None:
         self._candidates = candidates if candidates is not None else FREE_POOL_CANDIDATES
         self._last: dict[str, PoolSnapshot] = {}
+        self._seen: set[str] = self._load_seen()
+
+    @classmethod
+    def _load_seen(cls) -> set[str]:
+        """持久化 last-seen(2026-08-24): 内存态在重启后清零导致
+        first_seen 事件重复(当日日报 openrouter-free 出现两遍)。"""
+        import json
+
+        try:
+            return set(json.loads(cls._STATE_FILE.read_text()))
+        except Exception:
+            return set()
+
+    def _save_seen(self) -> None:
+        import json
+
+        try:
+            self._STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self._STATE_FILE.write_text(json.dumps(sorted(self._seen)))
+        except Exception as exc:  # noqa: BLE001 — 状态持久化失败不影响扫描
+            _log.debug("free pool state save failed: %s", exc)
 
     def _probe(self, name: str, url: str) -> PoolSnapshot:
         import httpx
@@ -92,14 +115,18 @@ class FreePoolScanner:
             prev = self._last.get(name)
             self._last[name] = snap
             # 新信号: 首次可达 / 模型数明显增长(>20% 且 >=5 个新)
-            is_new = prev is None or (snap.reachable and not prev.reachable)
+            first_ever = name not in self._seen
+            is_new = first_ever or (prev is None or (snap.reachable and not prev.reachable))
             grew = (
                 prev is not None
                 and snap.reachable
                 and snap.model_count - prev.model_count >= 5
             )
+            if snap.reachable:
+                self._seen.add(name)
             if snap.reachable and (is_new or grew):
                 summary["new_signals"] += 1
+                self._save_seen()
                 emit(
                     "provider_discovered",
                     {

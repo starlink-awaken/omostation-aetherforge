@@ -124,3 +124,21 @@ def test_reverify_probe_failure_does_not_log_credential_material(tmp_path: Path,
     assert provider not in caplog.text
     assert api_key not in caplog.text
     assert "BASE_URL_SECRET" not in caplog.text
+
+
+def test_mark_key_active_true_change_semantics(tmp_path: Path) -> None:
+    """mark_key_active 返回值 = 真实状态变更(2026-08-24 PR #62 无效的补测)。
+
+    UPDATE 对"值已是目标值"的行也计入 total_changes, 已活 key 的复活
+    路径每次返回 True → 复活事件当日刷屏 157 条。只匹配反向行后,
+    重复标活/标死必须返回 False。
+    """
+    cm = _manager(tmp_path)
+    cm.add_key("p", "k1")
+    # 死→活→活: 第一次 True(真实变更), 第二次 False(无变更)
+    cm.mark_key_active("p", "k1", active=False)
+    assert cm.mark_key_active("p", "k1", active=True) is True
+    assert cm.mark_key_active("p", "k1", active=True) is False
+    # 活→死→死: 同理
+    assert cm.mark_key_active("p", "k1", active=False) is True
+    assert cm.mark_key_active("p", "k1", active=False) is False
