@@ -285,6 +285,38 @@ def cmd_serve(port: int) -> int:
     return 0
 
 
+def cmd_free_pool(action: str, *, write: bool = False) -> int:
+    """免费算力池运维入口。
+
+    scan:    FreePoolScanner 全源探测(候选源 SSOT 在 free_pool.py)。
+    refresh: openrouter 免费清单刷新 —— 实时 API vs MODEL-BREW yaml diff,
+             --write 才落盘, 默认 dry-run 报告漂移(治理: 数据变更可审计)。
+    """
+    if action == "scan":
+        from .free_pool import FreePoolScanner
+
+        summary = FreePoolScanner().scan()
+        print(f"probed={summary['probed']} reachable={summary['reachable']} new_signals={summary['new_signals']}")
+        return 0
+    from .free_pool import refresh_openrouter_free
+
+    result = refresh_openrouter_free(write=write)
+    if not result.get("ok"):
+        print(f"FAIL: {result.get('error')}")
+        return 1
+    print(
+        f"remote_free={result['remote_free']} static={result['static']} "
+        f"added={len(result['added'])} removed={len(result['removed'])} written={result['written']}"
+    )
+    for mid in result["added"]:
+        print(f"  + {mid}")
+    for mid in result["removed"]:
+        print(f"  - {mid}")
+    if result["added"] and not write:
+        print("(dry-run: 加 --write 落盘更新 yaml)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="llm-gateway", description="Unified LLM Gateway CLI")
     sub = parser.add_subparsers(dest="cmd")
@@ -314,6 +346,10 @@ def main(argv: list[str] | None = None) -> int:
     srv = sub.add_parser("serve", help="Start HTTP server")
     srv.add_argument("--port", "-p", type=int, default=int(os.environ.get("LLM_GATEWAY_PORT", "9290")))
 
+    fp = sub.add_parser("free-pool", help="免费算力池: 候选源扫描 / openrouter 清单刷新")
+    fp.add_argument("action", choices=["scan", "refresh"], help="scan=探测候选源; refresh=刷新 openrouter free 清单")
+    fp.add_argument("--write", action="store_true", help="refresh 时落盘更新 MODEL-BREW yaml(默认只报告漂移)")
+
     args = parser.parse_args(argv)
     if args.cmd == "list":
         return cmd_list(
@@ -334,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_mcp()
     elif args.cmd == "serve":
         return cmd_serve(args.port)
+    elif args.cmd == "free-pool":
+        return cmd_free_pool(args.action, write=getattr(args, "write", False))
     else:
         parser.print_help()
         return 1

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from .events import emit
@@ -137,3 +138,105 @@ class FreePoolScanner:
                     },
                 )
         return summary
+
+
+# ---------------------------------------------------------------------------
+# openrouter free 清单刷新 (2026-08-24)
+#
+# 背景: MODEL-BREW-OPENROUTER-FREE.yaml 是 2026-08-09 手写的静态快照,
+# 之后无刷新机制 —— 实测当日漂移 5→19 个真免费 chat 模型(z-ai/glm-5.2:free
+# 等上线半个月无人知晓)。另外 FreePoolScanner 顶部曾漏 import Path 导致
+# scan 自诞生起静默 NameError(gateway 的 except 吞成 debug 日志), 本轮
+# 一并修复并补测试。能力内建: 拉 API → 过滤 → diff → dry-run/--write。
+# ---------------------------------------------------------------------------
+
+OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+
+
+def _is_free_chat_model(model: dict) -> bool:
+    """真免费(prompt+completion 均 0)且纯文本输出 —— 排除 lyria 音乐
+    (out 含 audio)、content-safety 审核(分类器非 chat)这类名义免费但
+    非通用对话的条目。openrouter/free(官方免费 router)保留: 它把请求
+    自动路由到免费池, 对 free 池有直接价值。"""
+    pricing = model.get("pricing") or {}
+    try:
+        prompt_free = float(pricing.get("prompt", "1") or 1) == 0
+        completion_free = float(pricing.get("completion", "1") or 1) == 0
+    except (TypeError, ValueError):
+        return False
+    if not (prompt_free and completion_free):
+        return False
+    modalities = (model.get("architecture") or {}).get("output_modalities") or ["text"]
+    if modalities != ["text"]:
+        return False
+    model_id = model.get("id") or ""
+    return "content-safety" not in model_id
+
+
+def refresh_openrouter_free(*, write: bool = False) -> dict[str, Any]:
+    """拉 openrouter 实时免费清单, 与 MODEL-BREW-OPENROUTER-FREE.yaml diff。
+
+    write=False: 只报告漂移(默认)。write=True: 更新 yaml 的 models 段 +
+    synced_at, steward 标记 free-pool-refresh 供追溯。
+    外网访问走 httpx 默认代理环境变量(本机实测需 http_proxy 指向 7890)。
+    """
+    import httpx
+
+    from .paths import M1_MODEL_DIR
+
+    yaml_path = M1_MODEL_DIR / "MODEL-BREW-OPENROUTER-FREE.yaml"
+    try:
+        resp = httpx.get(OPENROUTER_MODELS_URL, timeout=30)
+        resp.raise_for_status()
+        remote_models = [m for m in resp.json().get("data", []) if _is_free_chat_model(m)]
+    except Exception as exc:
+        return {"ok": False, "error": f"openrouter models 拉取失败: {exc}"}
+
+    remote_ids = sorted(m["id"] for m in remote_models)
+    static_ids: set[str] = set()
+    doc: dict[str, Any] | None = None
+    if yaml_path.exists():
+        import yaml
+
+        doc = yaml.safe_load(yaml_path.read_text()) or {}
+        static_ids = {m.get("model_id", "") for m in doc.get("models", []) if m.get("model_id")}
+
+    added = [i for i in remote_ids if i not in static_ids]
+    removed = sorted(static_ids - set(remote_ids))
+
+    result: dict[str, Any] = {
+        "ok": True,
+        "remote_free": len(remote_ids),
+        "static": len(static_ids),
+        "added": added,
+        "removed": removed,
+        "written": False,
+    }
+    emit("free_pool_drift", {"provider": "openrouter-free", "added": added, "removed": removed})
+
+    if write and doc is not None:
+        import yaml
+        from datetime import UTC, datetime
+
+        by_id = {m["id"]: m for m in remote_models}
+        doc["models"] = [
+            {
+                "model_id": mid,
+                "display_name": ((by_id[mid].get("name") or mid).removesuffix(":free")) + " (Free)",
+                "cost_per_1k_input": 0,
+                "cost_per_1k_output": 0,
+                "context_window": by_id[mid].get("context_length") or 131072,
+                "capabilities": ["chat"],
+            }
+            for mid in remote_ids
+        ]
+        doc.setdefault("model_driven_refs", {})
+        doc["model_driven_refs"]["synced_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        doc["model_driven_refs"]["source"] = "openrouter_api_free_tier"
+        doc.setdefault("governance", {})["steward"] = "free-pool-refresh"
+        yaml_path.write_text(
+            yaml.safe_dump(doc, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        )
+        result["written"] = True
+
+    return result
