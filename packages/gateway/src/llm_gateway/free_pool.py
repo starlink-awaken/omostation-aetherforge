@@ -127,7 +127,6 @@ class FreePoolScanner:
                 self._seen.add(name)
             if snap.reachable and (is_new or grew):
                 summary["new_signals"] += 1
-                self._save_seen()
                 emit(
                     "provider_discovered",
                     {
@@ -137,6 +136,10 @@ class FreePoolScanner:
                         "reason": "first_seen" if is_new else "models_grew",
                     },
                 )
+        # 无条件落盘(2026-08-24): 此前只在有新信号时写, 无信号轮次不触碰
+        # 状态文件 → full-status 的心跳检查判不出"scan 活着"。幂等数据每轮
+        # 重写, mtime 即心跳。
+        self._save_seen()
         return summary
 
 
