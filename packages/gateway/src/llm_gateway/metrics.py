@@ -85,6 +85,7 @@ class MetricsCollector:
         self._lock = threading.RLock()
         self._export_path = Path(export_path)
         self._start_time = time.time()
+        self._error_types: dict[str, int] = defaultdict(int)
 
     # ── Recording ────────────────────────────────────────────────────────────
 
@@ -111,9 +112,12 @@ class MetricsCollector:
                 self._providers[provider].total_cost += cost
 
     def record_error(self, model: str, error_type: str = "unknown", provider: str = "") -> None:
-        """Record an error event."""
+        """Record an error event.(2026-08-24 P1: error_type 此前收了就丢,
+        错误分布无聚合 —— 现在按 CloudErrorCode 累计, report() 出
+        error_breakdown, /stats 直接可见哪类错误占大头。)"""
         with self._lock:
             self._models[model].errors += 1
+            self._error_types[error_type] += 1
             if provider:
                 self._providers[provider].errors += 1
 
@@ -152,6 +156,7 @@ class MetricsCollector:
                 "total_models": len(self._models),
                 "total_requests": sum(m.requests for m in self._models.values()),
                 "total_errors": sum(m.errors for m in self._models.values()),
+                "error_breakdown": dict(sorted(self._error_types.items())),
                 "total_rate_limits": sum(m.rate_limits for m in self._models.values()),
                 "total_cost": round(sum(m.total_cost for m in self._models.values()), 6),
                 "total_tokens": sum(m.total_tokens for m in self._models.values()),
