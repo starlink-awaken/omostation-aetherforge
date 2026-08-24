@@ -1842,6 +1842,18 @@ class ModelGateway:
                                 _log.warning("credentials auto-disabled: %s", dead)
                         except Exception as exc:
                             _log.debug("credential reverify skipped: %s", exc)
+                        # 免费源发现闭环(治理 P1.2): 候选池探测+diff, 新信号
+                        # 发 provider_discovered 事件 —— 能力内建, 不再外挂。
+                        try:
+                            from .free_pool import FreePoolScanner
+
+                            if not hasattr(self, "_free_pool_scanner"):
+                                self._free_pool_scanner = FreePoolScanner()
+                            fp = await asyncio.to_thread(self._free_pool_scanner.scan)
+                            if fp.get("new_signals"):
+                                _log.info("[ModelGateway] free pool new signals: %s", fp)
+                        except Exception as exc:
+                            _log.debug("free pool scan skipped: %s", exc)
                         last_refresh = now
                     await self.health()
                 except Exception:
