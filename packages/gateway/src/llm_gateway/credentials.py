@@ -459,11 +459,16 @@ class CredentialsManager:
         """
         with self._lock:
             with _get_connection(self._db_path) as conn:
-                conn.execute(
-                    "UPDATE credentials SET is_active = ? WHERE provider = ? AND api_key = ?",
-                    (1 if active else 0, provider, api_key),
+                # 2026-08-24 真修复(PR #62 无效的根因): UPDATE 对"值已是
+                # 目标值"的行也计入 total_changes, 已活 key 的复活路径每次
+                # 都返回 True → 事件刷屏(当日 157 条)。只匹配反向行,
+                # 让返回值 = 真实状态变更。
+                target = 1 if active else 0
+                cur = conn.execute(
+                    "UPDATE credentials SET is_active = ? WHERE provider = ? AND api_key = ? AND is_active != ?",
+                    (target, provider, api_key, target),
                 )
-                return conn.total_changes > 0
+                return cur.rowcount > 0
 
     def reverify_provider_keys(self, timeout: float = 8.0) -> dict[str, int]:
         """对所有多 key provider 逐 key 验证(GET base_url/models), 标活/死。
