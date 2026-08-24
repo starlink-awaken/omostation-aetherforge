@@ -128,3 +128,13 @@ class TestNonstandardAuthSniff:
         for nb in normal_bodies:
             low = nb.lower()
             assert not any(s in low for s in sigs), f"正常响应被特征误中: {nb}"
+
+
+class TestNoCapacityHandling:
+    """no_capacity 确定性失败: 持久跳过 + 独立分类码(2026-08-24 日报驱动)。"""
+
+    def test_classify_no_capacity(self) -> None:
+        from llm_gateway.gateway import ModelGateway
+
+        assert ModelGateway._classify_error(RuntimeError("local inference has no capacity")).endswith("no_capacity")
+

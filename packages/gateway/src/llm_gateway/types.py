@@ -15,6 +15,7 @@ class CloudErrorCode(StrEnum):
     RATE_LIMIT = "cloud_rate_limit" # 429 限流
     BUDGET = "cloud_budget"         # 预算拦截触发
     EMPTY = "cloud_empty"           # 空回复(预算耗尽思考段等)
+    NO_CAPACITY = "local_no_capacity"  # 本地模型未加载/无容量(确定性失败)
     TIMEOUT = "cloud_timeout"       # 上游超时
     UPSTREAM = "cloud_upstream"     # 其他上游错误
 
