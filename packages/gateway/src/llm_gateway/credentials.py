@@ -497,10 +497,53 @@ class CredentialsManager:
                 if self.mark_key_active(str(provider), str(api_key), active=False):
                     dead[str(provider)] = dead.get(str(provider), 0) + 1
                     _log.warning("credential disabled: %s key failed auth (401/403)", provider)
+                    from .events import emit
+
+                    emit("credential_evicted", {"provider": str(provider), "reason": "probe_401_403"})
             elif resp.status_code == 200:
                 # 曾被标死的 key 复验通过则复活(自动恢复)
                 self.mark_key_active(str(provider), str(api_key), active=True)
+                from .events import emit
+
+                emit("credential_revived", {"provider": str(provider)})
         return dead
+
+    def health_snapshot(self) -> list[dict[str, object]]:
+        """凭据健康视图(/stats 用): 每 provider 活/死 key 计数。"""
+        with self._lock:
+            with _get_connection(self._db_path) as conn:
+                rows = conn.execute(
+                    "SELECT provider, is_active, COUNT(*) AS n FROM credentials GROUP BY provider, is_active"
+                ).fetchall()
+        out: dict[str, dict[str, object]] = {}
+        for provider, active, n in rows:
+            entry = out.setdefault(str(provider), {"provider": str(provider), "active_keys": 0, "dead_keys": 0})
+            if active:
+                entry["active_keys"] = n
+            else:
+                entry["dead_keys"] = n
+        return sorted(out.values(), key=lambda e: str(e["provider"]))
+
+    def budget_snapshot(self) -> list[dict[str, object]]:
+        """预算视图(/stats 用): limit/spend/action/是否已触发拦截。"""
+        with self._lock:
+            with _get_connection(self._db_path) as conn:
+                rows = conn.execute(
+                    "SELECT provider, monthly_limit, action, month_spend FROM budgets"
+                ).fetchall()
+        out = []
+        for provider, limit, action, spend in rows:
+            limit_f = float(limit or 0.0)
+            out.append(
+                {
+                    "provider": str(provider),
+                    "monthly_limit": limit_f,
+                    "action": str(action or ""),
+                    "month_spend": float(spend or 0.0),
+                    "blocked": bool(limit_f) and float(spend or 0.0) >= limit_f and str(action) == "block",
+                }
+            )
+        return out
 
     def budget_blocked(self, provider: str) -> bool:
         """该凭据名是否已超月预算且动作为 block(请求路径轻量查询, 不走 codexbar)。
