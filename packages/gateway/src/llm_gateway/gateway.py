@@ -986,7 +986,16 @@ class ModelGateway:
                 return resp
             except Exception as e:
                 last_error = str(e)[:100]
-                self._health_failures[model_name] = self._health_failures.get(model_name, 0) + 1
+                # 治理: no_capacity 是确定性失败(模型未加载/无容量), 不是
+                # 暂时抖动 —— 置持久跳过(本进程生命周期不再尝试), 避免重启
+                # 清零后每轮重新快速失败(2026-08-24 日报: coding-fast×10)。
+                if "no capacity" in str(e).lower():
+                    self._health_failures[model_name] = 999
+                    from .events import emit as _emit_unhealthy
+
+                    _emit_unhealthy("provider_unhealthy", {"model": model_name, "reason": "no_capacity"})
+                else:
+                    self._health_failures[model_name] = self._health_failures.get(model_name, 0) + 1
                 # 治理 P1: 失败按 CloudErrorCode 分类入 metrics + 事件流
                 code = self._classify_error(e)
                 self._metrics.record_error(model=model_name, error_type=code)
@@ -1341,6 +1350,8 @@ class ModelGateway:
             return CloudErrorCode.AUTH
         if "budget exhausted" in text:
             return CloudErrorCode.BUDGET
+        if "no capacity" in lowered:
+            return CloudErrorCode.NO_CAPACITY
         if "429" in text or "rate limit" in lowered:
             return CloudErrorCode.RATE_LIMIT
         if "回复为空" in text:
