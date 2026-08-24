@@ -526,11 +526,13 @@ class CredentialsManager:
 
                     emit("credential_evicted", {"provider": str(provider), "reason": "probe_401_403"})
             elif resp.status_code == 200:
-                # 曾被标死的 key 复验通过则复活(自动恢复)
-                self.mark_key_active(str(provider), str(api_key), active=True)
-                from .events import emit
+                # 曾被标死的 key 复验通过则复活(自动恢复)。mark 返回
+                # "是否有行被更新" —— 仅真正从死变活时才发事件, 否则每轮
+                # 复验都会对全部健康 key 刷屏(2026-08-24 日报实测暴露)。
+                if self.mark_key_active(str(provider), str(api_key), active=True):
+                    from .events import emit
 
-                emit("credential_revived", {"provider": str(provider)})
+                    emit("credential_revived", {"provider": str(provider)})
         return dead
 
     def health_snapshot(self) -> list[dict[str, object]]:
