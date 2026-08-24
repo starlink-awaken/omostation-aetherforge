@@ -92,6 +92,7 @@ class TestDailyReport:
 
     def test_report_aggregates_and_is_idempotent(self, tmp_path, monkeypatch) -> None:
         import time
+
         from llm_gateway import events
         from llm_gateway.daily_report import generate_daily_report
 

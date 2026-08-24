@@ -99,6 +99,6 @@ def generate_daily_report(day: str | None = None) -> Path | None:
         out.write_text("\n".join(lines) + "\n", encoding="utf-8")
         _log.info("[daily_report] %s generated (%d events)", out.name, sum(kinds.values()))
         return out
-    except Exception as exc:  # noqa: BLE001 — 报告失败不影响运行
+    except Exception as exc:
         _log.debug("daily report failed: %s", exc)
         return None

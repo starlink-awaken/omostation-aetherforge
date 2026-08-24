@@ -603,7 +603,7 @@ def _daily_report_safely() -> None:
         from .daily_report import generate_daily_report
 
         generate_daily_report()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.debug("daily report skipped: %s", exc)
 
 
