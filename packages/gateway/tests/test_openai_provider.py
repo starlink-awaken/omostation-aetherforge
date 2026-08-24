@@ -71,7 +71,6 @@ async def test_stream_detailed_yields_text_then_usage(mock_get_client, openai_pr
     mock_client.chat.completions.create.side_effect = fake_create
     mock_get_client.return_value = mock_client
 
-    from llm_gateway.provider import LLMStreamEvent
 
     events = [e async for e in openai_provider.stream_generate_detailed(LLMRequest(model="gpt-4o", prompt="hi"))]
     assert [(e.text, e.finish_reason, e.usage) for e in events] == [

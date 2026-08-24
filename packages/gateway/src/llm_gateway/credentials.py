@@ -491,7 +491,8 @@ class CredentialsManager:
             url = f"{str(base_url).rstrip('/')}/models"
             try:
                 resp = httpx.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout)
-            except Exception:
+            except Exception as exc:
+                _log.debug("credential probe failed (%s)", type(exc).__name__)
                 continue
             if resp.status_code in (401, 403):
                 if self.mark_key_active(str(provider), str(api_key), active=False):

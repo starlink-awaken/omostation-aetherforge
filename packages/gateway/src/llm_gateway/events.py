@@ -52,7 +52,7 @@ def _truncate_if_needed() -> None:
         tmp = _EVENTS_FILE.with_suffix(".jsonl.tmp")
         tmp.write_bytes(tail)
         os.replace(tmp, _EVENTS_FILE)
-    except Exception as exc:  # noqa: BLE001 — 治理自身的故障不外溢
+    except Exception as exc:
         _log.debug("events truncate failed: %s", exc)
 
 
@@ -72,7 +72,7 @@ def emit(kind: str, payload: dict[str, Any] | None = None) -> None:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
         _truncate_if_needed()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.debug("event emit failed (kind=%s): %s", kind, exc)
 
 
@@ -95,6 +95,6 @@ def tail_events(n: int = 20, kind: str | None = None) -> list[dict[str, Any]]:
                 continue
             out.append(rec)
         return out
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log.debug("tail_events failed: %s", exc)
         return []
