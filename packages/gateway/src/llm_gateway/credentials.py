@@ -494,6 +494,31 @@ class CredentialsManager:
             except Exception as exc:
                 _log.debug("credential probe failed (%s)", type(exc).__name__)
                 continue
+            # P2.1 非标失效嗅探: 部分网关凭据失效时不回 401 而是 200 +
+            # body 塞错误(openrouter/部分聚合网关实测如此)。特征表白名单式
+            # 保守匹配(宁漏勿杀), 命中即与 401 同路径判死。
+            body_text = ""
+            if resp.status_code == 200:
+                try:
+                    body_text = resp.text[:2000].lower()
+                except Exception:
+                    body_text = ""
+            _NONSTD_AUTH_FAILURE = (
+                "invalid api key",
+                "invalid_api_key",
+                "unauthorized",
+                "authentication failed",
+                "invalid token",
+                "api key not valid",
+            )
+            if any(sig in body_text for sig in _NONSTD_AUTH_FAILURE) and '"data"' not in body_text and "model" not in body_text[:200]:
+                if self.mark_key_active(str(provider), str(api_key), active=False):
+                    dead[str(provider)] = dead.get(str(provider), 0) + 1
+                    _log.warning("credential disabled: %s key nonstandard auth failure (200+body)", provider)
+                    from .events import emit
+
+                    emit("credential_evicted", {"provider": str(provider), "reason": "probe_200_body_auth_error"})
+                continue
             if resp.status_code in (401, 403):
                 if self.mark_key_active(str(provider), str(api_key), active=False):
                     dead[str(provider)] = dead.get(str(provider), 0) + 1

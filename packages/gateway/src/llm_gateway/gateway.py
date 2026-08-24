@@ -31,6 +31,7 @@ import re
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Any
 
 from .complexity import TaskComplexityScorer
@@ -596,6 +597,16 @@ class MemoryGuard:
 # ============================================================
 # ModelGateway — 统一入口
 # ============================================================
+def _daily_report_safely() -> None:
+    """health loop 的报告钩子(异常不外溢)。"""
+    try:
+        from .daily_report import generate_daily_report
+
+        generate_daily_report()
+    except Exception as exc:  # noqa: BLE001
+        _log.debug("daily report skipped: %s", exc)
+
+
 class ModelGateway:
     """统一模型网关 — 所有 LLM 调用的唯一入口.
 
@@ -1826,9 +1837,15 @@ class ModelGateway:
 
         async def _health_loop() -> None:
             last_refresh = 0.0
+            last_report_day = ""
             while True:
                 await asyncio.sleep(self._config.health_check_interval)
                 try:
+                    # 每日运营报告(P2.2): 当日首 tick 生成, 幂等跳过
+                    today = datetime.now().strftime("%Y-%m-%d")
+                    if today != last_report_day:
+                        last_report_day = today
+                        await asyncio.to_thread(_daily_report_safely)
                     now = time.monotonic()
                     if now - last_refresh >= self._config.registry_refresh_interval:
                         await self._registry.refresh(self._config.registry_discover_timeout)
