@@ -461,6 +461,12 @@ async def handle_embeddings(request: web.Request) -> web.Response:
         return web.json_response(_openai_error_payload(None), status=502)
 
 
+async def handle_stats(request: web.Request) -> web.Response:
+    """GET /stats — 治理观测聚合: metrics/凭据健康/预算/registry/近期事件。"""
+    payload = get_gateway().observe_stats()
+    return web.json_response(payload)
+
+
 async def handle_health(request: web.Request) -> web.Response:
     """GET /health — simple health check."""
     return web.json_response({"status": "ok", "service": "aetherforge-openai-proxy"})
@@ -537,6 +543,7 @@ def create_app(api_key: str | None = None) -> web.Application:
     app.router.add_get("/v1/models", handle_list_models)
     app.router.add_post("/v1/embeddings", handle_embeddings)
     app.router.add_get("/v1/compute", handle_compute)
+    app.router.add_get("/stats", handle_stats)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/ready", handle_ready)
     app.router.add_get("/", handle_health)

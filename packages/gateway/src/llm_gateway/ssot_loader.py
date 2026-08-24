@@ -301,6 +301,9 @@ class SSOTProviderAdapter(BaseLLMProvider):
                 # 无行可匹配, 标死会静默无效(实测踩过)。
                 CredentialsManager().mark_key_active(self._cred_provider, key, active=False)
                 _log.warning("credential disabled by auth failure: %s", self._name)
+                from .events import emit
+
+                emit("credential_evicted", {"provider": self._cred_provider, "reason": "request_401"})
         except Exception:
             return
 

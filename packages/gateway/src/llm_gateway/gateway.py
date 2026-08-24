@@ -692,6 +692,34 @@ class ModelGateway:
             raise OmlxcError(OmlxcErrorCode.INVALID)
         return await self._omlxc.list_models()
 
+    def observe_stats(self) -> dict[str, object]:
+        """治理观测聚合(/stats): metrics + 凭据健康 + 预算 + registry + 近期事件。
+
+        2026-08-24 治理 P0: 此前 MetricsCollector.report() 锁在进程内存里
+        无 HTTP 出口, 凭据淘汰/预算状态只能登进机器查 sqlite —— 观测数据
+        存在但不可见。本方法把五个数据源聚合成一个只读视图。
+        """
+        from .events import tail_events
+
+        stats: dict[str, object] = {"metrics": self._metrics.report()}
+        try:
+            from .credentials import CredentialsManager
+
+            cm = CredentialsManager()
+            stats["credentials"] = cm.health_snapshot()
+            stats["budgets"] = cm.budget_snapshot()
+        except Exception as exc:
+            stats["credentials_error"] = str(exc)
+        try:
+            stats["registry"] = {
+                "providers": len(self._registry.provider_names()),
+                "models": len(self._registry.get_all()),
+            }
+        except Exception as exc:
+            stats["registry_error"] = str(exc)
+        stats["events_recent"] = tail_events(20)
+        return stats
+
     async def observe_omlxc_compute(self) -> dict[str, object]:
         """Read-only inventory observe. Orthogonal to routing mode and /health."""
         mode = self._config.omlxc_mode
@@ -1141,6 +1169,9 @@ class ModelGateway:
             # 全部预算耗在 thinking 段(text_delta 零产出, LongCat-2.0 默认开
             # 思考时实测如此) —— 抛回退信号, 让聚合路径(自带关-thinking 重试
             # 链)接管; 此时尚未 yield 任何块, 调用方 emitted=False 可安全回退。
+            from .events import emit
+
+            emit("stream_fallback", {"model": model_id, "reason": "no_content"})
             raise _StreamUnsupported(f"{model_id}: stream produced no content")
         # 记账三件套(与聚合路径成功分支对齐): 此前真流式从未经过
         # record_generation / _last_used / 健康重置 —— metrics 对流式请求
@@ -1296,6 +1327,9 @@ class ModelGateway:
             from .credentials import CredentialsManager
 
             if CredentialsManager().budget_blocked(self._cred_token_for(model_id)):
+                from .events import emit
+
+                emit("budget_blocked", {"model": model_id, "provider": self._cred_token_for(model_id)})
                 raise RuntimeError(f"{model_id}: monthly budget exhausted (block)")
         except RuntimeError:
             raise
@@ -1320,6 +1354,14 @@ class ModelGateway:
                 model=model_id,
                 tokens_input=tokens_in,
                 tokens_output=tokens_out,
+            )
+            # 结构化事件流(2026-08-24 治理): 可追溯性 SSOT, fire-and-forget
+            from .events import emit
+
+            emit(
+                "request_complete",
+                {"model": model_id, "provider": self._cred_token_for(model_id),
+                 "tokens_in": tokens_in, "tokens_out": tokens_out},
             )
         except Exception:
             return  # 记账失败不影响请求
