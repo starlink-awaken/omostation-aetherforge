@@ -1849,6 +1849,11 @@ class ModelGateway:
         async def _health_loop() -> None:
             last_refresh = 0.0
             last_report_day = ""
+            # 免费清单漂移对账(2026-08-24): openrouter free 清单曾停在静态快照
+            # 15 天无人知。每周 dry-run 一次 refresh(漂移走 free_pool_drift 事件
+            # 进日报); 写盘仍人工(free-pool refresh --write), 治理上数据变更
+            # 必须可审计。首 tick 即对账一次(gateway 启动对齐现状)。
+            last_free_refresh = 0.0
             while True:
                 await asyncio.sleep(self._config.health_check_interval)
                 try:
@@ -1858,6 +1863,22 @@ class ModelGateway:
                         last_report_day = today
                         await asyncio.to_thread(_daily_report_safely)
                     now = time.monotonic()
+                    if now - last_free_refresh >= 7 * 86400:
+                        last_free_refresh = now
+                        try:
+                            from .free_pool import refresh_openrouter_free
+
+                            drift = await asyncio.to_thread(refresh_openrouter_free, write=False)
+                            if drift.get("ok") and (drift.get("added") or drift.get("removed")):
+                                _log.info(
+                                    "[ModelGateway] free pool drift: +%d -%d (openrouter)",
+                                    len(drift.get("added") or []),
+                                    len(drift.get("removed") or []),
+                                )
+                        except Exception as exc:
+                            # 自治机制失败必须 warning —— 2026-08-24 教训:
+                            # free_pool 此前吞成 debug 级, NameError 半月无人知。
+                            _log.warning("free pool weekly refresh failed: %s", exc)
                     if now - last_refresh >= self._config.registry_refresh_interval:
                         await self._registry.refresh(self._config.registry_discover_timeout)
                         # 多 key provider 的凭据复验(401 判死/200 复活), 与
@@ -1881,7 +1902,9 @@ class ModelGateway:
                             if fp.get("new_signals"):
                                 _log.info("[ModelGateway] free pool new signals: %s", fp)
                         except Exception as exc:
-                            _log.debug("free pool scan skipped: %s", exc)
+                            # warning 而非 debug: 自治机制静默死是 fabric 级事故
+                            # (2026-08-24 实证: NameError 被吞成 debug 半月无人知)。
+                            _log.warning("free pool scan failed: %s", exc)
                         last_refresh = now
                     await self.health()
                 except Exception:
