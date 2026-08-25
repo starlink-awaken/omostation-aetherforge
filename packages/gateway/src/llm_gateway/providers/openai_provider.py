@@ -115,6 +115,23 @@ class OpenAIProvider(LLMProvider):
     def _get_client(self) -> Any:
         if self._client is None:
             import openai
+            import httpx
+
+            if self.base_url and self.base_url.startswith("unix://"):
+                # 本地 unix socket(omlxc UDS: unix://omlxc/api/v1) — OpenAI SDK
+                # 不认 unix:// base_url, 用 httpx UDS transport + 虚拟 http base_url
+                # (2026-08-25: 本地直连最后一公里; socket 路径复用 default_omlxc_socket;
+                # 实测 UDS 通道 18 模型全通, chat 达 daemon 业务层 "no capacity")
+                from llm_gateway.omlxc_client import default_omlxc_socket
+
+                socket_path = default_omlxc_socket()
+                http_client = httpx.Client(
+                    base_url="http://omlxc/api/v1", transport=httpx.HTTPTransport(uds=str(socket_path))
+                )
+                self._client = openai.OpenAI(
+                    api_key="not-needed", base_url="http://omlxc/api/v1", http_client=http_client
+                )
+                return self._client
 
             key = (
                 self._api_key or "not-needed"
@@ -132,6 +149,20 @@ class OpenAIProvider(LLMProvider):
     def _get_async_client(self) -> Any:
         if self._async_client is None:
             import openai
+            import httpx
+
+            if self.base_url and self.base_url.startswith("unix://"):
+                from llm_gateway.omlxc_client import default_omlxc_socket
+
+                socket_path = default_omlxc_socket()
+                async_http_client = httpx.AsyncClient(
+                    base_url="http://omlxc/api/v1",
+                    transport=httpx.AsyncHTTPTransport(uds=str(socket_path)),
+                )
+                self._async_client = openai.AsyncOpenAI(
+                    api_key="not-needed", base_url="http://omlxc/api/v1", http_client=async_http_client
+                )
+                return self._async_client
 
             key = (
                 self._api_key or "not-needed"
