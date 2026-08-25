@@ -126,10 +126,10 @@ class OpenAIProvider(LLMProvider):
 
                 socket_path = default_omlxc_socket()
                 http_client = httpx.Client(
-                    base_url="http://omlxc/api/v1", transport=httpx.HTTPTransport(uds=str(socket_path))
+                    base_url="http://omlxc/openai/v1", transport=httpx.HTTPTransport(uds=str(socket_path))
                 )
                 self._client = openai.OpenAI(
-                    api_key="not-needed", base_url="http://omlxc/api/v1", http_client=http_client
+                    api_key="not-needed", base_url="http://omlxc/openai/v1", http_client=http_client
                 )
                 return self._client
 
@@ -156,11 +156,11 @@ class OpenAIProvider(LLMProvider):
 
                 socket_path = default_omlxc_socket()
                 async_http_client = httpx.AsyncClient(
-                    base_url="http://omlxc/api/v1",
+                    base_url="http://omlxc/openai/v1",
                     transport=httpx.AsyncHTTPTransport(uds=str(socket_path)),
                 )
                 self._async_client = openai.AsyncOpenAI(
-                    api_key="not-needed", base_url="http://omlxc/api/v1", http_client=async_http_client
+                    api_key="not-needed", base_url="http://omlxc/openai/v1", http_client=async_http_client
                 )
                 return self._async_client
 
