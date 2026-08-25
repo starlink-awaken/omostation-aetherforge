@@ -92,6 +92,10 @@ class OpenAIProvider(LLMProvider):
                 # Tailscale IP range: 100.x.x.x
             )
             or (self.base_url and self.base_url.startswith("http://100."))
+            # 本地 unix socket(omlxc UDS: unix://omlxc/api/v1)同样无需 api_key —
+            # 2026-08-25: 此前 unix:// 不在白名单, ENG-OMLX-LOCAL 被判"无凭据
+            # 不可用" → discover 准入闸静默归零 23 个本地模型(总闸下一层病根)
+            or (self.base_url and self.base_url.startswith("unix://"))
         ):
             return True
         if not self._api_key or self._api_key == "MOCK_KEY":
