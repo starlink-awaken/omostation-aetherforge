@@ -1,9 +1,8 @@
 ---
 type: ephemeral
-status: active
 lifecycle: operational
 owner: aetherforge
-last-reviewed: "2026-07-30"
+last_updated: "2026-07-30"
 ---
 # oMLX 模型健康登记 (全量实测 · 2026-07-30)
 

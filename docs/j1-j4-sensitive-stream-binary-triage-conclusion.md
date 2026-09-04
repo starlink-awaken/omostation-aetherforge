@@ -1,9 +1,8 @@
 ---
 type: ephemeral
-status: active
 lifecycle: functional
 owner: aetherforge
-last-reviewed: "2026-07-30"
+last_updated: "2026-07-30"
 ---
 # J1-J4 敏感流二分自动化 — 结论: 暂不可自动化 (J4 合规降级)
 
