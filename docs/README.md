@@ -1,3 +1,10 @@
+---
+type: derived
+source: projects/aetherforge
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge Documentation
 
 > X · 能力与算力框架

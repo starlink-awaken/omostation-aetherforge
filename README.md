@@ -1,3 +1,10 @@
+---
+type: derived
+source: projects/aetherforge
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge
 
 🌐 [简体中文](README.zh.md)

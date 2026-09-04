@@ -1,3 +1,10 @@
+---
+type: derived
+source: projects/aetherforge
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge Mesh [LIBRARY-ONLY]
 
 > **Note:** This package is **[LIBRARY-ONLY]**. 

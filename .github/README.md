@@ -1,3 +1,9 @@
+---
+type: derived
+source: projects/aetherforge
+owner: governance-team
+last_updated: 2026-09-03---
+
 # AetherForge
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
