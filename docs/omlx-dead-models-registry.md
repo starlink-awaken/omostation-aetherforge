@@ -1,4 +1,5 @@
 ---
+type: ephemeral
 status: active
 lifecycle: operational
 owner: aetherforge

@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge API Reference
 
 > 完整 API 文档覆盖所有公开模块。

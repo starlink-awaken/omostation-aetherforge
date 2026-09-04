@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge OMO 台账
 
 > eCOS Phase X / AetherForge 持续迭代

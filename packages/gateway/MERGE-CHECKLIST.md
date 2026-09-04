@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # llm-gateway → aetherforge/packages/gateway/ 合并清单
 
 > 状态：Phase 1 物理迁移完成（2026-06-16）  

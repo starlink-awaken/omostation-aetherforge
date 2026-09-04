@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge 架构重构设计 v2
 
 > 系统思维 · 战略规划 · L0 建模 · 战术落地

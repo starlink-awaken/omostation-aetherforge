@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # Changelog
 
 > 所有显著更改都将记录在此文件中。

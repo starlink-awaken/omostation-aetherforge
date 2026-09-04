@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge Gateway 架构分析 — cc-switch & codexbar 的遗产与融合
 
 > 分析旧 SharedBrain B-OS 体系中 cc-switch / codexbar 的设计意图，

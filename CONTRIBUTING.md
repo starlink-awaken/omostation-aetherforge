@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # 贡献指南
 
 感谢您对本项目的关注！以下是贡献流程。

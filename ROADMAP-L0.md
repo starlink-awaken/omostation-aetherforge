@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge × L0 MOF — 全面融合规划
 
 > 将 eCOS L0 MOF 的 6 个 M1 命名空间全部接入 AetherForge，

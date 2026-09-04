@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # 多 Agent 协作 (Swarm)
 
 Swarm 提供了多 Agent 协作的三种模式。

@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge 能力地图
 
 > 算力网格 · LLM 网关 · 群体智能

@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge 网关治理架构 v1 — 成熟度模型、差距与落地路线
 
 > 状态: active · 创建: 2026-08-24 · 所有者: gateway 维护者

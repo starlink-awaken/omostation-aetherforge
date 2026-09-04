@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # 远程机器接入 aetherforge 教程
 
 > 目标：让 Mac mini 的 aetherforge gateway 能调用 MacBook Pro 和 Y7000P 上的 LM Studio / Ollama

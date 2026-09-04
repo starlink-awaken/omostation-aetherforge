@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # FUNC-01 S0: 本地模型清单 + 分诊选型
 
 > 功能线文档 (非治理标准). 上位: func-01-info-triage-pipeline.md S0.

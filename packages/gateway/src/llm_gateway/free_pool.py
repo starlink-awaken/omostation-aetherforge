@@ -77,7 +77,7 @@ class FreePoolScanner:
         try:
             self._STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
             self._STATE_FILE.write_text(json.dumps(sorted(self._seen)))
-        except Exception as exc:  # noqa: BLE001 — 状态持久化失败不影响扫描
+        except Exception as exc:
             _log.debug("free pool state save failed: %s", exc)
 
     def _probe(self, name: str, url: str) -> PoolSnapshot:
@@ -218,8 +218,9 @@ def refresh_openrouter_free(*, write: bool = False) -> dict[str, Any]:
     emit("free_pool_drift", {"provider": "openrouter-free", "added": added, "removed": removed})
 
     if write and doc is not None:
-        import yaml
         from datetime import UTC, datetime
+
+        import yaml
 
         by_id = {m["id"]: m for m in remote_models}
         doc["models"] = [

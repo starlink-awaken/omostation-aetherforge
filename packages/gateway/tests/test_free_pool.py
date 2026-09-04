@@ -8,11 +8,9 @@ openrouter free 清单刷新的过滤/diff/写盘逻辑。
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import yaml
-
 from llm_gateway import paths
 from llm_gateway.free_pool import FreePoolScanner, _is_free_chat_model, refresh_openrouter_free
 

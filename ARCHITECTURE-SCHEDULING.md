@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge 算力调度架构 — 完整设计
 
 > 回答: 可用性? 配额? 大盘? 调度? 路由? 成本? L0?

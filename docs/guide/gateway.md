@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # LLM 调用 (Gateway)
 
 Gateway 是 AetherForge 的统一 LLM 入口，支持 9 个 Provider。

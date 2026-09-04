@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge 行业调研报告
 
 > 对标 LiteLLM / K8s Scheduler / Ray / CrewAI 等主流方案，识别差距与优化方向

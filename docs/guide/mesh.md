@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # 算力网格 (Mesh)
 
 Mesh 自动发现、管理、路由你的所有算力资源。

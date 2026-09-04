@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge Round 1 Design
 
 > Swarm 清理 + RouteScheduler + OpenAgent 思路借鉴

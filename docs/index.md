@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # 🔮 AetherForge
 
 > 你的个人 AI 算力中心 — LLM 网关 + 算力网格 + 多 Agent 编排

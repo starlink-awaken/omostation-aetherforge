@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge 行业对标分析
 
 > 与 LiteLLM / CrewAI / AutoGen / Ray / LangGraph 等行业主流方案全面对比

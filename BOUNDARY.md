@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # aetherforge — System Boundary
 
 > 本文档描述 aetherforge 与 eCOS 系统其他部分的边界：暴露的接口、依赖的上游、影响的下游。

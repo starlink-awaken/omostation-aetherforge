@@ -114,8 +114,8 @@ class OpenAIProvider(LLMProvider):
 
     def _get_client(self) -> Any:
         if self._client is None:
-            import openai
             import httpx
+            import openai
 
             if self.base_url and self.base_url.startswith("unix://"):
                 # 本地 unix socket(omlxc UDS: unix://omlxc/api/v1) — OpenAI SDK
@@ -148,8 +148,8 @@ class OpenAIProvider(LLMProvider):
 
     def _get_async_client(self) -> Any:
         if self._async_client is None:
-            import openai
             import httpx
+            import openai
 
             if self.base_url and self.base_url.startswith("unix://"):
                 from llm_gateway.omlxc_client import default_omlxc_socket

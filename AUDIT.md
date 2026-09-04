@@ -1,3 +1,9 @@
+---
+type: ssot
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # AetherForge 深度审计报告
 
 > 架构完整性 · L0 支撑 · 代码质量 · 性能瓶颈
