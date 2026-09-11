@@ -18,7 +18,9 @@ _log = logging.getLogger(__name__)
 class ModelRegistry:
     """Registry managing providers, discovered models, circuit breakers, and retry.
 
-    Integrates circuit breakers per-provider and optional retry logic.
+    Integrates circuit breakers per (provider, model) pair and optional retry
+    logic. See ``_circuit_key`` for why the breaker is not keyed by provider
+    alone.
     """
 
     def __init__(self) -> None:
@@ -107,6 +109,19 @@ class ModelRegistry:
     # Chat / streaming
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _circuit_key(provider_name: str, model_id: str) -> str:
+        """Circuit breaker key scoped to (provider, model), not the provider alone.
+
+        A provider often serves several models with independent availability
+        (e.g. omlx_app only has real placements for some of its catalog).
+        Keying purely by provider_name lets failures on an unrelated,
+        never-deployed model (e.g. coding-fast) trip the breaker for every
+        other model on that same provider (e.g. coding), even though that
+        other model is healthy and reachable directly.
+        """
+        return f"{provider_name}::{model_id}"
+
     def _get_provider_for(self, model_id: str) -> tuple[BaseLLMProvider, str] | None:
         entry = self._models.get(model_id)
         if not entry:
@@ -115,8 +130,9 @@ class ModelRegistry:
         provider = self._providers.get(provider_name)
         if not provider:
             return None
-        if not self.circuit_breaker.can_request(provider_name):
-            raise RuntimeError(f"Circuit breaker open for provider {provider_name}")
+        circuit_key = self._circuit_key(provider_name, model_id)
+        if not self.circuit_breaker.can_request(circuit_key):
+            raise RuntimeError(f"Circuit breaker open for provider {provider_name} (model {model_id})")
         return provider, provider_name
 
     async def chat(
@@ -130,6 +146,7 @@ class ModelRegistry:
         if not p:
             return None
         provider, provider_name = p
+        circuit_key = self._circuit_key(provider_name, model_id)
 
         from .tracing import trace_llm_call
 
@@ -154,12 +171,12 @@ class ModelRegistry:
                         },
                     )
 
-                self.circuit_breaker.record_success(provider_name)
+                self.circuit_breaker.record_success(circuit_key)
                 return result
             except Exception as e:
                 if gen:
                     gen.end(status_message=str(e))
-                self.circuit_breaker.record_failure(provider_name)
+                self.circuit_breaker.record_failure(circuit_key)
                 raise
             finally:
                 if self._scheduler_ref is not None:
@@ -176,6 +193,7 @@ class ModelRegistry:
         if not p:
             raise RuntimeError(f"Model {model_id} not found or provider unavailable")
         provider, provider_name = p
+        circuit_key = self._circuit_key(provider_name, model_id)
         try:
             try:
                 # 2026-08-23: 原来调 provider.stream(...) —— BaseLLMProvider 的
@@ -192,9 +210,9 @@ class ModelRegistry:
                     content=result.content,
                     finish_reason=result.finish_reason,
                 )
-            self.circuit_breaker.record_success(provider_name)
+            self.circuit_breaker.record_success(circuit_key)
         except Exception:
-            self.circuit_breaker.record_failure(provider_name)
+            self.circuit_breaker.record_failure(circuit_key)
             raise
         finally:
             if self._scheduler_ref is not None:
