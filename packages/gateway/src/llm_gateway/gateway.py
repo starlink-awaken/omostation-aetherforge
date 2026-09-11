@@ -100,13 +100,15 @@ def _sanitize_inventory_warnings(warnings: object) -> list[dict[str, object]]:
             continue
         if not isinstance(current, int) or isinstance(current, bool) or current < 0:
             continue
-        out.append({
-            "code": _INVENTORY_DROP_CODE,
-            "node_id": node_id,
-            "backend_id": backend_id,
-            "baseline": baseline,
-            "current": current,
-        })
+        out.append(
+            {
+                "code": _INVENTORY_DROP_CODE,
+                "node_id": node_id,
+                "backend_id": backend_id,
+                "baseline": baseline,
+                "current": current,
+            }
+        )
     return out
 
 
@@ -274,6 +276,16 @@ OMLX_CONF = os.path.join(OMLX_ROOT, "conf", "models.json")
 # 同一模型可能同时挂在多个引擎下(LM Link 把三机合成同一池, 每个端点都报一遍)。
 # 选谁必须可复现, 否则同样的请求今天走 mac-mini 明天走 Y7000P, 排查时对不上。
 # 顺序: 本机 omlx > 本机 LM Studio > mac-mini > Y7000P > 其余 > 云端。
+# 2026-09-11 实测: coding 在容量抖动(并发本地测试挤占内存)下连续 3 次 409
+# insufficient_capacity 后被计入健康失败计数, 此后本进程生命周期内直接跳过
+# 直连尝试, 悄无声息地把请求交给 scheduler 的语义候选(往往是完全不同的模型,
+# 如 mythos-fast 角色扮演模型) —— client 显式指定的模型从未真正被再尝试过,
+# 即使 3 分钟后并发压力消失、直连本可成功。3 次阈值本身合理(避免同一请求
+# 反复打一个当下确实不通的模型), 缺的是失败计数要随时间衰减: 见
+# _HEALTH_FAILURE_THRESHOLD/_record_health_failure/_is_health_blocked。
+_HEALTH_FAILURE_TTL_SECONDS = 60.0
+_HEALTH_FAILURE_THRESHOLD = 3
+
 _ENGINE_PREFERENCE = (
     "ENG-OMLX-LOCAL",
     "ENG-LMSTUDIO-MACBOOKPRO",
@@ -287,7 +299,6 @@ _ENGINE_PREFERENCE = (
 
 class _StreamUnsupportedError(Exception):
     """Registry 真流式不适用(本地专属端口模型/未注册名/自指端点), 调用方回退聚合。"""
-
 
 
 def _id_tail(model_id: str) -> str:
@@ -644,8 +655,12 @@ class ModelGateway:
         self._load_lock = asyncio.Lock()
         # warm pool: model_name → last_used_time
         self._last_used: dict[str, float] = {}
-        # health status: model_name → consecutive_failures
-        self._health_failures: dict[str, int] = {}
+        # health status: model_name → (consecutive_failures, last_failure_ts).
+        # See _record_health_failure/_is_health_blocked: transient failures
+        # (capacity contention, network blips) decay after
+        # _HEALTH_FAILURE_TTL_SECONDS so a temporary condition cannot
+        # permanently blacklist a model for the rest of the process's life.
+        self._health_failures: dict[str, tuple[int, float]] = {}
         # 后台任务
         self._bg_tasks: list[asyncio.Task] = []
 
@@ -750,6 +765,45 @@ class ModelGateway:
             "omlxc_mode": mode,
             "warnings": _sanitize_inventory_warnings(report.warnings),
         }
+
+    def _record_health_failure(self, model_name: str, *, permanent: bool = False) -> None:
+        """Record one failure for *model_name*.
+
+        ``permanent=True`` is for deterministic failures (the model has no
+        real placement at all, e.g. ``no capacity``) and never decays within
+        this process's life — retrying it is pointless until config changes.
+        Everything else is treated as potentially transient (capacity
+        contention, a network blip, a circuit breaker mid-cooldown): the
+        streak resets once ``_HEALTH_FAILURE_TTL_SECONDS`` have passed since
+        the last failure, so a model that was briefly unavailable gets tried
+        again instead of staying blacklisted until the gateway restarts.
+        """
+        if permanent:
+            self._health_failures[model_name] = (999, float("inf"))
+            return
+        count, last_ts = self._health_failures.get(model_name, (0, 0.0))
+        if time.time() - last_ts > _HEALTH_FAILURE_TTL_SECONDS:
+            count = 0
+        self._health_failures[model_name] = (count + 1, time.time())
+
+    def _is_health_blocked(self, model_name: str) -> bool:
+        """Whether *model_name* should be skipped without even attempting it."""
+        entry = self._health_failures.get(model_name)
+        if not entry:
+            return False
+        count, last_ts = entry
+        if count < _HEALTH_FAILURE_THRESHOLD:
+            return False
+        if last_ts == float("inf"):
+            return True
+        if time.time() - last_ts > _HEALTH_FAILURE_TTL_SECONDS:
+            self._health_failures.pop(model_name, None)
+            return False
+        return True
+
+    def _health_failure_count(self, model_name: str) -> int:
+        """Plain failure count for diagnostics (health() endpoint)."""
+        return self._health_failures.get(model_name, (0, 0.0))[0]
 
     async def generate(self, request: GatewayRequest) -> GatewayResponse:
         """带端到端 deadline 的统一入口。
@@ -970,7 +1024,7 @@ class ModelGateway:
 
         last_error = ""
         for model_name in full_chain:
-            if self._health_failures.get(model_name, 0) >= 3:
+            if self._is_health_blocked(model_name):
                 continue  # 跳过已标记不健康的模型
 
             try:
@@ -989,13 +1043,16 @@ class ModelGateway:
                 # 治理: no_capacity 是确定性失败(模型未加载/无容量), 不是
                 # 暂时抖动 —— 置持久跳过(本进程生命周期不再尝试), 避免重启
                 # 清零后每轮重新快速失败(2026-08-24 日报: coding-fast×10)。
+                # 其它失败(含 insufficient_capacity 容量抖动/网络抖动/熔断器
+                # 冷却窗口)按 _HEALTH_FAILURE_TTL_SECONDS 衰减 —— 见
+                # _record_health_failure 顶部注释, 2026-09-11 实测驱动。
                 if "no capacity" in str(e).lower():
-                    self._health_failures[model_name] = 999
+                    self._record_health_failure(model_name, permanent=True)
                     from .events import emit as _emit_unhealthy
 
                     _emit_unhealthy("provider_unhealthy", {"model": model_name, "reason": "no_capacity"})
                 else:
-                    self._health_failures[model_name] = self._health_failures.get(model_name, 0) + 1
+                    self._record_health_failure(model_name)
                 # 治理 P1: 失败按 CloudErrorCode 分类入 metrics + 事件流
                 code = self._classify_error(e)
                 self._metrics.record_error(model=model_name, error_type=code)
@@ -1188,8 +1245,8 @@ class ModelGateway:
         except Exception:
             if produced:
                 # 已吐内容的失败无法回退(调用方会如实上抛), 记一次健康失败,
-                # 与聚合路径 _try_generate 的异常分支对齐。
-                self._health_failures[logical] = self._health_failures.get(logical, 0) + 1
+                # 与聚合路径 _try_generate 的异常分支对齐(含失败计数衰减)。
+                self._record_health_failure(logical)
             raise
         if not produced:
             # 全部预算耗在 thinking 段(text_delta 零产出, LongCat-2.0 默认开
@@ -1410,8 +1467,12 @@ class ModelGateway:
 
             emit(
                 "request_complete",
-                {"model": model_id, "provider": self._cred_token_for(model_id),
-                 "tokens_in": tokens_in, "tokens_out": tokens_out},
+                {
+                    "model": model_id,
+                    "provider": self._cred_token_for(model_id),
+                    "tokens_in": tokens_in,
+                    "tokens_out": tokens_out,
+                },
             )
         except Exception:
             return  # 记账失败不影响请求
@@ -2086,14 +2147,14 @@ class ModelGateway:
                             "status": "healthy" if resp.status == 200 else "unhealthy",
                             "port": port,
                             "loaded": model_name in self._loaded_models,
-                            "consecutive_failures": self._health_failures.get(model_name, 0),
+                            "consecutive_failures": self._health_failure_count(model_name),
                         }
             except Exception:
                 result[model_name] = {
                     "status": "unreachable",
                     "port": port,
                     "loaded": model_name in self._loaded_models,
-                    "consecutive_failures": self._health_failures.get(model_name, 0),
+                    "consecutive_failures": self._health_failure_count(model_name),
                 }
         return result
 
