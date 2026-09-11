@@ -165,6 +165,50 @@ def _pretoken_chunk_size(chunk: object, limit: int) -> int:
     return total if total <= limit else limit + 1
 
 
+async def _prime_stream(source, timeout: float) -> tuple[list, web.Response | None]:
+    """Pull chunks until real content/tool_calls appear or the stream ends, so
+    an immediate backend failure surfaces as a normal HTTP error status instead
+    of a 200 whose SSE body then errors out mid-stream. Shared by
+    /v1/chat/completions and /v1/responses streaming, which differ only in how
+    they render the primed chunks into events."""
+    pending_chunks: list = []
+    pending_bytes = 0
+    try:
+        async with asyncio.timeout(max(0.1, timeout)):
+            while True:
+                try:
+                    chunk = await anext(source)
+                except StopAsyncIteration:
+                    break
+                remaining = _PRETOKEN_MAX_BYTES - pending_bytes
+                chunk_size = _pretoken_chunk_size(chunk, remaining)
+                if len(pending_chunks) >= _PRETOKEN_MAX_EVENTS or chunk_size > remaining:
+                    raise OmlxcError(OmlxcErrorCode.INTERNAL)
+                pending_chunks.append(chunk)
+                pending_bytes += chunk_size
+                if chunk.content or chunk.tool_calls:
+                    break
+    except TimeoutError:
+        await _close_stream(source)
+        return [], web.json_response(
+            _openai_error_payload(OmlxcErrorCode.TIMEOUT),
+            status=_omlxc_http_status(OmlxcErrorCode.TIMEOUT),
+        )
+    except OmlxcError as error:
+        await _close_stream(source)
+        return [], web.json_response(
+            _openai_error_payload(error.code),
+            status=_omlxc_http_status(error.code),
+        )
+    except asyncio.CancelledError:
+        await _close_stream(source)
+        raise
+    except Exception:
+        await _close_stream(source)
+        return [], web.json_response(_openai_error_payload(None), status=502)
+    return pending_chunks, None
+
+
 async def handle_chat_completions(request: web.Request) -> web.Response:
     """POST /v1/chat/completions — OpenAI-compatible chat endpoint."""
     try:
@@ -219,41 +263,9 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
 
     if body.get("stream"):
         source = gw.generate_stream(req)
-        pending_chunks = []
-        pending_bytes = 0
-        try:
-            async with asyncio.timeout(max(0.1, req.timeout)):
-                while True:
-                    try:
-                        chunk = await anext(source)
-                    except StopAsyncIteration:
-                        break
-                    remaining = _PRETOKEN_MAX_BYTES - pending_bytes
-                    chunk_size = _pretoken_chunk_size(chunk, remaining)
-                    if len(pending_chunks) >= _PRETOKEN_MAX_EVENTS or chunk_size > remaining:
-                        raise OmlxcError(OmlxcErrorCode.INTERNAL)
-                    pending_chunks.append(chunk)
-                    pending_bytes += chunk_size
-                    if chunk.content or chunk.tool_calls:
-                        break
-        except TimeoutError:
-            await _close_stream(source)
-            return web.json_response(
-                _openai_error_payload(OmlxcErrorCode.TIMEOUT),
-                status=_omlxc_http_status(OmlxcErrorCode.TIMEOUT),
-            )
-        except OmlxcError as error:
-            await _close_stream(source)
-            return web.json_response(
-                _openai_error_payload(error.code),
-                status=_omlxc_http_status(error.code),
-            )
-        except asyncio.CancelledError:
-            await _close_stream(source)
-            raise
-        except Exception:
-            await _close_stream(source)
-            return web.json_response(_openai_error_payload(None), status=502)
+        pending_chunks, error_response = await _prime_stream(source, req.timeout)
+        if error_response is not None:
+            return error_response
         return web.Response(
             body=_openai_sse(gw, req, source=source, pending_chunks=tuple(pending_chunks)),
             status=200,
@@ -360,6 +372,477 @@ async def _chain_stream(first_chunks, source):
         yield chunk
     async for chunk in source:
         yield chunk
+
+
+# ============================================================
+# /v1/responses — OpenAI Responses API translation
+#
+# 2026-09-12: Codex CLI (and anything else built against the newer `openai`
+# SDK's Responses surface) no longer accepts `wire_api = "chat"`; it requires
+# "responses", and this gateway only ever implemented Chat Completions.
+# Rather than a second physical inference path, this layer translates one
+# request/response shape to the other and reuses the exact same
+# ModelGateway.generate()/generate_stream() calls as handle_chat_completions
+# -- every fix already made there (circuit isolation, health-failure decay,
+# ...) applies here for free. Confirmed live: codex-rs's Responses client
+# always sends stream=true (no non-streaming mode to fall back to), so
+# streaming is not optional here -- it is what actually unblocks Codex.
+#
+# Deliberately NOT implemented (fails loud with 400, never silently drops
+# data a caller would expect to round-trip):
+#   - previous_response_id (server-side conversation state / caching).
+#     Codex itself resends full history every turn, so this has not been
+#     needed in practice; a client that relies on it must be told, not
+#     silently given a fresh context.
+#   - non-function tool types (web_search, code_interpreter, computer_use,
+#     ...) and non-text input parts (input_image, input_file). Function
+#     tools and text are what the physical models here actually serve.
+#   - "reasoning" input items (a prior turn's redacted reasoning trace) are
+#     accepted and skipped -- they carry no content a Chat Completions
+#     message can represent, and codex does not require them to be replayed
+#     for the turn to make sense.
+# ============================================================
+
+
+def _responses_content_to_text(content: object) -> str:
+    """Flatten a Responses `content` field (str, or a list of typed parts) to
+    plain text. Only text-bearing part types are kept; anything else
+    (input_image, input_file, ...) is silently dropped -- there is no
+    physical capability here to act on it, and dropping is safer than
+    raising on every multimodal-capable client that sends an image alongside
+    text it still wants answered."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") in ("input_text", "output_text", "text"):
+                parts.append(str(part.get("text", "")))
+        return "\n".join(parts)
+    return ""
+
+
+def _responses_output_to_text(output: object) -> str:
+    """`function_call_output.output` is usually a string, but the spec also
+    allows a list of content parts (mirroring tool-result content blocks) --
+    flatten those the same way as message content."""
+    if isinstance(output, str):
+        return output
+    if isinstance(output, list):
+        return _responses_content_to_text(output)
+    if output is None:
+        return ""
+    return json.dumps(output)
+
+
+def _responses_input_to_messages(
+    body: Mapping[str, object],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Translate one Responses API request body into (messages, tools) in
+    Chat Completions shape. Raises ValueError (→ 400) for anything genuinely
+    unsupported, so a caller learns immediately instead of getting a
+    silently-wrong answer."""
+    if body.get("previous_response_id"):
+        raise ValueError(
+            "previous_response_id is not supported: this facade keeps no server-side "
+            "conversation state, send the full input history on every request"
+        )
+
+    messages: list[dict[str, object]] = []
+    instructions = body.get("instructions")
+    if isinstance(instructions, str) and instructions:
+        messages.append({"role": "system", "content": instructions})
+
+    raw_input = body.get("input")
+    if isinstance(raw_input, str):
+        messages.append({"role": "user", "content": raw_input})
+    elif isinstance(raw_input, list):
+        for item in raw_input:
+            if not isinstance(item, dict):
+                raise ValueError("each input item must be an object")
+            item_type = item.get("type")
+            if item_type in (None, "message"):
+                role = item.get("role") or "user"
+                messages.append({"role": role, "content": _responses_content_to_text(item.get("content"))})
+            elif item_type == "function_call":
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": item.get("call_id") or item.get("id") or "",
+                                "type": "function",
+                                "function": {
+                                    "name": item.get("name", ""),
+                                    "arguments": item.get("arguments") or "{}",
+                                },
+                            }
+                        ],
+                    }
+                )
+            elif item_type == "function_call_output":
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": item.get("call_id", ""),
+                        "content": _responses_output_to_text(item.get("output")),
+                    }
+                )
+            elif item_type == "reasoning":
+                continue
+            else:
+                raise ValueError(f"unsupported input item type: {item_type!r}")
+    elif raw_input is not None:
+        raise ValueError("input must be a string or an array of items")
+
+    tools: list[dict[str, object]] = []
+    for tool in body.get("tools") or []:
+        if not isinstance(tool, dict) or tool.get("type") != "function":
+            continue
+        tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.get("name", ""),
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("parameters") or {"type": "object", "properties": {}},
+                },
+            }
+        )
+    return messages, tools
+
+
+def _responses_output_items(resp) -> list[dict[str, object]]:
+    """Build the `output` array from a GatewayResponse. Tool calls surface
+    first (matching the order a Chat Completions message would imply: the
+    model decided to call tools, optionally alongside a text remark)."""
+    output: list[dict[str, object]] = []
+    for call in getattr(resp, "tool_calls", ()) or ():
+        fn = call.get("function") if isinstance(call, Mapping) else None
+        fn = fn if isinstance(fn, Mapping) else {}
+        call_id = call.get("id", "") if isinstance(call, Mapping) else ""
+        output.append(
+            {
+                "type": "function_call",
+                "id": f"fc_{call_id}",
+                "call_id": call_id,
+                "name": fn.get("name", ""),
+                "arguments": fn.get("arguments", "{}"),
+                "status": "completed",
+            }
+        )
+    if resp.content:
+        output.append(
+            {
+                "type": "message",
+                "id": f"msg_{int(time.time() * 1000)}",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": resp.content, "annotations": []}],
+            }
+        )
+    return output
+
+
+def _responses_payload(resp, model: str) -> dict[str, object]:
+    output = _responses_output_items(resp)
+    failed = bool(resp.error) and not output
+    payload: dict[str, object] = {
+        "id": f"resp-aetherforge-{int(time.time())}",
+        "object": "response",
+        "created_at": int(time.time()),
+        "model": resp.model or model,
+        "status": "failed" if failed else "completed",
+        "output": output,
+        "usage": {
+            "input_tokens": resp.tokens_in,
+            "output_tokens": resp.tokens_out,
+            "total_tokens": resp.tokens_in + resp.tokens_out,
+        },
+    }
+    if failed:
+        code = getattr(resp, "error_code", None)
+        payload["error"] = _openai_error_payload(code)["error"]
+    return payload
+
+
+def _responses_sse_event(event_type: str, data: dict[str, object]) -> bytes:
+    encoded = json.dumps(data, ensure_ascii=True, separators=(",", ":"))
+    return f"event: {event_type}\ndata: {encoded}\n\n".encode()
+
+
+def _responses_message_close_events(
+    item_id: str, output_index: int, text: str
+) -> tuple[list[bytes], dict[str, object]]:
+    """Shared tail for closing a text message item, whether it closes because
+    the stream ended or because a tool call interrupted it. Returns the SSE
+    events to emit plus the finalized item (for the eventual response.completed
+    payload's `output` array)."""
+    item = {
+        "id": item_id,
+        "type": "message",
+        "status": "completed",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": text, "annotations": []}],
+    }
+    events = [
+        _responses_sse_event(
+            "response.output_text.done",
+            {
+                "type": "response.output_text.done",
+                "item_id": item_id,
+                "output_index": output_index,
+                "content_index": 0,
+                "text": text,
+            },
+        ),
+        _responses_sse_event(
+            "response.content_part.done",
+            {
+                "type": "response.content_part.done",
+                "item_id": item_id,
+                "output_index": output_index,
+                "content_index": 0,
+                "part": {"type": "output_text", "text": text, "annotations": []},
+            },
+        ),
+        _responses_sse_event(
+            "response.output_item.done",
+            {"type": "response.output_item.done", "output_index": output_index, "item": item},
+        ),
+    ]
+    return events, item
+
+
+async def _responses_sse(gateway, request: GatewayRequest, model: str, *, source=None, pending_chunks=()):
+    """Translate gateway chunks into Responses-API SSE events as they arrive.
+
+    Local backends emit each tool call as one complete chunk rather than
+    incremental argument tokens, so a function_call item's delta/done pair
+    fires back-to-back the moment its chunk lands -- still spec-shaped, just
+    not token-by-token for that one item type."""
+    response_id = f"resp-aetherforge-{int(time.time())}"
+    created_at = int(time.time())
+    stream = source if source is not None else gateway.generate_stream(request)
+
+    def _skeleton(status: str, output: list) -> dict[str, object]:
+        return {
+            "id": response_id,
+            "object": "response",
+            "created_at": created_at,
+            "model": model,
+            "status": status,
+            "output": output,
+        }
+
+    yield _responses_sse_event(
+        "response.created", {"type": "response.created", "response": _skeleton("in_progress", [])}
+    )
+
+    output_index = 0
+    message_item_id = f"msg_{response_id}"
+    text_accum = ""
+    message_open = False
+    finalized_items: list[dict[str, object]] = []
+    usage: dict[str, int] | None = None
+    emitted = False
+
+    try:
+        async for chunk in _chain_stream(pending_chunks, stream):
+            if chunk.model:
+                model = chunk.model
+            if chunk.usage is not None:
+                raw_usage = dict(chunk.usage)
+                usage = {
+                    "input_tokens": int(raw_usage.get("prompt_tokens") or 0),
+                    "output_tokens": int(raw_usage.get("completion_tokens") or 0),
+                    "total_tokens": int(raw_usage.get("total_tokens") or 0),
+                }
+            if chunk.content:
+                emitted = True
+                if not message_open:
+                    yield _responses_sse_event(
+                        "response.output_item.added",
+                        {
+                            "type": "response.output_item.added",
+                            "output_index": output_index,
+                            "item": {
+                                "id": message_item_id,
+                                "type": "message",
+                                "status": "in_progress",
+                                "role": "assistant",
+                                "content": [],
+                            },
+                        },
+                    )
+                    yield _responses_sse_event(
+                        "response.content_part.added",
+                        {
+                            "type": "response.content_part.added",
+                            "item_id": message_item_id,
+                            "output_index": output_index,
+                            "content_index": 0,
+                            "part": {"type": "output_text", "text": "", "annotations": []},
+                        },
+                    )
+                    message_open = True
+                text_accum += chunk.content
+                yield _responses_sse_event(
+                    "response.output_text.delta",
+                    {
+                        "type": "response.output_text.delta",
+                        "item_id": message_item_id,
+                        "output_index": output_index,
+                        "content_index": 0,
+                        "delta": chunk.content,
+                    },
+                )
+            if chunk.tool_calls:
+                emitted = True
+                if message_open:
+                    events, item = _responses_message_close_events(message_item_id, output_index, text_accum)
+                    for event in events:
+                        yield event
+                    finalized_items.append(item)
+                    output_index += 1
+                    message_open = False
+                    text_accum = ""
+                    message_item_id = f"msg_{response_id}_{output_index}"
+                for call in chunk.tool_calls:
+                    fn = call.get("function") if isinstance(call, Mapping) else None
+                    fn = fn if isinstance(fn, Mapping) else {}
+                    call_id = call.get("id", "") if isinstance(call, Mapping) else ""
+                    item_id = f"fc_{call_id or output_index}"
+                    name = fn.get("name", "")
+                    arguments = fn.get("arguments", "{}")
+                    yield _responses_sse_event(
+                        "response.output_item.added",
+                        {
+                            "type": "response.output_item.added",
+                            "output_index": output_index,
+                            "item": {
+                                "id": item_id,
+                                "type": "function_call",
+                                "status": "in_progress",
+                                "call_id": call_id,
+                                "name": name,
+                                "arguments": "",
+                            },
+                        },
+                    )
+                    yield _responses_sse_event(
+                        "response.function_call_arguments.delta",
+                        {
+                            "type": "response.function_call_arguments.delta",
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "delta": arguments,
+                        },
+                    )
+                    yield _responses_sse_event(
+                        "response.function_call_arguments.done",
+                        {
+                            "type": "response.function_call_arguments.done",
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "arguments": arguments,
+                        },
+                    )
+                    tool_item = {
+                        "type": "function_call",
+                        "id": item_id,
+                        "call_id": call_id,
+                        "name": name,
+                        "arguments": arguments,
+                        "status": "completed",
+                    }
+                    yield _responses_sse_event(
+                        "response.output_item.done",
+                        {"type": "response.output_item.done", "output_index": output_index, "item": tool_item},
+                    )
+                    finalized_items.append(tool_item)
+                    output_index += 1
+    except OmlxcError as error:
+        payload = _openai_error_payload(error.code, stream=True, emitted_content=emitted or error.emitted_content)
+        yield _responses_sse_event(
+            "response.failed", {"type": "response.failed", "response": _skeleton("failed", finalized_items), **payload}
+        )
+        return
+    except Exception:
+        payload = _openai_error_payload(None, stream=True, emitted_content=emitted)
+        yield _responses_sse_event(
+            "response.failed", {"type": "response.failed", "response": _skeleton("failed", finalized_items), **payload}
+        )
+        return
+    finally:
+        await _close_stream(stream)
+
+    if message_open:
+        events, item = _responses_message_close_events(message_item_id, output_index, text_accum)
+        for event in events:
+            yield event
+        finalized_items.append(item)
+
+    final_response = _skeleton("completed", finalized_items)
+    final_response["usage"] = usage or {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    yield _responses_sse_event("response.completed", {"type": "response.completed", "response": final_response})
+
+
+async def handle_responses(request: web.Request) -> web.Response:
+    """POST /v1/responses — translates to Chat Completions semantics and
+    reuses ModelGateway.generate()/generate_stream(). See the module-level
+    notes above for what is and is not covered."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": {"message": "Invalid JSON"}}, status=400)
+
+    try:
+        messages, tools = _responses_input_to_messages(body)
+    except ValueError as exc:
+        return web.json_response({"error": {"message": str(exc), "type": "invalid_request_error"}}, status=400)
+
+    model = body.get("model", "")
+    extra: dict[str, object] = {}
+    if tools:
+        extra["tools"] = tools
+    tool_choice = body.get("tool_choice")
+    if tool_choice is not None:
+        extra["tool_choice"] = tool_choice
+
+    gw = get_gateway()
+    req = GatewayRequest(
+        messages=messages,
+        model=model,
+        timeout=float(body.get("timeout", 120)),
+        temperature=body.get("temperature"),
+        max_tokens=body.get("max_output_tokens"),
+        task="chat",
+        extra=extra,
+        routing_mode=str(body.get("routing_mode") or "local"),
+    )
+
+    if body.get("stream"):
+        source = gw.generate_stream(req)
+        pending_chunks, error_response = await _prime_stream(source, req.timeout)
+        if error_response is not None:
+            return error_response
+        return web.Response(
+            body=_responses_sse(gw, req, model, source=source, pending_chunks=tuple(pending_chunks)),
+            status=200,
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            content_type="text/event-stream",
+        )
+
+    t0 = time.time()
+    resp = await gw.generate(req)
+    latency = (time.time() - t0) * 1000
+    _log.info("responses model=%s latency=%.0fms", getattr(resp, "model", "") or model or "?", latency)
+
+    payload = _responses_payload(resp, model)
+    status = 200 if payload["status"] == "completed" else _omlxc_http_status(getattr(resp, "error_code", None))
+    return web.json_response(payload, status=status)
 
 
 async def handle_list_models(request: web.Request) -> web.Response:
@@ -561,6 +1044,7 @@ def create_app(api_key: str | None = None) -> web.Application:
     app.on_startup.append(_startup)
     app.on_cleanup.append(_cleanup)
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
+    app.router.add_post("/v1/responses", handle_responses)
     app.router.add_get("/v1/models", handle_list_models)
     app.router.add_post("/v1/embeddings", handle_embeddings)
     app.router.add_get("/v1/compute", handle_compute)
