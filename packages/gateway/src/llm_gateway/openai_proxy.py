@@ -1031,6 +1031,10 @@ async def auth_middleware(request: web.Request, handler):
 
 def create_app(api_key: str | None = None) -> web.Application:
     """Create the aiohttp application."""
+    # Deferred import: anthropic_proxy imports shared streaming helpers back
+    # from this module, so a top-level import here would be circular.
+    from .anthropic_proxy import handle_messages
+
     app = web.Application(middlewares=[trace_middleware, auth_middleware])
     if api_key:
         app[API_KEY] = api_key
@@ -1045,6 +1049,7 @@ def create_app(api_key: str | None = None) -> web.Application:
     app.on_cleanup.append(_cleanup)
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
     app.router.add_post("/v1/responses", handle_responses)
+    app.router.add_post("/v1/messages", handle_messages)
     app.router.add_get("/v1/models", handle_list_models)
     app.router.add_post("/v1/embeddings", handle_embeddings)
     app.router.add_get("/v1/compute", handle_compute)
