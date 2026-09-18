@@ -2,6 +2,7 @@
 type: ssot
 owner: governance-team
 last_updated: 2026-09-03
+last-reviewed: 2026-09-18
 ---
 
 # 死代码台账 — 零调用方法审计（2026-08-24）
