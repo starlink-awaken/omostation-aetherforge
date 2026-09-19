@@ -47,6 +47,7 @@ from .paths import M1_COMPUTE_ENGINE_DIR, M1_MODEL_DIR
 from .registry import ModelRegistry
 from .scheduler import ModelScheduler
 from .ssot_loader import load_ssot_models
+from .stream_filter import StreamThinkingFilter
 from .types import ChatOptions
 
 _log = logging.getLogger(__name__)
@@ -1076,8 +1077,14 @@ class ModelGateway:
         )
         effective = replace(request, routing_mode="local") if sensitive else request
 
+        emit_reasoning = bool(
+            (effective.extra and effective.extra.get("emit_reasoning"))
+            or (effective.extra and effective.extra.get("reasoning"))
+            or (effective.task in {"reasoning", "deep_research", "math"})
+        )
+
         if self._config.omlxc_mode == "legacy":
-            relay = self._relay_stream(self._generate_legacy_stream(effective))
+            relay = self._relay_stream(self._generate_legacy_stream(effective), emit_reasoning=emit_reasoning)
             try:
                 async for chunk in relay:
                     yield chunk
@@ -1094,7 +1101,7 @@ class ModelGateway:
                         resolved,
                         profile="interactive",
                         capabilities={"chat", "streaming"},
-                        thinking=False,
+                        thinking=emit_reasoning,
                         timeout=min(effective.timeout, 2.0),
                     )
                 except OmlxcError as error:
@@ -1104,7 +1111,7 @@ class ModelGateway:
                         resolved,
                         error.code.value,
                     )
-            relay = self._relay_stream(self._generate_legacy_stream(effective))
+            relay = self._relay_stream(self._generate_legacy_stream(effective), emit_reasoning=emit_reasoning)
             try:
                 async for chunk in relay:
                     yield chunk
@@ -1113,7 +1120,7 @@ class ModelGateway:
             return
 
         if effective.routing_mode == "cloud":
-            relay = self._relay_stream(self._generate_legacy_stream(effective))
+            relay = self._relay_stream(self._generate_legacy_stream(effective), emit_reasoning=emit_reasoning)
             try:
                 async for chunk in relay:
                     yield chunk
@@ -1129,29 +1136,31 @@ class ModelGateway:
             max_tokens=effective.max_tokens,
             timeout=effective.timeout,
             profile="interactive",
-            thinking=False,
+            thinking=emit_reasoning,
             **self._agent_fields(effective.extra),
         )
+        relay = self._relay_stream(source, emit_reasoning=emit_reasoning)
         try:
-            async for chunk in source:
-                emitted = emitted or bool(chunk.content) or bool(chunk.tool_calls)
+            async for chunk in relay:
+                emitted = emitted or bool(chunk.content) or bool(chunk.tool_calls) or bool(chunk.reasoning_content)
                 yield replace(chunk, model=logical)
         except OmlxcError as error:
             if sensitive:
                 raise OmlxcError(error.code, emitted_content=emitted) from error
             if effective.routing_mode == "hybrid" and not emitted and error.cloud_fallback_allowed:
-                relay = self._relay_stream(self._generate_legacy_stream(replace(effective, routing_mode="cloud")))
+                fallback_relay = self._relay_stream(
+                    self._generate_legacy_stream(replace(effective, routing_mode="cloud")),
+                    emit_reasoning=emit_reasoning,
+                )
                 try:
-                    async for chunk in relay:
+                    async for chunk in fallback_relay:
                         yield chunk
                 finally:
-                    await relay.aclose()
+                    await fallback_relay.aclose()
                 return
             raise
         finally:
-            close = getattr(source, "aclose", None)
-            if close is not None:
-                await close()
+            await relay.aclose()
 
     async def _generate_legacy_stream(self, request: GatewayRequest) -> AsyncGenerator[OmlxcStreamChunk]:
         """Legacy stream boundary; 优先 registry 真流式, 回退到聚合单块。
@@ -1278,10 +1287,23 @@ class ModelGateway:
     @staticmethod
     async def _relay_stream(
         source: AsyncIterator[OmlxcStreamChunk],
+        *,
+        emit_reasoning: bool = False,
+        filter_thinking: bool = True,
     ) -> AsyncGenerator[OmlxcStreamChunk]:
+        flt = StreamThinkingFilter(emit_reasoning=emit_reasoning) if filter_thinking else None
+        last_chunk: OmlxcStreamChunk | None = None
         try:
             async for chunk in source:
-                yield chunk
+                last_chunk = chunk
+                if flt is not None:
+                    for out_chunk in flt.process_chunk(chunk):
+                        yield out_chunk
+                else:
+                    yield chunk
+            if flt is not None:
+                for out_chunk in flt.finish(last_chunk):
+                    yield out_chunk
         finally:
             close = getattr(source, "aclose", None)
             if close is not None:

@@ -19,9 +19,18 @@ aliases:
   coder: coding-next
   coder-fast: coding-fast
   coder-next: coding-next
+  coder-moe: coding-qwen3-30b-a3b
+  qwen3-coder: coding-qwen3-30b-a3b
   reasoner: reasoning
   reasoner-lite: reasoning-lite
+  glm-4.7: glm-4.7-flash
+  glm-flash: glm-4.7-flash
   embed: embedding
+  minicpm: vision-minicpm
+  vision-pro: vision-minicpm
+  qwen38-ollama: qwen3.8-27b-ollama
+  mythos-1m: qwythos-9b-1m
+  rerank-fast: bge-reranker-ollama
 
   # 高频意图先走 MBP 的 oMLX App。若 App 不可用，由 omlxc models.json 的
   # fallback / fallback_ollama 依次落到 LM Link 与 Ollama，别在别名层绕开
@@ -41,12 +50,15 @@ aliases:
   deepseek-v4-flash: qwen-3.5-9b-flash
   deepseek-v4-pro: qwen-3.5-9b-pro
 
-  # ── 明确直达 LM Link 池的能力别名 ─────────────────────
-  mini-chat: gemma-4-e4b-it-mlx
+  # ── 明确直达三节点能力池的特化别名 ─────────────────────
+  mini-chat: gemma-4-e2b-it-mlx
+  fast-think: gpt-oss:20b
+  fast-oss: gpt-oss:20b
   rerank: baai-bge-reranker-v2-m3-mlx
   embed-bge: bge-m3-mlx
-  ocr: deepseek-ocr
-  vision-lite: zai-org/glm-4.6v-flash
+  ocr: glm-ocr
+  ocr-glm: glm-ocr
+  vision-lite: qwen/qwen3-vl-4b
 
 # 已知未覆盖 —— 如实记录, 不要假装齐了
 unsupported:

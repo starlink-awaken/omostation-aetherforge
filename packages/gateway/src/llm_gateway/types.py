@@ -67,6 +67,7 @@ class StreamChunk:
     usage: dict[str, int] | None = None
     # 聚合完成的工具调用(OpenAI 协议形状), provider 层块级聚合后吐出。
     tool_calls: tuple[dict[str, Any], ...] = ()
+    reasoning_content: str = ""
 
 
 @dataclass
