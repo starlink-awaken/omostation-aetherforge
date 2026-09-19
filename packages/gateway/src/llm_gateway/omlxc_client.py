@@ -121,6 +121,7 @@ class OmlxcStreamChunk:
     finish_reason: str | None = None
     usage: Mapping[str, int] | None = field(default=None)
     tool_calls: tuple[Mapping[str, object], ...] = ()
+    reasoning_content: str = ""
 
 
 def default_omlxc_socket() -> Path:
