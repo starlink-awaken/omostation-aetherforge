@@ -14,6 +14,14 @@
 # 那是 compute_engine SSOT 与 compute_mesh 的职责。
 
 aliases:
+  # ── 一等公民 · Claude 分档 (omlx launch --opus/--sonnet/--haiku 注入用) ──
+  # 映射到常驻模型(避免 JIT 大模型并发打崩 oMLX); 用户可按偏好调。
+  #   opus/sonnet → coding-next(Qwen3.6-35B, 常驻, 编码主力)
+  #   haiku       → mythos-fast(9B, 常驻, 快速档)
+  opus: coding-next
+  sonnet: coding-next
+  haiku: mythos-fast
+
   # ── 本机 omlx 后端 ───────────────────────────────
   # coder 默认先上 coding-next；coding 仍是可点名的第二档，不从目录删除。
   coder: coding-next

@@ -1068,6 +1068,8 @@ class ModelGateway:
             model="",
             latency_ms=(time.time() - t0) * 1000,
             error=f"All models failed. Last: {last_error}",
+            # 错误响应必须标 error, 默认值 "stop" 会让客户端把它当正常完成
+            finish_reason="error",
         )
 
     async def generate_stream(self, request: GatewayRequest) -> AsyncGenerator[OmlxcStreamChunk]:
