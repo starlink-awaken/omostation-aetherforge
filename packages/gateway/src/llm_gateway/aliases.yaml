@@ -14,6 +14,14 @@
 # 那是 compute_engine SSOT 与 compute_mesh 的职责。
 
 aliases:
+  # ── 一等公民 · Claude 分档 (omlx launch --opus/--sonnet/--haiku 注入用) ──
+  # 映射到常驻模型(避免 JIT 大模型并发打崩 oMLX); 用户可按偏好调。
+  #   opus/sonnet → coding-next(Qwen3.6-35B, 常驻, 编码主力)
+  #   haiku       → mythos-fast(9B, 常驻, 快速档)
+  opus: coding-next
+  sonnet: coding-next
+  haiku: mythos-fast
+
   # ── 本机 omlx 后端 ───────────────────────────────
   # coder 默认先上 coding-next；coding 仍是可点名的第二档，不从目录删除。
   coder: coding-next
@@ -54,6 +62,12 @@ aliases:
   mini-chat: gemma-4-e2b-it-mlx
   fast-think: gpt-oss:20b
   fast-oss: gpt-oss:20b
+  # ── 新模型试用档(2026-09-25 晋升评审: aliases 层轻量入册, 不动 omlxc placement) ──
+  # coder-splash: coding-next 的上游 Splash 变体; 试用期与 coding-next 并列,
+  # 实测质量胜出后再替换主力映射。双机(mbp/macmini)在池。
+  coder-splash: qwen3.6-35b-a3b-splash
+  # vision-v2: MiniCPM-V 4.6(当前 vision-pro 是旧版); 同上, 试用并列。
+  vision-v2: minicpm-v-4.6
   rerank: baai-bge-reranker-v2-m3-mlx
   embed-bge: bge-m3-mlx
   ocr: glm-ocr
