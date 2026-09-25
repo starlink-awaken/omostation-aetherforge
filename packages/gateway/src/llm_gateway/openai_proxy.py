@@ -282,6 +282,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         latency,
     )
 
+    failed = bool(resp.error and not resp.content)
     # Build OpenAI-compatible response
     response_body = {
         "id": f"chatcmpl-aetherforge-{int(time.time())}",
@@ -298,7 +299,8 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                         {"tool_calls": list(getattr(resp, "tool_calls", ()))} if getattr(resp, "tool_calls", ()) else {}
                     ),
                 },
-                "finish_reason": resp.finish_reason,
+                # 失败响应在序列化层统一标 error, 不依赖每个构造点记得设 finish_reason
+                "finish_reason": "error" if failed else resp.finish_reason,
             }
         ],
         "usage": {
@@ -309,7 +311,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         "provider": resp.provider,
     }
 
-    if resp.error and not resp.content:
+    if failed:
         code = getattr(resp, "error_code", None)
         response_body.update(_openai_error_payload(code))
         return web.json_response(response_body, status=_omlxc_http_status(code))

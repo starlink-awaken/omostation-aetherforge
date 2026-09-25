@@ -1335,6 +1335,7 @@ class ModelGateway:
             model="",
             latency_ms=(time.time() - t0) * 1000,
             error="[K1] 敏感流无可用本地模型",
+            finish_reason="error",
         )
 
     async def _try_generate(self, model_name: str, request: GatewayRequest) -> GatewayResponse:
