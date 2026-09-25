@@ -1584,6 +1584,10 @@ def create_app(api_key: str | None = None) -> web.Application:
     app.router.add_post("/v1/messages", handle_messages)
     app.router.add_get("/v1/models", handle_list_models)
     app.router.add_post("/v1/embeddings", handle_embeddings)
+    # 图像生成 / 语音合成 / 语音识别 → 本地多媒体后端(Unsloth Studio), 别名与文本路由共用一张表
+    from .media_proxy import register_media_routes
+
+    register_media_routes(app, resolve_alias=lambda name: get_gateway().resolve_alias(name))
     app.router.add_post("/v1beta/models/{model:.*}:generateContent", handle_gemini_generate_content)
     app.router.add_post("/v1beta/models/{model:.*}:streamGenerateContent", handle_gemini_stream_generate_content)
     app.router.add_get("/v1beta/models", handle_gemini_list_models)
