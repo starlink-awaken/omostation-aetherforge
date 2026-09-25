@@ -14,17 +14,20 @@
 # 那是 compute_engine SSOT 与 compute_mesh 的职责。
 
 aliases:
-  # ── 一等公民 · Claude 分档 (omlx launch --opus/--sonnet/--haiku 注入用) ──
-  # 映射到常驻模型(避免 JIT 大模型并发打崩 oMLX); 用户可按偏好调。
-  #   opus/sonnet → coding-next(Qwen3.6-35B, 常驻, 编码主力)
-  #   haiku       → mythos-fast(9B, 常驻, 快速档)
-  opus: coding-next
-  sonnet: coding-next
-  haiku: mythos-fast
+  # ── 一等公民 · Claude 分档 (gw-claude / omlx launch 注入用) ──
+  # 2026-09-25 实测(干净环境, 400 tok 编码题 + 8 道可执行判分题):
+  #   Qwen3.6-35B-A3B-Splash  ~300 tok/s, 2 路并发各 ~310, 8/8
+  #   Qwen3.8-27B-Splash      ~126 tok/s, 8/8 (dense, 深度推理更稳)
+  #   coding-next(oMLX)        ~64 tok/s, 8/8;  mythos-fast ~34 tok/s, 8/8
+  # Splash = target+draft 推测解码包, 由 LM Studio 原生加载(compatibility_type
+  # splash, JIT + TTL), 经 LM Link 池三机可见 —— 不另起进程。
+  opus: qwen3.8-27b-splash
+  sonnet: qwen3.6-35b-a3b-splash
+  haiku: qwen3.6-35b-a3b-splash
 
   # ── 本机 omlx 后端 ───────────────────────────────
-  # coder 默认先上 coding-next；coding 仍是可点名的第二档，不从目录删除。
-  coder: coding-next
+  # coder 跟 sonnet 同档(Splash); coding-next 降为可点名/兜底档, 不再常驻。
+  coder: qwen3.6-35b-a3b-splash
   coder-fast: coding-fast
   coder-next: coding-next
   coder-moe: coding-qwen3-30b-a3b
@@ -44,9 +47,9 @@ aliases:
   # fallback / fallback_ollama 依次落到 LM Link 与 Ollama，别在别名层绕开
   # 统一内存准入和降级链。原 qwen/qwen3.5-9b 与 gemma-4-12b 当前均不在
   # LM Link 可见模型清单中，继续硬指会形成“配置上存在、运行时必失败”。
-  triage: mythos-fast
+  triage: qwen3.6-35b-a3b-splash
   mini-9b: mythos-fast
-  fast: mythos-fast
+  fast: qwen3.6-35b-a3b-splash
   mid: qwen-3.8-27b
   general: qwen-3.8-27b
   qwen38-27b: qwen-3.8-27b
@@ -62,10 +65,10 @@ aliases:
   mini-chat: gemma-4-e2b-it-mlx
   fast-think: gpt-oss:20b
   fast-oss: gpt-oss:20b
-  # ── 新模型试用档(2026-09-25 晋升评审: aliases 层轻量入册, 不动 omlxc placement) ──
-  # coder-splash: coding-next 的上游 Splash 变体; 试用期与 coding-next 并列,
-  # 实测质量胜出后再替换主力映射。双机(mbp/macmini)在池。
+  # ── Splash 直达名 (2026-09-25 已晋升一等公民, 见顶部分档) ──
   coder-splash: qwen3.6-35b-a3b-splash
+  splash: qwen3.6-35b-a3b-splash
+  splash-27b: qwen3.8-27b-splash
   # vision-v2: MiniCPM-V 4.6(当前 vision-pro 是旧版); 同上, 试用并列。
   vision-v2: minicpm-v-4.6
   rerank: baai-bge-reranker-v2-m3-mlx
