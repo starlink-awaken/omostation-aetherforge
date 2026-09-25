@@ -1063,21 +1063,39 @@ def create_app(api_key: str | None = None) -> web.Application:
 
 
 def _tailnet_ip() -> str | None:
-    """本机的 tailnet 地址。拿不到就返回 None(只绑 loopback, 不猜)。"""
+    """本机的 tailnet 地址。拿不到就返回 None(只绑 loopback, 不猜)。
+
+    先问 tailscale CLI; 问不到再读网卡。CLI 不可靠: Homebrew 版 tailscaled 常跑在
+    非默认 socket 上, App 版的 CLI 又不在 PATH —— 此时 `tailscale ip` 失败, 但
+    utun 网卡上的地址是真的。两条路都只认 100.64.0.0/10。
+    """
+    import ipaddress
+    import re
     import shutil
     import subprocess
 
-    exe = shutil.which("tailscale") or "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-    if not os.path.exists(exe):
+    tailnet = ipaddress.ip_network("100.64.0.0/10")
+
+    def first_tailnet(text: str) -> str | None:
+        for cand in re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", text):
+            try:
+                if ipaddress.ip_address(cand) in tailnet:
+                    return cand
+            except ValueError:
+                pass
         return None
-    try:
-        out = subprocess.run([exe, "ip", "-4"], capture_output=True, text=True, timeout=5).stdout
-    except Exception:
-        return None
-    for ln in out.splitlines():
-        ip = ln.strip()
-        # tailnet 是 100.64.0.0/10; 只认这个段, 免得把别的网卡地址绑出去
-        if ip.startswith("100.") and ip.count(".") == 3:
+
+    probes = [[exe, "ip", "-4"] for exe in (shutil.which("tailscale"),) if exe]
+    probes.append(["ifconfig"])
+    for cmd in probes:
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        # ifconfig 里 inet 行形如 "inet 100.68.80.44 --> 100.68.80.44", 只取 inet 后的本端地址
+        text = out if cmd[0] != "ifconfig" else "\n".join(re.findall(r"\binet (\S+)", out))
+        ip = first_tailnet(text)
+        if ip:
             return ip
     return None
 
