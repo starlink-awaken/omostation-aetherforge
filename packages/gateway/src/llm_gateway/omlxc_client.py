@@ -282,6 +282,9 @@ class OmlxcClient:
         thinking: bool = False,
         tools: Sequence[Mapping[str, object]] | None = None,
         tool_choice: object | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
+        stop: Sequence[str] | None = None,
     ) -> OmlxcChatResult:
         payload = _chat_payload(
             model=model,
@@ -294,6 +297,9 @@ class OmlxcClient:
             stream=False,
             tools=tools,
             tool_choice=tool_choice,
+            top_p=top_p,
+            top_k=top_k,
+            stop=stop,
         )
         response = await self._post_json("/openai/v1/chat/completions", payload, timeout)
         body = _response_mapping(response)
@@ -333,6 +339,9 @@ class OmlxcClient:
         thinking: bool = False,
         tools: Sequence[Mapping[str, object]] | None = None,
         tool_choice: object | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
+        stop: Sequence[str] | None = None,
     ) -> AsyncIterator[OmlxcStreamChunk]:
         payload = _chat_payload(
             model=model,
@@ -345,6 +354,9 @@ class OmlxcClient:
             stream=True,
             tools=tools,
             tool_choice=tool_choice,
+            top_p=top_p,
+            top_k=top_k,
+            stop=stop,
         )
         emitted = False
         saw_done = False
@@ -505,6 +517,9 @@ def _chat_payload(
     stream: bool,
     tools: Sequence[Mapping[str, object]] | None,
     tool_choice: object | None,
+    top_p: float | None,
+    top_k: int | None,
+    stop: Sequence[str] | None,
 ) -> dict[str, object]:
     _validate_agent_fields(tools, tool_choice)
     payload: dict[str, object] = {
@@ -523,6 +538,12 @@ def _chat_payload(
         payload["tools"] = list(tools)
     if tool_choice is not None:
         payload["tool_choice"] = tool_choice
+    if top_p is not None:
+        payload["top_p"] = top_p
+    if top_k is not None:
+        payload["top_k"] = top_k
+    if stop:
+        payload["stop"] = list(stop)
     return payload
 
 

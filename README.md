@@ -74,6 +74,29 @@ printf '%s\n' '{"model":"mythos-fast","messages":[{"role":"user","content":"Repl
 The executable resolves the running authenticated AetherForge facade; it does not
 start a second gateway or bypass Agora/ComputeEngine SSOT.
 
+### Gemini-compatible facade
+
+The same gateway also exposes a Gemini REST compatibility layer for clients that
+only speak `generateContent` (for example, Gemini-protocol agent CLIs). It
+translates into the existing `ModelGateway`; it does not create a second
+inference or routing path:
+
+```text
+GET  /v1beta/models
+GET  /v1beta/models/{model}
+POST /v1beta/models/{model}:generateContent
+POST /v1beta/models/{model}:streamGenerateContent?alt=sse
+```
+
+Use the same value as `AETHERFORGE_API_KEY` in either the standard
+`Authorization: Bearer ...` header or Gemini's `x-goog-api-key` header. The
+`key=...` query form is accepted for Gemini client compatibility. Model IDs are
+the IDs returned by `/v1beta/models`; IDs containing `/` may be URL-encoded.
+Text, system instructions, inline images, generation limits, stop sequences,
+function declarations/calls, usage metadata, and streaming SSE are translated.
+Unsupported remote retrieval (`fileData`) and server-side cache
+(`cachedContent`) fail explicitly with a Gemini `error` envelope.
+
     ## Key Surfaces
 
     - `packages/gateway/`
@@ -129,4 +152,3 @@ start a second gateway or bypass Agora/ComputeEngine SSOT.
 
 > **doc-ssot 契约**: 上表中的所有数字均为易变事实, 不在本文件硬编码. 运行权威读源命令获取实时值.
 > 模板: `.omo/standards/readme-template.md` | 检测: `bin/gac/check-readme-hardcoded.py`
-
