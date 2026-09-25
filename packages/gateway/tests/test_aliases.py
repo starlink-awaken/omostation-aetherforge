@@ -53,7 +53,7 @@ def test_shipped_yaml_loads_and_covers_litellm_names():
         "qwen38-27b",
     ):
         assert name in table, f"缺别名: {name}"
-    assert table["qwen38-27b"] == "qwen-3.8-27b"
+    assert table["qwen38-27b"] == "qwen3.8-27b-splash"
 
 
 def test_unservable_aliases_are_not_shipped():

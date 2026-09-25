@@ -51,7 +51,7 @@ aliases:
   minicpm: minicpm-v-4.6
   vision-pro: minicpm-v-4.6
   qwen38-ollama: qwen3.8:27b-mlx
-  mythos-1m: mythos
+  mythos-1m: mythos-fast
   rerank-fast: qllama/bge-reranker-v2-m3:q4_k_m
 
   # 高频意图先走 MBP 的 oMLX App。若 App 不可用，由 omlxc models.json 的
@@ -63,7 +63,7 @@ aliases:
   fast: qwen3.6-35b-a3b-splash
   mid: qwen3.8-27b-splash
   general: qwen3.8-27b-splash
-  qwen38-27b: qwen-3.8-27b
+  qwen38-27b: qwen3.8-27b-splash
   # 轻量视觉用 catalog `vision`；重视觉走 vision-large，不占用 mid/chat 槽。
   vision-mid: vision
 
