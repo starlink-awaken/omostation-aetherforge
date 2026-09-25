@@ -31,6 +31,7 @@ def gateway_config():
         local_backend="legacy",
         fallback_chain=[],
         warm_pool_ttl=60,
+        omlxc_mode="legacy",
     )
 
 
@@ -40,6 +41,7 @@ def gw(gateway_config):
 
     registry = MagicMock()
     scheduler = MagicMock()
+    scheduler.select.return_value = None
     return ModelGateway(registry, scheduler, gateway_config)
 
 
@@ -92,7 +94,32 @@ class TestHealthFailureDecay:
         assert gw._is_health_blocked("coding-fast") is True
 
         t[0] += gateway_module._HEALTH_FAILURE_TTL_SECONDS * 100
+    def test_no_capacity_failure_decays_after_ttl(self, gw, monkeypatch) -> None:
+        """A transient local capacity miss must not blacklist a model forever."""
+        import llm_gateway.gateway as gateway_module
+
+        t = [1_000_000.0]
+        monkeypatch.setattr(gateway_module.time, "time", lambda: t[0])
+
+        for _ in range(gateway_module._HEALTH_FAILURE_THRESHOLD):
+            gw._record_generation_failure("coding-fast", RuntimeError("no capacity"))
         assert gw._is_health_blocked("coding-fast") is True
+
+        t[0] += gateway_module._HEALTH_FAILURE_TTL_SECONDS + 1
+        assert gw._is_health_blocked("coding-fast") is False
+
+    def test_missing_model_failure_remains_permanent(self, gw, monkeypatch) -> None:
+        import llm_gateway.gateway as gateway_module
+
+        t = [1_000_000.0]
+        monkeypatch.setattr(gateway_module.time, "time", lambda: t[0])
+
+        gw._record_generation_failure("missing", RuntimeError("model not found"))
+        assert gw._is_health_blocked("missing") is True
+        t[0] += gateway_module._HEALTH_FAILURE_TTL_SECONDS + 1
+        assert gw._is_health_blocked("missing") is True
+        t[0] += gateway_module._HEALTH_FAILURE_TTL_SECONDS + 1
+        assert gw._is_health_blocked("coding-fast") is False
 
     def test_other_models_unaffected(self, gw) -> None:
         for _ in range(3):

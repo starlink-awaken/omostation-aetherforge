@@ -787,6 +787,19 @@ class ModelGateway:
             count = 0
         self._health_failures[model_name] = (count + 1, time.time())
 
+    def _record_generation_failure(self, model_name: str, error: Exception) -> None:
+        """Record a generation failure with bounded retry semantics.
+
+        Capacity contention is transient. Only explicit missing-model or
+        missing-placement configuration errors are permanent.
+        """
+        lowered = str(error).lower()
+        permanent = any(
+            marker in lowered
+            for marker in ("model not found", "missing model", "placement not found", "missing placement")
+        )
+        self._record_health_failure(model_name, permanent=permanent)
+
     def _is_health_blocked(self, model_name: str) -> bool:
         """Whether *model_name* should be skipped without even attempting it."""
         entry = self._health_failures.get(model_name)
@@ -1045,19 +1058,11 @@ class ModelGateway:
                 return resp
             except Exception as e:
                 last_error = str(e)[:100]
-                # 治理: no_capacity 是确定性失败(模型未加载/无容量), 不是
-                # 暂时抖动 —— 置持久跳过(本进程生命周期不再尝试), 避免重启
-                # 清零后每轮重新快速失败(2026-08-24 日报: coding-fast×10)。
-                # 其它失败(含 insufficient_capacity 容量抖动/网络抖动/熔断器
-                # 冷却窗口)按 _HEALTH_FAILURE_TTL_SECONDS 衰减 —— 见
-                # _record_health_failure 顶部注释, 2026-09-11 实测驱动。
+                self._record_generation_failure(model_name, e)
                 if "no capacity" in str(e).lower():
-                    self._record_health_failure(model_name, permanent=True)
                     from .events import emit as _emit_unhealthy
 
                     _emit_unhealthy("provider_unhealthy", {"model": model_name, "reason": "no_capacity"})
-                else:
-                    self._record_health_failure(model_name)
                 # 治理 P1: 失败按 CloudErrorCode 分类入 metrics + 事件流
                 code = self._classify_error(e)
                 self._metrics.record_error(model=model_name, error_type=code)
