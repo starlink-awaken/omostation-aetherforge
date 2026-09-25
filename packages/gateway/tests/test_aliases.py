@@ -80,7 +80,7 @@ def test_common_intents_route_to_measured_tiers():
     assert table["mini-9b"] == "mythos-fast"
     assert table["mid"] == table["general"] == "qwen3.8-27b-splash"
     assert table["coder-next"] == "coding-next"
-    assert table["vision-mid"] == "vision"
+    assert table["vision"] == table["vision-mid"] == "qwen3.6-35b-a3b-splash"
 
 
 def test_directly_named_omlx_keys_are_shadowed_to_working_tiers():

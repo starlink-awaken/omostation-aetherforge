@@ -36,6 +36,15 @@ aliases:
   coding: qwen3.6-35b-a3b-splash
   mid-local: qwen3.6-35b-a3b-splash
 
+  # ── 视觉档 (2026-09-25 同图 5 题对比, 经网关预热后单次延迟) ──
+  #   Splash-35B     5/5  0.6s  (常驻主力, 零额外内存)
+  #   MiniCPM-V-4.6  5/5  1.4s  (2.2GB 轻量)
+  #   GLM-4.6V-Flash 5/5  7.4s  (思考型, 输出带 <|begin_of_box|> 标记)
+  #   oMLX vision(Qwen3-VL-8B) 5/5 但 258s —— 工作区直呼 "vision" 85 处, 接到 Splash
+  vision: qwen3.6-35b-a3b-splash
+  vision-think: zai-org/glm-4.6v-flash
+  glm-4.6v: zai-org/glm-4.6v-flash
+
   # ── 本机 omlx 后端 ───────────────────────────────
   # coder 跟 sonnet 同档(Splash); coding-next 降为可点名/兜底档, 不再常驻。
   coder: qwen3.6-35b-a3b-splash
@@ -65,7 +74,7 @@ aliases:
   general: qwen3.8-27b-splash
   qwen38-27b: qwen3.8-27b-splash
   # 轻量视觉用 catalog `vision`；重视觉走 vision-large，不占用 mid/chat 槽。
-  vision-mid: vision
+  vision-mid: qwen3.6-35b-a3b-splash
 
 
   # ── 明确直达三节点能力池的特化别名 ─────────────────────
