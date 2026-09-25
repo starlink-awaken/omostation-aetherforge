@@ -28,20 +28,20 @@ aliases:
   # ── 本机 omlx 后端 ───────────────────────────────
   # coder 跟 sonnet 同档(Splash); coding-next 降为可点名/兜底档, 不再常驻。
   coder: qwen3.6-35b-a3b-splash
-  coder-fast: coding-fast
+  coder-fast: qwen3.6-35b-a3b-splash
   coder-next: coding-next
-  coder-moe: coding-qwen3-30b-a3b
-  qwen3-coder: coding-qwen3-30b-a3b
-  reasoner: reasoning
-  reasoner-lite: reasoning-lite
-  glm-4.7: glm-4.7-flash
-  glm-flash: glm-4.7-flash
+  coder-moe: qwen3.6-35b-a3b-splash
+  qwen3-coder: qwen3.6-35b-a3b-splash
+  reasoner: qwen3.8-27b-splash
+  reasoner-lite: qwen3.6-35b-a3b-splash
+  glm-4.7: glm-4.7-flash:q4_k_m
+  glm-flash: glm-4.7-flash:q4_k_m
   embed: embedding
-  minicpm: vision-minicpm
-  vision-pro: vision-minicpm
-  qwen38-ollama: qwen3.8-27b-ollama
-  mythos-1m: qwythos-9b-1m
-  rerank-fast: bge-reranker-ollama
+  minicpm: minicpm-v-4.6
+  vision-pro: minicpm-v-4.6
+  qwen38-ollama: qwen3.8:27b-mlx
+  mythos-1m: mythos
+  rerank-fast: qllama/bge-reranker-v2-m3:q4_k_m
 
   # 高频意图先走 MBP 的 oMLX App。若 App 不可用，由 omlxc models.json 的
   # fallback / fallback_ollama 依次落到 LM Link 与 Ollama，别在别名层绕开
@@ -54,12 +54,8 @@ aliases:
   general: qwen-3.8-27b
   qwen38-27b: qwen-3.8-27b
   # 轻量视觉用 catalog `vision`；重视觉走 vision-large，不占用 mid/chat 槽。
-  vision-mid: vision-large
+  vision-mid: vision
 
-  # Catalog IDs are qwen-3.5-9b-*. DeepSeek was a leftover weight-folder
-  # name and is not a logical model. Keep it as an alias only.
-  deepseek-v4-flash: qwen-3.5-9b-flash
-  deepseek-v4-pro: qwen-3.5-9b-pro
 
   # ── 明确直达三节点能力池的特化别名 ─────────────────────
   mini-chat: gemma-4-e2b-it-mlx
@@ -77,8 +73,23 @@ aliases:
   ocr-glm: glm-ocr
   vision-lite: qwen/qwen3-vl-4b
 
+# 2026-09-25 活体审计: 上面 12 个别名原指向不存在的目标(coding-qwen3-30b-a3b /
+# glm-4.7-flash / vision-minicpm / qwythos-9b-1m / vision-large / qwen-3.5-9b-pro 等),
+# 网关全部静默兜底到 mythos-fast(含视觉别名 → 纯文本模型)。已按真实存在的模型重映射;
+# 新增别名后务必实测响应的 model/provider 字段, 不能只看 HTTP 200。
+
 # 已知未覆盖 —— 如实记录, 不要假装齐了
 unsupported:
+  - name: "deepseek-v4-flash · deepseek-v4-pro"
+    reason: >-
+      2026-09-25 实测 DeepSeek-V4 MTP MLX 权重在 oMLX(qwen-3.5-9b-flash 投影)与
+      LM Studio(deepseek-v4-*-mtp-mlx)均无法推理, 此前两个别名全部静默兜底到
+      mythos-fast。删除别名如实失败, 等运行时支持 deepseek_v4_mtp 再恢复。
+  - name: "reasoning · reasoning-lite (oMLX GLM-4.7-Flash / Nemotron-Cascade-2)"
+    reason: >-
+      2026-09-25 实测 oMLX 能加载但推理返回 local_inference_error。
+      reasoner → qwen3.8-27b-splash, reasoner-lite → qwen3.6-35b-a3b-splash,
+      glm-4.7/glm-flash → mbp Ollama glm-4.7-flash:q4_k_m(实测可用)。
   - name: "macmini/* · macmini-ollama/* · y7000p/* · lms/* 通配符"
     reason: >-
       LiteLLM 用通配符做"直接按机器寻址"。LM Link 已把三机合成同一池,
