@@ -930,7 +930,11 @@ class ModelGateway:
 
     @staticmethod
     def _agent_fields(extra: Mapping[str, Any]) -> dict[str, Any]:
-        return {key: extra[key] for key in ("tools", "tool_choice") if key in extra and extra[key] is not None}
+        return {
+            key: extra[key]
+            for key in ("tools", "tool_choice", "top_p", "top_k", "stop")
+            if key in extra and extra[key] is not None
+        }
 
     def _business_model(self, request: GatewayRequest) -> str:
         prompt = self._extract_prompt(request.messages)
