@@ -25,6 +25,17 @@ aliases:
   sonnet: qwen3.6-35b-a3b-splash
   haiku: qwen3.6-35b-a3b-splash
 
+  # ── 调用方高频直呼的 omlx 目录名 → 实测可用档 (2026-09-25) ──
+  # 工作区代码直接写 model="reasoning"(127 处)/"coding"(82)/"mid-local"(14):
+  #   reasoning  oMLX GLM-4.7-Flash 能加载但推理报 local_inference_error → 真失败
+  #   coding     oMLX Devstral-Small-2 24B 8bit, 6.9 tok/s
+  #   mid-local  models.json 有键但 app-models 无投影 → 必失败
+  # 别名优先于 omlx 键解析, 网关 fallback_chain/complexity_chains 里的
+  # "coding"/"reasoning" 也随之落到可用档, 不必改 gateway.py。
+  reasoning: qwen3.8-27b-splash
+  coding: qwen3.6-35b-a3b-splash
+  mid-local: qwen3.6-35b-a3b-splash
+
   # ── 本机 omlx 后端 ───────────────────────────────
   # coder 跟 sonnet 同档(Splash); coding-next 降为可点名/兜底档, 不再常驻。
   coder: qwen3.6-35b-a3b-splash
@@ -50,8 +61,8 @@ aliases:
   triage: qwen3.6-35b-a3b-splash
   mini-9b: mythos-fast
   fast: qwen3.6-35b-a3b-splash
-  mid: qwen-3.8-27b
-  general: qwen-3.8-27b
+  mid: qwen3.8-27b-splash
+  general: qwen3.8-27b-splash
   qwen38-27b: qwen-3.8-27b
   # 轻量视觉用 catalog `vision`；重视觉走 vision-large，不占用 mid/chat 槽。
   vision-mid: vision
