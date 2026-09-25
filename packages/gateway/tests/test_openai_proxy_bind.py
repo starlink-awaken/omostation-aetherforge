@@ -25,6 +25,39 @@ class TestBindResolution:
         monkeypatch.setattr(proxy, "_tailnet_ip", lambda: None)
         assert proxy.resolve_bind_hosts("tailnet") == ["127.0.0.1"]
 
+    def test_tailnet_ip_falls_back_to_interface_scan(self, monkeypatch):
+        """CLI 连不上 tailscaled(Homebrew 非默认 socket)时, 从网卡读出 utun 上的地址。
+
+        只取 inet 本端地址, 不被 ifconfig 里其它 100.x 字样(对端/掩码)或非 tailnet 段误导。
+        """
+        import subprocess
+        from types import SimpleNamespace
+
+        ifconfig = (
+            "en0: flags=8863\n\tinet 192.168.1.20 netmask 0xffffff00\n"
+            "utun4: flags=8051\n\tinet 100.68.80.44 --> 100.68.80.44 netmask 0xffffffff\n"
+        )
+
+        def fake_run(cmd, **_):
+            if cmd[0] == "ifconfig":
+                return SimpleNamespace(stdout=ifconfig)
+            return SimpleNamespace(stdout="")  # CLI 报错时 stdout 为空
+
+        monkeypatch.setattr("shutil.which", lambda _: "/opt/homebrew/bin/tailscale")
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert proxy._tailnet_ip() == "100.68.80.44"
+
+    def test_tailnet_ip_ignores_non_tailnet_100_addresses(self, monkeypatch):
+        """100.0.0.0/8 里只有 100.64.0.0/10 是 tailnet, 公网 100.x 不能被绑出去。"""
+        import subprocess
+        from types import SimpleNamespace
+
+        monkeypatch.setattr("shutil.which", lambda _: None)
+        monkeypatch.setattr(
+            subprocess, "run", lambda cmd, **_: SimpleNamespace(stdout="en0:\n\tinet 100.20.1.1 netmask 0xffffff00\n")
+        )
+        assert proxy._tailnet_ip() is None
+
     def test_never_defaults_to_all_interfaces(self, monkeypatch):
         """0.0.0.0 会把模型开给同网段任意机器 —— 只能显式指定, 不能是任何默认值。
 
