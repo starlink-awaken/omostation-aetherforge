@@ -59,7 +59,7 @@ aliases:
   embed: embedding
   minicpm: minicpm-v-4.6
   vision-pro: minicpm-v-4.6
-  qwen38-ollama: qwen3.8:27b-mlx
+  qwen38-ollama: qwen3.8-27b-splash
   mythos-1m: mythos-fast
   rerank-fast: qllama/bge-reranker-v2-m3:q4_k_m
 
