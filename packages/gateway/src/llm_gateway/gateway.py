@@ -346,13 +346,9 @@ OMLX_ALIAS_MAP: dict[str, str] = {
 
 def _load_omlx_ports() -> dict[str, int]:
     """从 omlx models.json 读 model_name → port(含别名)。失败则回退硬编码。"""
-    fallback = {
-        "coding-fast": 8081,
-        "coding": 8082,
-        "reasoning": 8083,
-        "reasoning-lite": 8085,
-        "mythos-fast": 8185,
-    }
+    # 2026-09-26: 只留仍存在于 oMLX 目录的键。coding-fast/coding/reasoning/reasoning-lite
+    # 已下线, 留着会把请求送进 A 分支(本机 omlx)后必然失败、且空跑一轮兜底。
+    fallback = {"mythos-fast": 8185}
     if os.environ.get("AETHERFORGE_OMLXC_MODE", "legacy").lower() != "legacy":
         return fallback
     try:
@@ -460,6 +456,17 @@ def _load_ollama_fallback() -> dict[str, str]:
     return out
 
 
+def _has_image(messages: list[dict[str, Any]]) -> bool:
+    """OpenAI 多模态消息里是否带图片(content 为 list 且含 image_url/image 段)。"""
+    for msg in messages:
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if isinstance(content, list) and any(
+            isinstance(part, dict) and part.get("type") in {"image_url", "image", "input_image"} for part in content
+        ):
+            return True
+    return False
+
+
 @dataclass
 class GatewayConfig:
     """网关配置."""
@@ -507,6 +514,8 @@ class GatewayConfig:
     aliases: dict[str, str] = field(default_factory=_load_aliases)
     # fallback 链 (按优先级)
     fallback_chain: list[str] = field(default_factory=lambda: ["coding", "reasoning", "mythos-fast"])
+    # 带图片的请求只在视觉档里兜底: 通用链是纯文本模型, 兜过去会静默丢掉图片(禁跨能力兜底)
+    vision_fallback_chain: list[str] = field(default_factory=lambda: ["vision", "minicpm"])
     # 按复杂度分流: level → 定制 fallback 链 (未配置的 level 回退 fallback_chain)
     complexity_chains: dict[str, list[str]] = field(
         default_factory=lambda: {
@@ -1028,8 +1037,11 @@ class ModelGateway:
         except Exception as e:
             _log.debug("[ModelGateway] scheduler selection skipped: %s", e)
 
-        # 4. 尝试 fallback 链
-        full_chain.extend(chain)
+        # 4. 尝试 fallback 链(带图片时换成视觉链, 且不采纳 scheduler 的纯文本候选)
+        if _has_image(request.messages):
+            full_chain = ([request.model] if request.model else []) + list(self._config.vision_fallback_chain)
+        else:
+            full_chain.extend(chain)
 
         # 去重并执行本地/云边界。默认 local，不再因为 scheduler 恰好偏爱某个
         # 云模型就把本地任务送出去。
@@ -1950,9 +1962,14 @@ class ModelGateway:
             # 进日报); 写盘仍人工(free-pool refresh --write), 治理上数据变更
             # 必须可审计。首 tick 即对账一次(gateway 启动对齐现状)。
             last_free_refresh = 0.0
+            last_metrics_export = time.monotonic()
             while True:
                 await asyncio.sleep(self._config.health_check_interval)
                 try:
+                    # 用量快照落盘(~/.aetherforge/metrics.jsonl): /stats 只在内存里, 重启即丢
+                    if time.monotonic() - last_metrics_export >= 600:
+                        last_metrics_export = time.monotonic()
+                        await asyncio.to_thread(self._metrics.export_jsonl)
                     # 每日运营报告(P2.2): 当日首 tick 生成, 幂等跳过
                     today = datetime.now().strftime("%Y-%m-%d")
                     if today != last_report_day:
@@ -2013,6 +2030,10 @@ class ModelGateway:
 
     async def stop_background_tasks(self) -> None:
         """停止后台任务."""
+        try:
+            self._metrics.export_jsonl()  # 重启前留最后一份用量快照
+        except Exception:
+            _log.warning("final metrics export failed", exc_info=True)
         for task in self._bg_tasks:
             task.cancel()
         self._bg_tasks.clear()
@@ -2183,6 +2204,10 @@ class ModelGateway:
         import aiohttp
 
         result = {}
+        if self._config.local_backend == "app":
+            # App 模式没有每模型独立端口(8081-8188 已下线); 逐端口探测只会恒报 unreachable。
+            # 本机后端的真实状态以 omlxc / aictl 为准。
+            return result
         for model_name, port in self._config.model_ports.items():
             url = f"{self._config.local_base_url}:{port}/v1/models"
             try:

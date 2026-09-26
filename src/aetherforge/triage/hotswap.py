@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from aetherforge.endpoint import chat_url, gateway_key
 
 
 @dataclass
@@ -29,8 +31,8 @@ class ModelHealth:
 class HotSwapConfig:
     """热切换配置."""
 
-    gateway_url: str = "http://127.0.0.1:9000/v1/chat/completions"
-    api_key: str = "sk-omlx-admin"
+    gateway_url: str = field(default_factory=chat_url)
+    api_key: str = field(default_factory=gateway_key)
     health_check_interval: int = 60  # 健康检查间隔 (秒)
     health_check_timeout: int = 10  # 健康检查超时 (秒)
 
