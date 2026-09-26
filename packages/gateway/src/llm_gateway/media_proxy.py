@@ -3,6 +3,7 @@
 后端按能力分:
   图像  /v1/images/generations              → Unsloth Studio(:8888, 扩散模型)
   语音  /v1/audio/{speech,transcriptions,voices} → oMLX App(:8000, mlx-audio: Qwen3-TTS/Kokoro/Whisper)
+  决策  /v1/decisions                        → 本地决策服务(:8890, Laya / Jev-style, 返回校准概率)
   (2026-09-25 实测: Unsloth 在 Apple Silicon 上只认 higgs/moss/minimax 几个原生音频模型且
    需 remote code; oMLX 直接读模型盘上的 MLX 权重, Kokoro 0.15s/4.7s 音频, 中文走 Qwen3-TTS。)
 
@@ -43,12 +44,15 @@ class _Backend:
 
 IMAGE_BACKEND = _Backend("AETHERFORGE_MEDIA_IMAGE_BASE_URL", "http://127.0.0.1:8888", "AETHERFORGE_MEDIA_API_KEY")
 AUDIO_BACKEND = _Backend("AETHERFORGE_MEDIA_AUDIO_BASE_URL", "http://127.0.0.1:8000", "AETHERFORGE_MEDIA_AUDIO_API_KEY")
+# 决策服务(Laya 多语言 ~10ms / Jev v2 校准概率): 结构化选择/打分/真假判断, 不生成文本
+DECISION_BACKEND = _Backend("AETHERFORGE_DECISION_BASE_URL", "http://127.0.0.1:8890", "AETHERFORGE_DECISION_API_KEY")
 
 MEDIA_ROUTES: dict[str, tuple[str, _Backend]] = {
     "/v1/images/generations": ("POST", IMAGE_BACKEND),
     "/v1/audio/speech": ("POST", AUDIO_BACKEND),
     "/v1/audio/transcriptions": ("POST", AUDIO_BACKEND),
     "/v1/audio/voices": ("GET", AUDIO_BACKEND),
+    "/v1/decisions": ("POST", DECISION_BACKEND),
 }
 # 图像/视频生成可以跑几分钟; 语音很快。取宽松上限, 超时交给调用方自己的 timeout。
 _UPSTREAM_TIMEOUT = aiohttp.ClientTimeout(total=900, sock_connect=5)

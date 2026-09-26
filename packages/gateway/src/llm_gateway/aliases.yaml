@@ -57,6 +57,13 @@ aliases:
   whisper: asr-whisper
   image: unsloth/Qwen-Image-2.1
 
+  # ── 决策档 (2026-09-26; /v1/decisions → 本地决策服务 :8890) ──
+  #   laya-multilingual  mmBERT 编码器, 中文可用, ~10ms/次(3 题), 适合路由/分诊热路径
+  #   jev-v2             Qwen3.5-2B decision v2, ECE≈0.017, ~0.6-0.9s/次, 要准确概率时用
+  decide: laya-multilingual
+  decide-fast: laya-multilingual
+  decide-calibrated: jev-v2
+
   # ── 本机 omlx 后端 ───────────────────────────────
   # coder 跟 sonnet 同档(Splash); coding-next 降为可点名/兜底档, 不再常驻。
   coder: qwen3.6-35b-a3b-splash

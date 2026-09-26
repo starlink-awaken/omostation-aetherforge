@@ -231,3 +231,32 @@ def test_image_autoload_failure_surfaces_original_503(monkeypatch):
     assert status == 503
     assert "No image model loaded" in body["error"]["message"]
     assert state["gen_calls"] == 1  # 加载失败不再重试
+
+
+def test_decisions_route_to_decision_backend_with_alias(monkeypatch):
+    seen: list = []
+
+    async def go():
+        backend_app = web.Application()
+
+        async def handler(request):
+            seen.append(await request.json())
+            return web.json_response({"model": "laya-multilingual", "answers": {}})
+
+        backend_app.router.add_post("/v1/decisions", handler)
+        backend = TestServer(backend_app)
+        await backend.start_server()
+        monkeypatch.setenv("AETHERFORGE_DECISION_BASE_URL", str(backend.make_url("")).rstrip("/"))
+        facade = web.Application()
+        media_proxy.register_media_routes(facade, resolve_alias=lambda m: {"decide": "laya-multilingual"}.get(m, m))
+        client = TestClient(TestServer(facade))
+        await client.start_server()
+        try:
+            r = await client.post("/v1/decisions", json={"model": "decide", "state": "x", "questions": {"q": {}}})
+            return r.status
+        finally:
+            await client.close()
+            await backend.close()
+
+    assert _run(go()) == 200
+    assert seen[0]["model"] == "laya-multilingual"

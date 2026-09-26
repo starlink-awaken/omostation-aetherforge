@@ -203,3 +203,9 @@ def test_media_aliases_point_at_served_backends():
     assert table["tts"] == table["tts-zh"] == "tts-qwen3"
     assert table["tts-en"] == "tts-kokoro"
     assert table["asr"] == table["whisper"] == "asr-whisper"
+
+
+def test_decision_aliases():
+    table = aliases.load_aliases()
+    assert table["decide"] == table["decide-fast"] == "laya-multilingual"
+    assert table["decide-calibrated"] == "jev-v2"
