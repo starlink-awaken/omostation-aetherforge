@@ -2120,6 +2120,16 @@ class ModelGateway:
                     base = str(getattr(provider, "base_url", "") or "").rstrip("/")
                     if not base:
                         continue
+                    if base.startswith("unix://"):
+                        # ENG-OMLX-LOCAL 自 2026-08-11 指向 omlxc UDS; aiohttp 不认 unix://,
+                        # 直接 POST 会恒失败(KOS 语义检索因此拿不到向量)。走 omlxc 客户端,
+                        # 它知道 socket 路径和 /openai/v1 数据面前缀。
+                        try:
+                            return await self._omlxc.embed(model=_id_tail(model_id), inputs=texts, timeout=timeout)
+                        except OmlxcError as e:
+                            last_error = f"{model_id}: omlxc {e.code.value}"
+                            _log.warning("[ModelGateway] embed %s failed: omlxc %s", model_id, e.code.value)
+                            continue
                     try:
                         async with aiohttp.ClientSession() as session:
                             async with session.post(

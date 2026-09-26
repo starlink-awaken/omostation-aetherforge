@@ -230,3 +230,25 @@ def test_embedding_uses_app_then_ollama_in_app_mode(monkeypatch):
     vectors = asyncio.run(gw.embed(["hello"], timeout=1))
     assert vectors == [[0.1, 0.2]]
     assert urls == ["http://app/v1/embeddings", "http://ollama/v1/embeddings"]
+
+
+def test_embedding_unix_socket_engine_uses_omlxc_client(monkeypatch):
+    """ENG-OMLX-LOCAL 的 base_url 是 unix://omlxc/api/v1: 必须走 omlxc 客户端, 不能交给 aiohttp。"""
+    reg = _registry("ENG-OMLX-LOCAL/embedding", "ENG-OLLAMA-MACBOOKPRO/nomic-embed-text:latest")
+    reg.get_provider.side_effect = lambda model_id: SimpleNamespace(
+        name=model_id.partition("/")[0],
+        base_url=("unix://omlxc/api/v1" if model_id.startswith("ENG-OMLX") else "http://ollama/v1"),
+    )
+    config = _config(
+        model_ports={"embedding": 8183},
+        lmstudio_fallback={},
+        ollama_fallback={"embedding": "nomic-embed-text:latest"},
+    )
+    omlxc = MagicMock()
+    omlxc.embed = AsyncMock(return_value=[[0.3, 0.4]])
+    gw = ModelGateway(reg, MagicMock(), config, omlxc_client=omlxc)
+    monkeypatch.setattr("aiohttp.ClientSession", MagicMock(side_effect=AssertionError("aiohttp must not see unix://")))
+
+    assert asyncio.run(gw.embed(["hello"], timeout=1)) == [[0.3, 0.4]]
+    omlxc.embed.assert_awaited_once()
+    assert omlxc.embed.await_args.kwargs["model"] == "embedding"
