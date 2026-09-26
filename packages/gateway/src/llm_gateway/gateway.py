@@ -510,7 +510,8 @@ class GatewayConfig:
     # 按复杂度分流: level → 定制 fallback 链 (未配置的 level 回退 fallback_chain)
     complexity_chains: dict[str, list[str]] = field(
         default_factory=lambda: {
-            "simple": ["mythos-fast", "coding-fast", "coding"],
+            # coding-fast 已无后端(旧 :8081 单模型端口), 留着每次白失败一轮
+            "simple": ["mythos-fast", "coding"],
             "complex": ["reasoning", "coding", "mythos-fast"],
         }
     )
