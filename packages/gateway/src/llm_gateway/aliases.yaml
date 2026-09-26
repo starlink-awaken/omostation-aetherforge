@@ -74,6 +74,8 @@ aliases:
   # coder 跟 sonnet 同档(Splash); coding-next 降为可点名/兜底档, 不再常驻。
   coder: qwen3.6-35b-a3b-splash
   coder-fast: qwen3.6-35b-a3b-splash
+  # coding-fast 故意不设别名: 测试夹具把它当"未别名的裸名"。调用方已改用 coding/coder。
+  reasoning-lite: qwen3.6-35b-a3b-splash
   coder-next: coding-next
   coder-moe: qwen3.6-35b-a3b-splash
   qwen3-coder: qwen3.6-35b-a3b-splash
@@ -113,7 +115,8 @@ aliases:
   # vision-v2: MiniCPM-V 4.6(当前 vision-pro 是旧版); 同上, 试用并列。
   vision-v2: minicpm-v-4.6
   rerank: baai-bge-reranker-v2-m3-mlx
-  embed-bge: bge-m3-mlx
+  # embedding 链路只查 oMLX(+ omlxc 兜底), 不认 LM Studio 的模型 ID: 原 bge-m3-mlx 恒 502。
+  embed-bge: embed-bge-m3
   ocr: glm-ocr
   ocr-glm: glm-ocr
   vision-lite: qwen/qwen3-vl-4b
