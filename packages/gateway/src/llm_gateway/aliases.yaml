@@ -45,6 +45,18 @@ aliases:
   vision-think: zai-org/glm-4.6v-flash
   glm-4.6v: zai-org/glm-4.6v-flash
 
+  # ── 多媒体档 (2026-09-26; 路由见 media_proxy.py: 语音→oMLX, 图像→Unsloth Studio) ──
+  #   tts-qwen3   Qwen3-TTS 1.7B 8bit, 中文母语级, 7s 音频 ~6-8s, whisper 回识别逐字一致
+  #   tts-kokoro  Kokoro-82M, 英文 0.15s/4.7s 音频(oMLX 缺 misaki[zh], 不能说中文)
+  #   asr-whisper Whisper-large-v3-turbo 4bit, 预热 0.85s
+  tts: tts-qwen3
+  tts-zh: tts-qwen3
+  tts-en: tts-kokoro
+  tts-chatterbox: tts-chatterbox
+  asr: asr-whisper
+  whisper: asr-whisper
+  image: unsloth/Qwen-Image-2.1
+
   # ── 本机 omlx 后端 ───────────────────────────────
   # coder 跟 sonnet 同档(Splash); coding-next 降为可点名/兜底档, 不再常驻。
   coder: qwen3.6-35b-a3b-splash
