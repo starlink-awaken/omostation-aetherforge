@@ -114,6 +114,61 @@ async def handle_image(request: web.Request) -> web.Response:
 # ── 视频 ────────────────────────────────────────────────────────────────
 
 
+# ── 视频前让出统一内存 ───────────────────────────────────────────────────
+# 视频渲染要 ≥60GB(H3 bf16 lane 60GB 起), 而 LM Studio Splash(~38GB)与 oMLX 按需大模型
+# 常驻时实测整机换页、命令超时。提交视频前: 卸 LM Studio 全部实例 + oMLX 常驻集外的模型;
+# 常驻集(embedding/mythos-fast, 18GB)保留兜底对话/检索。之后不主动恢复 —— 下次请求 JIT 重载(~15s)。
+def _video_yield_enabled() -> bool:
+    return os.environ.get("AETHERFORGE_VIDEO_FREE_MEMORY", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _omlx_keep() -> set[str]:
+    raw = os.environ.get("AETHERFORGE_VIDEO_KEEP_OMLX", "embedding,mythos-fast")
+    return {m.strip() for m in raw.split(",") if m.strip()}
+
+
+async def _free_lmstudio(session: aiohttp.ClientSession) -> list[str]:
+    base = os.environ.get("AETHERFORGE_LMSTUDIO_BASE_URL", "http://127.0.0.1:1234").rstrip("/")
+    freed = []
+    async with session.get(base + "/api/v1/models") as r:
+        models = (await r.json()).get("models", []) if r.status == 200 else []
+    for m in models:
+        for inst in m.get("loaded_instances") or []:
+            iid = inst.get("id") if isinstance(inst, dict) else inst
+            async with session.post(base + "/api/v1/models/unload", json={"instance_id": iid}) as r:
+                if r.status < 400:
+                    freed.append(f"lmstudio:{iid}")
+    return freed
+
+
+async def _free_omlx(session: aiohttp.ClientSession) -> list[str]:
+    base = os.environ.get("AETHERFORGE_OMLX_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+    keep, freed = _omlx_keep(), []
+    async with session.get(base + "/api/status") as r:
+        loaded = (await r.json()).get("loaded_models", []) if r.status == 200 else []
+    for model in loaded:
+        if model in keep:
+            continue
+        async with session.post(base + f"/admin/api/models/{model}/unload") as r:
+            if r.status < 400:
+                freed.append(f"omlx:{model}")
+    return freed
+
+
+async def free_memory_for_video() -> list[str]:
+    """尽力而为: 任一步失败只记日志, 绝不挡视频提交。"""
+    freed: list[str] = []
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60), trust_env=False) as session:
+        for step in (_free_lmstudio, _free_omlx):
+            try:
+                freed += await step(session)
+            except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
+                _log.warning("video memory yield: %s failed: %s", step.__name__, exc)
+    if freed:
+        _log.info("video memory yield freed: %s", ", ".join(freed))
+    return freed
+
+
 def _video_form(body: dict, model: str) -> dict[str, str]:
     seconds = float(body.get("seconds") or 5)
     quality = str(body.get("quality") or "")
@@ -155,6 +210,7 @@ async def handle_video_create(request: web.Request) -> web.Response:
     resolve = request.app.get(_RESOLVE)
     if resolve is not None:
         model = resolve(model)
+    freed = await free_memory_for_video() if _video_yield_enabled() else []
     try:
         async with aiohttp.ClientSession(timeout=_TIMEOUT, trust_env=False) as session:
             status, data = await _phosphene(session, "POST", "/queue/add", data=_video_form(body, model))
@@ -164,7 +220,14 @@ async def handle_video_create(request: web.Request) -> web.Response:
     if not data.get("ok") or not data.get("id"):
         return _err(str(data.get("error") or data), 400 if status == 400 else 502, "generation_failed")
     return web.json_response(
-        {"id": data["id"], "object": "video", "model": model, "status": "queued", "created_at": int(time.time())}
+        {
+            "id": data["id"],
+            "object": "video",
+            "model": model,
+            "status": "queued",
+            "created_at": int(time.time()),
+            "freed_models": freed,
+        }
     )
 
 
