@@ -171,8 +171,20 @@ async def _forward(session, request: web.Request, base: str, body, headers: dict
         return upstream.status, await upstream.read(), upstream.content_type, upstream.charset
 
 
+def image_backend_kind() -> str:
+    """图像后端: phosphene(默认, FLUX.2-klein 22s/张且遵循提示词) | unsloth(透传, 旧路径)。"""
+    return os.environ.get("AETHERFORGE_MEDIA_IMAGE_KIND", "phosphene").strip().lower()
+
+
 def register_media_routes(app: web.Application, resolve_alias: Callable[[str], str] | None = None) -> None:
+    from .phosphene_adapter import register_phosphene_routes
+
     if resolve_alias is not None:
         app[RESOLVE_ALIAS] = resolve_alias
+    phosphene_images = image_backend_kind() == "phosphene"
     for path, (method, _backend) in MEDIA_ROUTES.items():
+        if path == "/v1/images/generations" and phosphene_images:
+            continue
         app.router.add_route(method, path, handle_media)
+    # 视频恒走 phosphene(LTX-2.5 / MiniMax H3); 图像按开关二选一
+    register_phosphene_routes(app, resolve_alias, images=phosphene_images)

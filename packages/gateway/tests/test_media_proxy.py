@@ -51,6 +51,7 @@ async def _with_facade(monkeypatch, seen, fn, *, gateway_key=None):
     audio = TestServer(_fake_backend("audio", seen))
     await image.start_server()
     await audio.start_server()
+    monkeypatch.setenv("AETHERFORGE_MEDIA_IMAGE_KIND", "unsloth")
     monkeypatch.setenv("AETHERFORGE_MEDIA_IMAGE_BASE_URL", str(image.make_url("")).rstrip("/"))
     monkeypatch.setenv("AETHERFORGE_MEDIA_AUDIO_BASE_URL", str(audio.make_url("")).rstrip("/"))
     monkeypatch.setenv("AETHERFORGE_MEDIA_API_KEY", "sk-unsloth-backend")
@@ -136,6 +137,7 @@ def test_voices_get_passes_query(monkeypatch):
 
 def test_backend_down_is_502_not_silent(monkeypatch):
     async def go():
+        monkeypatch.setenv("AETHERFORGE_MEDIA_IMAGE_KIND", "unsloth")
         monkeypatch.setenv("AETHERFORGE_MEDIA_IMAGE_BASE_URL", "http://127.0.0.1:9")  # 丢弃端口, 必连不上
         facade = web.Application()
         media_proxy.register_media_routes(facade)
@@ -198,6 +200,7 @@ def _run_lazy(monkeypatch, state):
     async def go():
         backend = TestServer(_lazy_image_backend(state))
         await backend.start_server()
+        monkeypatch.setenv("AETHERFORGE_MEDIA_IMAGE_KIND", "unsloth")
         monkeypatch.setenv("AETHERFORGE_MEDIA_IMAGE_BASE_URL", str(backend.make_url("")).rstrip("/"))
         monkeypatch.setenv("AETHERFORGE_MEDIA_API_KEY", "sk-unsloth-backend")
         monkeypatch.setenv("AETHERFORGE_MEDIA_IMAGE_MODEL", "unsloth/Qwen-Image-2.1")

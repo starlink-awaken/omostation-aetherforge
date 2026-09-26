@@ -209,3 +209,9 @@ def test_decision_aliases():
     table = aliases.load_aliases()
     assert table["decide"] == table["decide-fast"] == "laya-multilingual"
     assert table["decide-calibrated"] == "jev-v2"
+
+
+def test_video_aliases_route_by_engine():
+    table = aliases.load_aliases()
+    assert table["video"] == table["video-ltx"] == "phosphene-ltx"
+    assert table["video-h3"] == table["video-dialogue"] == "phosphene-h3"

@@ -49,13 +49,19 @@ aliases:
   #   tts-qwen3   Qwen3-TTS 1.7B 8bit, 中文母语级, 7s 音频 ~6-8s, whisper 回识别逐字一致
   #   tts-kokoro  Kokoro-82M, 英文 0.15s/4.7s 音频(oMLX 缺 misaki[zh], 不能说中文)
   #   asr-whisper Whisper-large-v3-turbo 4bit, 预热 0.85s
+  #   图像 phosphene FLUX.2-klein-4B(1024² 22s, 遵循风格); Unsloth Qwen-Image-2.1 5min 且不遵循 → 弃
   tts: tts-qwen3
   tts-zh: tts-qwen3
   tts-en: tts-kokoro
   tts-chatterbox: tts-chatterbox
   asr: asr-whisper
   whisper: asr-whisper
-  image: unsloth/Qwen-Image-2.1
+  image: phosphene-flux2-klein
+  # 视频 → phosphene(/v1/videos, 异步): LTX-2.5 全能 / MiniMax H3 对白+音效+配乐(3s 草稿实测 ~6min)
+  video: phosphene-ltx
+  video-ltx: phosphene-ltx
+  video-h3: phosphene-h3
+  video-dialogue: phosphene-h3
 
   # ── 决策档 (2026-09-26; /v1/decisions → 本地决策服务 :8890) ──
   #   laya-multilingual  mmBERT 编码器, 中文可用, ~10ms/次(3 题), 适合路由/分诊热路径
