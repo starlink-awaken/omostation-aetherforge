@@ -46,6 +46,9 @@ IMAGE_BACKEND = _Backend("AETHERFORGE_MEDIA_IMAGE_BASE_URL", "http://127.0.0.1:8
 AUDIO_BACKEND = _Backend("AETHERFORGE_MEDIA_AUDIO_BASE_URL", "http://127.0.0.1:8000", "AETHERFORGE_MEDIA_AUDIO_API_KEY")
 # 决策服务(Laya 多语言 ~10ms / Jev v2 校准概率): 结构化选择/打分/真假判断, 不生成文本
 DECISION_BACKEND = _Backend("AETHERFORGE_DECISION_BASE_URL", "http://127.0.0.1:8890", "AETHERFORGE_DECISION_API_KEY")
+# 重排(cross-encoder): oMLX 原生 /v1/rerank。LM Studio / Ollama 都没有重排接口, 别名表里的
+# rerank 档此前指向它们的模型 ID, 门面又无此路由 —— 声明了能力却从未调通。
+RERANK_BACKEND = _Backend("AETHERFORGE_RERANK_BASE_URL", "http://127.0.0.1:8000", "AETHERFORGE_RERANK_API_KEY")
 
 MEDIA_ROUTES: dict[str, tuple[str, _Backend]] = {
     "/v1/images/generations": ("POST", IMAGE_BACKEND),
@@ -53,6 +56,7 @@ MEDIA_ROUTES: dict[str, tuple[str, _Backend]] = {
     "/v1/audio/transcriptions": ("POST", AUDIO_BACKEND),
     "/v1/audio/voices": ("GET", AUDIO_BACKEND),
     "/v1/decisions": ("POST", DECISION_BACKEND),
+    "/v1/rerank": ("POST", RERANK_BACKEND),
 }
 # 图像/视频生成可以跑几分钟; 语音很快。取宽松上限, 超时交给调用方自己的 timeout。
 _UPSTREAM_TIMEOUT = aiohttp.ClientTimeout(total=900, sock_connect=5)

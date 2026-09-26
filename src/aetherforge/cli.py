@@ -129,6 +129,7 @@ def cmd_swarm(argv: list[str]) -> int:
     import argparse
     import json
     import sys
+
     parser = argparse.ArgumentParser(description="AetherForge Swarm CLI (disabled, Y1Q4-T6-01)")
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("run", help="DISABLED: swarm_engine removed (Y1Q4-T6-01)")
@@ -149,9 +150,11 @@ def cmd_triage(argv: list[str]) -> int:
         from aetherforge.triage.router import TriageRouter
 
         class _DirectHTTPGateway:
-            def __init__(self, url="http://127.0.0.1:9000/v1/chat/completions", key="sk-omlx-admin"):
-                self.url = url
-                self.key = key
+            def __init__(self, url=None, key=None):
+                from aetherforge.endpoint import chat_url, gateway_key
+
+                self.url = url or chat_url()
+                self.key = key or gateway_key()
 
             async def generate(self, request):
                 import time
@@ -248,10 +251,11 @@ def cmd_triage(argv: list[str]) -> int:
     if args.benchmark:
         import time
 
+        from aetherforge.endpoint import chat_url, gateway_key
         from aetherforge.triage.monitor import BENCHMARK_SAMPLES
 
-        gateway = "http://127.0.0.1:9000/v1/chat/completions"
-        key = "sk-omlx-admin"
+        gateway = chat_url()
+        key = gateway_key()
 
         prompt_tpl = """你是信息分诊助手。判断: 丢弃 / 沉淀 / 提醒 三选一。
 标准: 丢弃=营销/广告/促销  沉淀=技术/知识/笔记同步  提醒=会议/账单/告警/待办
@@ -271,7 +275,7 @@ def cmd_triage(argv: list[str]) -> int:
             if needs_off:
                 payload["extra_body"] = {"reasoning_effort": "none"}
             data = _json.dumps(payload).encode()
-            req = urllib.request.Request(
+            req = urllib.request.Request(  # noqa: S310 — 内部门面地址(aetherforge.endpoint, http)
                 gateway, data=data, headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
             )
             t0 = time.time()

@@ -88,7 +88,8 @@ aliases:
   vision-pro: minicpm-v-4.6
   qwen38-ollama: qwen3.8-27b-splash
   mythos-1m: mythos-fast
-  rerank-fast: qllama/bge-reranker-v2-m3:q4_k_m
+  # 重排经门面 /v1/rerank → oMLX(LM Studio/Ollama 无重排接口)
+  rerank-fast: baai-bge-reranker-v2-m3-mlx-fp16
 
   # 高频意图先走 MBP 的 oMLX App。若 App 不可用，由 omlxc models.json 的
   # fallback / fallback_ollama 依次落到 LM Link 与 Ollama，别在别名层绕开
@@ -114,7 +115,7 @@ aliases:
   splash-27b: qwen3.8-27b-splash
   # vision-v2: MiniCPM-V 4.6(当前 vision-pro 是旧版); 同上, 试用并列。
   vision-v2: minicpm-v-4.6
-  rerank: baai-bge-reranker-v2-m3-mlx
+  rerank: baai-bge-reranker-v2-m3-mlx-fp16
   # embedding 链路只查 oMLX(+ omlxc 兜底), 不认 LM Studio 的模型 ID: 原 bge-m3-mlx 恒 502。
   embed-bge: embed-bge-m3
   ocr: glm-ocr
