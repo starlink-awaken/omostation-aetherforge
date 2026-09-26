@@ -263,3 +263,34 @@ def test_decisions_route_to_decision_backend_with_alias(monkeypatch):
 
     assert _run(go()) == 200
     assert seen[0]["model"] == "laya-multilingual"
+
+
+def test_rerank_routes_to_omlx_backend_with_alias(monkeypatch):
+    seen: list = []
+
+    async def go():
+        backend_app = web.Application()
+
+        async def handler(request):
+            seen.append(await request.json())
+            return web.json_response({"results": [{"index": 0, "relevance_score": 0.9}]})
+
+        backend_app.router.add_post("/v1/rerank", handler)
+        backend = TestServer(backend_app)
+        await backend.start_server()
+        monkeypatch.setenv("AETHERFORGE_RERANK_BASE_URL", str(backend.make_url("")).rstrip("/"))
+        facade = web.Application()
+        media_proxy.register_media_routes(
+            facade, resolve_alias=lambda m: {"rerank": "baai-bge-reranker-v2-m3-mlx-fp16"}.get(m, m)
+        )
+        client = TestClient(TestServer(facade))
+        await client.start_server()
+        try:
+            r = await client.post("/v1/rerank", json={"model": "rerank", "query": "q", "documents": ["a"]})
+            return r.status
+        finally:
+            await client.close()
+            await backend.close()
+
+    assert _run(go()) == 200
+    assert seen[0]["model"] == "baai-bge-reranker-v2-m3-mlx-fp16"
