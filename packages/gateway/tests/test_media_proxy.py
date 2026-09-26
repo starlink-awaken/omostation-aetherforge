@@ -161,3 +161,73 @@ def test_media_routes_require_gateway_key(monkeypatch):
 
     assert _run(_with_facade(monkeypatch, seen, go, gateway_key="gw-key")) == 401
     assert seen == []
+
+
+def _lazy_image_backend(state: dict):
+    """未加载时 503; /images/load 后按 state['load_ok'] 变为已加载或报错。"""
+
+    async def generate(request: web.Request) -> web.Response:
+        state["gen_calls"] += 1
+        if not state["loaded"]:
+            return web.json_response(
+                {"error": {"message": "No image model loaded. Load an image model first."}}, status=503
+            )
+        return web.json_response({"data": [{"b64_json": "aW1n"}]})
+
+    async def load(request: web.Request) -> web.Response:
+        state["load_body"] = await request.json()
+        state["load_auth"] = request.headers.get("Authorization")
+        state["loaded"] = state["load_ok"]
+        return web.json_response({"loaded": False})
+
+    async def status(request: web.Request) -> web.Response:
+        return web.json_response({"loaded": state["loaded"]})
+
+    async def progress(request: web.Request) -> web.Response:
+        return web.json_response({"error": None if state["load_ok"] else "boom"})
+
+    app = web.Application()
+    app.router.add_post("/v1/images/generations", generate)
+    app.router.add_post("/api/inference/images/load", load)
+    app.router.add_get("/api/inference/images/status", status)
+    app.router.add_get("/api/inference/images/load-progress", progress)
+    return app
+
+
+def _run_lazy(monkeypatch, state):
+    async def go():
+        backend = TestServer(_lazy_image_backend(state))
+        await backend.start_server()
+        monkeypatch.setenv("AETHERFORGE_MEDIA_IMAGE_BASE_URL", str(backend.make_url("")).rstrip("/"))
+        monkeypatch.setenv("AETHERFORGE_MEDIA_API_KEY", "sk-unsloth-backend")
+        monkeypatch.setenv("AETHERFORGE_MEDIA_IMAGE_MODEL", "unsloth/Qwen-Image-2.1")
+        monkeypatch.setattr(media_proxy, "_IMAGE_LOAD_POLL", 0.01)
+        facade = web.Application()
+        media_proxy.register_media_routes(facade)
+        client = TestClient(TestServer(facade))
+        await client.start_server()
+        try:
+            r = await client.post("/v1/images/generations", json={"prompt": "a cat"})
+            return r.status, await r.json()
+        finally:
+            await client.close()
+            await backend.close()
+
+    return _run(go())
+
+
+def test_image_autoloads_default_model_then_retries(monkeypatch):
+    state = {"loaded": False, "load_ok": True, "gen_calls": 0}
+    status, body = _run_lazy(monkeypatch, state)
+    assert status == 200 and body["data"][0]["b64_json"] == "aW1n"
+    assert state["load_body"] == {"model_path": "unsloth/Qwen-Image-2.1"}
+    assert state["load_auth"] == "Bearer sk-unsloth-backend"
+    assert state["gen_calls"] == 2  # 一次 503 + 加载后一次重试
+
+
+def test_image_autoload_failure_surfaces_original_503(monkeypatch):
+    state = {"loaded": False, "load_ok": False, "gen_calls": 0}
+    status, body = _run_lazy(monkeypatch, state)
+    assert status == 503
+    assert "No image model loaded" in body["error"]["message"]
+    assert state["gen_calls"] == 1  # 加载失败不再重试

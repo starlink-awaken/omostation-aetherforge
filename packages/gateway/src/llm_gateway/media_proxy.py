@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -53,6 +54,39 @@ MEDIA_ROUTES: dict[str, tuple[str, _Backend]] = {
 _UPSTREAM_TIMEOUT = aiohttp.ClientTimeout(total=900, sock_connect=5)
 
 RESOLVE_ALIAS = web.AppKey("media_resolve_alias", Callable[[str], str])
+
+# Unsloth 生成前必须显式加载图像模型, 未加载时回 503 "No image model loaded"。
+# 门面代为加载一次再重试, 调用方不必关心后端生命周期(加载 ~30s, 之后常驻)。
+_IMAGE_NOT_LOADED = b"No image model loaded"
+_IMAGE_LOAD_TIMEOUT = 600.0
+_IMAGE_LOAD_POLL = 3.0
+
+
+def default_image_model() -> str:
+    return os.environ.get("AETHERFORGE_MEDIA_IMAGE_MODEL", "unsloth/Qwen-Image-2.1")
+
+
+async def _ensure_image_model(session: aiohttp.ClientSession, base: str, headers: dict[str, str]) -> bool:
+    """触发加载并轮询到就绪; 失败/超时返回 False(交回原 503 让调用方如实看到)。"""
+    auth = {k: v for k, v in headers.items() if k == "Authorization"}
+    async with session.post(
+        base + "/api/inference/images/load", json={"model_path": default_image_model()}, headers=auth
+    ) as r:
+        if r.status >= 400:
+            _log.warning("image model load rejected: %s %s", r.status, (await r.text())[:200])
+            return False
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _IMAGE_LOAD_TIMEOUT
+    while loop.time() < deadline:
+        async with session.get(base + "/api/inference/images/status", headers=auth) as r:
+            if r.status == 200 and (await r.json()).get("loaded"):
+                return True
+        async with session.get(base + "/api/inference/images/load-progress", headers=auth) as r:
+            if r.status == 200 and (await r.json()).get("error"):
+                _log.warning("image model load failed: %s", (await r.json()).get("error"))
+                return False
+        await asyncio.sleep(_IMAGE_LOAD_POLL)
+    return False
 
 
 def _error(message: str, status: int, code: str) -> web.Response:
@@ -112,19 +146,25 @@ async def handle_media(request: web.Request) -> web.Response:
     try:
         # trust_env=False: 本地后端必须直连, 不能被系统代理(Clash)接走
         async with aiohttp.ClientSession(timeout=_UPSTREAM_TIMEOUT, trust_env=False) as session:
-            async with session.request(
-                request.method, base + request.path, params=request.query, data=body, headers=headers
-            ) as upstream:
-                data = await upstream.read()
-                return web.Response(
-                    body=data,
-                    status=upstream.status,
-                    content_type=upstream.content_type,
-                    charset=upstream.charset,
-                )
+            status, data, ctype, charset = await _forward(session, request, base, body, headers)
+            if (
+                backend is IMAGE_BACKEND
+                and status == 503
+                and _IMAGE_NOT_LOADED in data
+                and await _ensure_image_model(session, base, headers)
+            ):
+                status, data, ctype, charset = await _forward(session, request, base, body, headers)
+            return web.Response(body=data, status=status, content_type=ctype, charset=charset)
     except (aiohttp.ClientError, TimeoutError) as exc:
         _log.warning("media backend %s%s unavailable: %s", base, request.path, exc)
         return _error("media backend unavailable", 502, "media_backend_unavailable")
+
+
+async def _forward(session, request: web.Request, base: str, body, headers: dict[str, str]):
+    async with session.request(
+        request.method, base + request.path, params=request.query, data=body, headers=headers
+    ) as upstream:
+        return upstream.status, await upstream.read(), upstream.content_type, upstream.charset
 
 
 def register_media_routes(app: web.Application, resolve_alias: Callable[[str], str] | None = None) -> None:
