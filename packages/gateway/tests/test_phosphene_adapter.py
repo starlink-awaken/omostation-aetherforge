@@ -65,6 +65,7 @@ async def _facade(monkeypatch, state, tmp_path, fn):
     backend = TestServer(_fake_phosphene(state, tmp_path))
     await backend.start_server()
     monkeypatch.setenv("AETHERFORGE_PHOSPHENE_BASE_URL", str(backend.make_url("")).rstrip("/"))
+    monkeypatch.setenv("AETHERFORGE_VIDEO_FREE_MEMORY", "0")  # 默认用例不触碰真实 LM Studio/oMLX
     app = web.Application()
     ph.register_phosphene_routes(app, resolve_alias=lambda m: {"video-h3": "phosphene-h3"}.get(m, m))
     client = TestClient(TestServer(app))
@@ -136,3 +137,81 @@ def test_video_poll_then_content(monkeypatch, tmp_path):
     assert done["status"] == "completed"
     assert cstatus == 200 and data == b"fake-mp4"
     assert missing == 404
+
+
+def test_video_yields_memory_before_submit_keeping_resident_set(monkeypatch, tmp_path):
+    """提交视频前卸 LM Studio 全部实例 + oMLX 常驻集外模型; 常驻集保留; 顺序先于入队。"""
+    events: list = []
+
+    async def go():
+        lms = web.Application()
+
+        async def lms_models(_r):
+            return web.json_response(
+                {
+                    "models": [
+                        {"key": "splash", "loaded_instances": [{"id": "splash-1"}]},
+                        {"key": "x", "loaded_instances": []},
+                    ]
+                }
+            )
+
+        async def lms_unload(r):
+            events.append(("lms-unload", (await r.json())["instance_id"]))
+            return web.json_response({"ok": True})
+
+        lms.router.add_get("/api/v1/models", lms_models)
+        lms.router.add_post("/api/v1/models/unload", lms_unload)
+
+        omlx = web.Application()
+
+        async def omlx_status(_r):
+            return web.json_response({"loaded_models": ["embedding", "mythos-fast", "coding-next"]})
+
+        async def omlx_unload(r):
+            events.append(("omlx-unload", r.match_info["m"]))
+            return web.json_response({"status": "ok"})
+
+        omlx.router.add_get("/api/status", omlx_status)
+        omlx.router.add_post("/admin/api/models/{m}/unload", omlx_unload)
+
+        state: dict = {}
+        phos = _fake_phosphene(state, tmp_path)
+        servers = [TestServer(a) for a in (lms, omlx, phos)]
+        for s in servers:
+            await s.start_server()
+        monkeypatch.setenv("AETHERFORGE_LMSTUDIO_BASE_URL", str(servers[0].make_url("")).rstrip("/"))
+        monkeypatch.setenv("AETHERFORGE_OMLX_BASE_URL", str(servers[1].make_url("")).rstrip("/"))
+        monkeypatch.setenv("AETHERFORGE_PHOSPHENE_BASE_URL", str(servers[2].make_url("")).rstrip("/"))
+        monkeypatch.setenv("AETHERFORGE_VIDEO_FREE_MEMORY", "1")
+        app = web.Application()
+        ph.register_phosphene_routes(app)
+        client = TestClient(TestServer(app))
+        await client.start_server()
+        try:
+            r = await client.post("/v1/videos", json={"prompt": "a crow", "seconds": 3})
+            body = await r.json()
+            events.append(("queued", state.get("form", {}).get("prompt")))
+            return body
+        finally:
+            await client.close()
+            for s in servers:
+                await s.close()
+
+    body = _run(go())
+    assert events == [("lms-unload", "splash-1"), ("omlx-unload", "coding-next"), ("queued", "a crow")]
+    assert body["freed_models"] == ["lmstudio:splash-1", "omlx:coding-next"]
+
+
+def test_video_yield_failure_never_blocks_submit(monkeypatch, tmp_path):
+    state: dict = {}
+
+    async def go(client):
+        monkeypatch.setenv("AETHERFORGE_VIDEO_FREE_MEMORY", "1")
+        monkeypatch.setenv("AETHERFORGE_LMSTUDIO_BASE_URL", "http://127.0.0.1:9")
+        monkeypatch.setenv("AETHERFORGE_OMLX_BASE_URL", "http://127.0.0.1:9")
+        r = await client.post("/v1/videos", json={"prompt": "a crow"})
+        return r.status, await r.json()
+
+    status, body = _run(_facade(monkeypatch, state, tmp_path, go))
+    assert status == 200 and body["freed_models"] == []
