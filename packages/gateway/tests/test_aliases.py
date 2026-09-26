@@ -195,3 +195,11 @@ def test_non_self_endpoints_not_flagged():
         "not-a-url",
     ):
         assert not gw._is_self_endpoint(url), f"误判为自引用: {url}"
+
+
+def test_media_aliases_point_at_served_backends():
+    """语音别名落 oMLX 实测可用的音频模型; 中文 TTS 不能指 Kokoro(缺 misaki[zh])。"""
+    table = aliases.load_aliases()
+    assert table["tts"] == table["tts-zh"] == "tts-qwen3"
+    assert table["tts-en"] == "tts-kokoro"
+    assert table["asr"] == table["whisper"] == "asr-whisper"
