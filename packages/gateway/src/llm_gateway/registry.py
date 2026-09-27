@@ -15,6 +15,21 @@ from .types import ChatOptions, ChatResult, ModelDescriptor, StreamChunk
 _log = logging.getLogger(__name__)
 
 
+def _counts_as_backend_failure(exc: BaseException) -> bool:
+    """熔断只该记"后端坏了", 不该记"请求本身有问题"。
+
+    4xx(408/429 除外)是调用方参数/格式问题, 换个时刻重试结果一样 —— 此前照记失败,
+    一个带非标准参数的客户端(2026-09-27: reasoning_effort → omlxc 422)就能把整个
+    ENG-OMLX-LOCAL 熔断, 殃及同后端所有正常请求。异常照常上抛, 兜底链行为不变。
+    """
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status, int) and 400 <= status < 500 and status not in (408, 429):
+        return False
+    return True
+
+
 class ModelRegistry:
     """Registry managing providers, discovered models, circuit breakers, and retry.
 
@@ -176,7 +191,8 @@ class ModelRegistry:
             except Exception as e:
                 if gen:
                     gen.end(status_message=str(e))
-                self.circuit_breaker.record_failure(circuit_key)
+                if _counts_as_backend_failure(e):
+                    self.circuit_breaker.record_failure(circuit_key)
                 raise
             finally:
                 if self._scheduler_ref is not None:
@@ -211,8 +227,9 @@ class ModelRegistry:
                     finish_reason=result.finish_reason,
                 )
             self.circuit_breaker.record_success(circuit_key)
-        except Exception:
-            self.circuit_breaker.record_failure(circuit_key)
+        except Exception as e:
+            if _counts_as_backend_failure(e):
+                self.circuit_breaker.record_failure(circuit_key)
             raise
         finally:
             if self._scheduler_ref is not None:
