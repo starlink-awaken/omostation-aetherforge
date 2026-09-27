@@ -176,6 +176,7 @@ def test_sync_provider_discovery_runs_concurrently_off_event_loop():
         return item
 
     first, second = adapter("ENG-A"), adapter("ENG-B")
+
     async def run_both():
         return await asyncio.gather(first.discover(), second.discover())
 
@@ -252,3 +253,19 @@ def test_embedding_unix_socket_engine_uses_omlxc_client(monkeypatch):
     assert asyncio.run(gw.embed(["hello"], timeout=1)) == [[0.3, 0.4]]
     omlxc.embed.assert_awaited_once()
     assert omlxc.embed.await_args.kwargs["model"] == "embedding"
+
+
+def test_embedding_is_recorded_in_usage_metrics(monkeypatch):
+    """/stats 此前对 embeddings 失明: 成功与失败都要记进 metrics。"""
+    reg = _registry("ENG-OMLX-LOCAL/embedding")
+    reg.get_provider.side_effect = lambda model_id: SimpleNamespace(
+        name="ENG-OMLX-LOCAL", base_url="unix://omlxc/api/v1"
+    )
+    config = _config(model_ports={"embedding": 8183}, lmstudio_fallback={}, ollama_fallback={})
+    omlxc = MagicMock()
+    omlxc.embed = AsyncMock(return_value=[[0.3, 0.4]])
+    gw = ModelGateway(reg, MagicMock(), config, omlxc_client=omlxc)
+
+    asyncio.run(gw.embed(["hello"], timeout=1))
+    models = gw._metrics.report()["models"]
+    assert models["embedding"]["requests"] == 1

@@ -2063,6 +2063,37 @@ class ModelGateway:
         content_title: str = "",
         content_url: str = "",
     ) -> list[list[float]]:
+        """Embed with the same legacy/shadow/active ownership as chat, and record usage.
+
+        记账: 此前 metrics 只在生成路径记录, /stats 对 embeddings 完全失明
+        (KOS 语义检索/RAG 的向量调用在用量里看不见, 2026-09-27 e2e 实测)。
+        """
+        t0 = time.time()
+        try:
+            vectors = await self._embed_routed(
+                texts,
+                model,
+                timeout,
+                routing_mode=routing_mode,
+                content_title=content_title,
+                content_url=content_url,
+            )
+        except Exception as error:
+            self._metrics.record_error(model=model, error_type=type(error).__name__)
+            raise
+        self._metrics.record_generation(model=model, latency_ms=(time.time() - t0) * 1000)
+        return vectors
+
+    async def _embed_routed(
+        self,
+        texts: list[str],
+        model: str = "embedding",
+        timeout: float = 30.0,
+        *,
+        routing_mode: str = "local",
+        content_title: str = "",
+        content_url: str = "",
+    ) -> list[list[float]]:
         """Embed with the same legacy/shadow/active ownership as chat."""
         if routing_mode not in {"local", "hybrid", "cloud"}:
             raise ValueError(f"Invalid routing_mode: {routing_mode}")
