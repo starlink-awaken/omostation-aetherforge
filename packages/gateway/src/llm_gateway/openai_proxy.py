@@ -1502,15 +1502,28 @@ async def handle_ready(request: web.Request) -> web.Response:
             routing_mode="local",
         )
     )
+    # 兜底承接(响应 model ≠ 请求档)时 /ready 此前照报 ready —— 判活方看不出"这个档其实挂了"。
+    # 标 degraded + fallback=true; 默认仍 200(备用站本就靠兜底承接, gw-resolve 只关心能否出字),
+    # strict=1 时兜底即 503(部署校验/e2e 要求精确到档)。
+    served = resp.model or model
+    fallback = bool(resp.content) and served != model
+    strict = request.query.get("strict", "").lower() in {"1", "true", "yes"}
+    if not resp.content:
+        status = "not_ready"
+    else:
+        status = "degraded" if fallback else "ready"
     payload = {
-        "status": "ready" if resp.content else "not_ready",
-        "model": resp.model or model,
+        "status": status,
+        "model": served,
+        "requested": model,
+        "fallback": fallback,
         "provider": resp.provider,
         "latency_ms": round(resp.latency_ms, 1),
     }
     if resp.error:
         payload["error"] = resp.error
-    return web.json_response(payload, status=200 if resp.content else 503)
+    ok = bool(resp.content) and not (strict and fallback)
+    return web.json_response(payload, status=200 if ok else 503)
 
 
 @web.middleware
