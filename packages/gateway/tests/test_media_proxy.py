@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 from aiohttp import FormData, web
 from aiohttp.test_utils import TestClient, TestServer
@@ -305,3 +306,28 @@ def test_rerank_routes_to_omlx_backend_with_alias(monkeypatch):
 
     assert _run(go()) == 200
     assert seen[0]["model"] == "baai-bge-reranker-v2-m3-mlx-fp16"
+
+
+def test_media_requests_are_recorded_in_usage_metrics(monkeypatch):
+    """/stats 此前对 rerank/TTS/ASR/决策失明: POST 按调用方别名记账, GET(voices 列表)不记。"""
+    from llm_gateway import gateway as gw_mod
+    from llm_gateway.metrics import MetricsCollector
+
+    metrics = MetricsCollector()
+    monkeypatch.setattr(gw_mod, "get_gateway", lambda: SimpleNamespace(_metrics=metrics))
+    seen: list = []
+
+    async def go(client):
+        await client.post("/v1/audio/speech", json={"model": "tts", "input": "你好"})
+        await client.get("/v1/audio/voices", params={"model": "tts"})
+
+    _run(_with_facade(monkeypatch, seen, go))
+    models = metrics.report()["models"]
+    assert models["tts"]["requests"] == 1
+
+
+def test_gateway_app_accepts_uploads_over_aiohttp_default(monkeypatch):
+    """aiohttp 默认 client_max_size=1MB: 会议录音转写 / 高清截图看图会 413。"""
+    monkeypatch.delenv("AETHERFORGE_MAX_BODY_MB", raising=False)
+    app = proxy.create_app(api_key="k")
+    assert app._client_max_size >= 32 * 1024 * 1024

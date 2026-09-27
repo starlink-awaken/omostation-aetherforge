@@ -1580,7 +1580,9 @@ def create_app(api_key: str | None = None) -> web.Application:
     # from this module, so a top-level import here would be circular.
     from .anthropic_proxy import handle_messages
 
-    app = web.Application(middlewares=[trace_middleware, auth_middleware])
+    # 请求体上限: aiohttp 默认 1MB —— 30s 会议录音(~1.1MB wav)转写、高清截图(base64 后 >1MB)看图都会 413。
+    max_mb = float(os.environ.get("AETHERFORGE_MAX_BODY_MB", "64"))
+    app = web.Application(middlewares=[trace_middleware, auth_middleware], client_max_size=int(max_mb * 1024 * 1024))
     if api_key:
         app[API_KEY] = api_key
 
