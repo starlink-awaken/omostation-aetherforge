@@ -79,7 +79,7 @@ def test_common_intents_route_to_measured_tiers():
     assert table["triage"] == table["fast"] == "qwen3.6-35b-a3b-splash"
     assert table["mini-9b"] == "mythos-fast"
     assert table["mid"] == table["general"] == "qwen3.8-27b-splash"
-    assert table["coder-next"] == "coding-next"
+    assert table["coder-next"] == "qwen/qwen3-coder-next"  # LM Studio JIT, 不与 oMLX 常驻集争抢
     assert table["vision"] == table["vision-mid"] == "qwen3.6-35b-a3b-splash"
 
 

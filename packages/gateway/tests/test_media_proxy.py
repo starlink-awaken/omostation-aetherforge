@@ -135,6 +135,17 @@ def test_voices_get_passes_query(monkeypatch):
     assert seen[0]["query"] == {"model": "tts-qwen3"}
 
 
+def test_voices_get_resolves_model_alias_in_query(monkeypatch):
+    seen: list = []
+
+    async def go(client):
+        r = await client.get("/v1/audio/voices", params={"model": "tts"})
+        return r.status
+
+    assert _run(_with_facade(monkeypatch, seen, go)) == 200
+    assert seen[0]["query"] == {"model": "tts-qwen3"}
+
+
 def test_backend_down_is_502_not_silent(monkeypatch):
     async def go():
         monkeypatch.setenv("AETHERFORGE_MEDIA_IMAGE_KIND", "unsloth")

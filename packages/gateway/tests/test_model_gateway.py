@@ -90,6 +90,12 @@ class TestStripThinking:
         assert "</think>" not in result
         assert "回答开头" in result
 
+    def test_strip_glm_box_markers_keeps_answer(self):
+        from llm_gateway.gateway import _strip_thinking
+
+        text = "<|begin_of_box|>蓝色<|end_of_box|>"
+        assert _strip_thinking(text) == "蓝色"
+
     def test_strip_multiple_think_blocks(self):
         from llm_gateway.gateway import _strip_thinking
 

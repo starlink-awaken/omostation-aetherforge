@@ -31,7 +31,7 @@ from urllib.parse import unquote
 
 from aiohttp import web
 
-from .gateway import GatewayRequest, get_gateway
+from .gateway import DEFAULT_REQUEST_TIMEOUT, GatewayRequest, get_gateway
 from .omlxc_client import OmlxcError, OmlxcErrorCode
 
 _log = logging.getLogger(__name__)
@@ -534,7 +534,7 @@ def _gemini_request_to_gateway(body: Mapping[str, object], model: str) -> Gatewa
     return GatewayRequest(
         messages=messages,
         model=model,
-        timeout=float(body.get("timeout", 120)),
+        timeout=float(body.get("timeout", DEFAULT_REQUEST_TIMEOUT)),
         temperature=float(temperature) if temperature is not None else None,
         max_tokens=max_tokens,
         task="chat",
@@ -774,7 +774,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     req = GatewayRequest(
         messages=messages,
         model=model,
-        timeout=float(body.get("timeout", 120)),
+        timeout=float(body.get("timeout", DEFAULT_REQUEST_TIMEOUT)),
         temperature=temperature,
         max_tokens=max_tokens,
         task=str(body.get("task") or "chat"),
@@ -1340,7 +1340,7 @@ async def handle_responses(request: web.Request) -> web.Response:
     req = GatewayRequest(
         messages=messages,
         model=model,
-        timeout=float(body.get("timeout", 120)),
+        timeout=float(body.get("timeout", DEFAULT_REQUEST_TIMEOUT)),
         temperature=body.get("temperature"),
         max_tokens=body.get("max_output_tokens"),
         task="chat",

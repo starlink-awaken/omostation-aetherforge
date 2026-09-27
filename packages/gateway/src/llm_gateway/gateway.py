@@ -57,6 +57,8 @@ _log = logging.getLogger(__name__)
 # ============================================================
 THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 THINK_TAG_RE = re.compile(r"</?think>", re.IGNORECASE)
+# GLM-4.6V 等把最终答案包在 <|begin_of_box|>…<|end_of_box|> 里: 标记是模板控制符, 内容才是答案
+TEMPLATE_MARKER_RE = re.compile(r"<\|(?:begin|end)_of_box\|>")
 
 
 def strip_thinking(text: str) -> str:
@@ -72,9 +74,15 @@ def strip_thinking(text: str) -> str:
         return text
     text = THINK_BLOCK_RE.sub("", text)
     text = THINK_TAG_RE.sub("", text)
+    text = TEMPLATE_MARKER_RE.sub("", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
+
+# 生成类请求(chat / responses / messages)未显式给 timeout 时的默认上限。
+# 原先写死 120s: LM Studio 冷加载 Splash-35B 实测 ~82s, 更大的模型(Coder-Next 45G)冷加载
+# 必超 120s → 首个请求 504, 模型却在后台加载完 —— 调用方看到的是"偶发超时"。
+DEFAULT_REQUEST_TIMEOUT = float(os.environ.get("AETHERFORGE_REQUEST_TIMEOUT", "300"))
 
 _INVENTORY_DROP_CODE = "inventory_drop"
 

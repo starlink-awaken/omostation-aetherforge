@@ -169,8 +169,12 @@ async def handle_media(request: web.Request) -> web.Response:
 
 
 async def _forward(session, request: web.Request, base: str, body, headers: dict[str, str]):
+    # 查询串里的 model(如 GET /v1/audio/voices?model=tts-zh)同样过别名表, 否则后端按原样找不到
+    params = dict(request.query)
+    if "model" in params:
+        params["model"] = str(_resolve(request, params["model"]))
     async with session.request(
-        request.method, base + request.path, params=request.query, data=body, headers=headers
+        request.method, base + request.path, params=params, data=body, headers=headers
     ) as upstream:
         return upstream.status, await upstream.read(), upstream.content_type, upstream.charset
 
