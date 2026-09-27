@@ -942,3 +942,46 @@ class TestRoutingRegressions:
         assert calls == [gateway_config.no_think_param], (
             f"第二次仍白跑了一次带 thinking 的首发: {calls}"
         )
+
+
+class TestGlmNoThinkSuffix:
+    """GLM-4.6V 关 thinking 只认 /nothink 后缀(reasoning_effort=none 反而正文全空)。"""
+
+    def test_with_nothink_suffix_string_and_multimodal(self):
+        from llm_gateway.gateway import _with_nothink_suffix
+
+        msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "天空的颜色?"}]
+        out = _with_nothink_suffix(msgs)
+        assert out[1]["content"] == "天空的颜色? /nothink"
+        assert msgs[1]["content"] == "天空的颜色?", "不得修改调用方原消息"
+        mm = [{"role": "user", "content": [{"type": "text", "text": "看图"}]}]
+        assert _with_nothink_suffix(mm)[0]["content"][-1] == {"type": "text", "text": "/nothink"}
+
+    def test_glm_retry_uses_suffix_not_reasoning_effort(self, gateway_config, mock_registry, mock_scheduler):
+        import asyncio
+
+        from llm_gateway.gateway import GatewayRequest, ModelGateway
+
+        calls = []
+
+        async def chat(model_id, messages, options=None):
+            calls.append((messages[-1]["content"], dict(options.extra or {})))
+            if len(calls) == 1:
+                return ChatResult(content="", finish_reason="length")
+            return ChatResult(content="蓝", finish_reason="stop")
+
+        mock_registry.chat = chat
+        mock_registry.get.return_value = MagicMock(id="ENG-LMSTUDIO-X/zai-org/glm-4.6v-flash")
+        mock_registry.get_provider.return_value = MagicMock(name="p")
+        gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+        gw._port_reachable = AsyncMock(return_value=False)
+        gw._ensure_model = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+        resp = asyncio.run(gw._generate_via_registry(
+            "ENG-LMSTUDIO-X/zai-org/glm-4.6v-flash", "vision-think",
+            GatewayRequest(messages=[{"role": "user", "content": "天空?"}], model="vision-think", max_tokens=16),
+            0.0,
+        ))
+        assert calls[1][0] == "天空? /nothink", f"GLM 重试应追加 /nothink, 实际 {calls[1]}"
+        assert "reasoning_effort" not in calls[1][1], "GLM 不该再带 reasoning_effort"
+        assert resp.content == "蓝"
