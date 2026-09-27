@@ -104,6 +104,8 @@ def _error(message: str, status: int, code: str) -> web.Response:
 
 
 def _resolve(request: web.Request, model: object) -> object:
+    if isinstance(model, str) and model:
+        request["logical_model"] = model  # 记账用调用方请求的别名(与 chat 的 /stats 口径一致)
     resolve = request.app.get(RESOLVE_ALIAS)
     return resolve(model) if isinstance(model, str) and model and resolve is not None else model
 
@@ -142,7 +144,30 @@ async def _outgoing_body(request: web.Request) -> tuple[bytes | aiohttp.FormData
     return await request.read(), ({"Content-Type": content_type} if content_type else {})
 
 
+def _record_usage(request: web.Request, status: int, t0: float) -> None:
+    """媒体请求记入门面 metrics: 此前 /stats 对 rerank/TTS/ASR/决策/图像完全失明(2026-09-27 e2e 实测)。
+    只记 POST(推理); 记账失败绝不影响转发。"""
+    if request.method != "POST":
+        return
+    try:
+        import time as _time
+
+        from .gateway import get_gateway
+
+        metrics = get_gateway()._metrics
+        model = str(request.get("logical_model") or request.path.rsplit("/", 1)[-1])
+        if status < 400:
+            metrics.record_generation(model=model, latency_ms=(_time.time() - t0) * 1000)
+        else:
+            metrics.record_error(model=model, error_type=f"http_{status}")
+    except Exception as exc:  # 记账是旁路: 任何异常都不影响转发
+        _log.debug("media usage record skipped: %s", exc)
+
+
 async def handle_media(request: web.Request) -> web.Response:
+    import time as _time
+
+    t0 = _time.time()
     _method, backend = MEDIA_ROUTES[request.path]
     base, key = backend.resolve()
     built = await _outgoing_body(request)
@@ -162,6 +187,7 @@ async def handle_media(request: web.Request) -> web.Response:
                 and await _ensure_image_model(session, base, headers)
             ):
                 status, data, ctype, charset = await _forward(session, request, base, body, headers)
+            _record_usage(request, status, t0)
             return web.Response(body=data, status=status, content_type=ctype, charset=charset)
     except (aiohttp.ClientError, TimeoutError) as exc:
         _log.warning("media backend %s%s unavailable: %s", base, request.path, exc)
