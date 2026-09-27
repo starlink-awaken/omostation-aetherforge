@@ -84,6 +84,22 @@ def strip_thinking(text: str) -> str:
 # 必超 120s → 首个请求 504, 模型却在后台加载完 —— 调用方看到的是"偶发超时"。
 DEFAULT_REQUEST_TIMEOUT = float(os.environ.get("AETHERFORGE_REQUEST_TIMEOUT", "300"))
 
+
+def _with_nothink_suffix(messages: list[dict]) -> list[dict]:
+    """在最后一条 user 消息末尾追加 /nothink(GLM 系关 thinking 的唯一有效方式)。不改原列表。"""
+    out = [dict(m) for m in messages]
+    for m in reversed(out):
+        if m.get("role") != "user":
+            continue
+        content = m.get("content")
+        if isinstance(content, str):
+            m["content"] = content.rstrip() + " /nothink"
+        elif isinstance(content, list):
+            m["content"] = list(content) + [{"type": "text", "text": "/nothink"}]
+        break
+    return out
+
+
 _INVENTORY_DROP_CODE = "inventory_drop"
 
 
@@ -511,6 +527,10 @@ class GatewayConfig:
     # 消息里加 /no_think 前缀 —— 四种写法都不管用(2026-08-10, qwen3.5-9b)。
     # 设成 None 可整体关掉这条补救。
     no_think_param: dict[str, object] | None = field(default_factory=lambda: {"reasoning_effort": "none"})
+    # 这些模型关 thinking 只认用户消息末尾的 /nothink(2026-09-27 LM Studio 实测 GLM-4.6V:
+    # reasoning_effort=none 反而正文全空; chat_template_kwargs / thinking.disabled 无效;
+    # /nothink 后缀 → reasoning 0 token、6 token 出答案)。按模型 id 子串匹配。
+    no_think_suffix_models: tuple[str, ...] = ("glm-4.6v", "glm-4.5v", "glm-4.1v")
     # 本网关自己的 OpenAI 门面端点。SSOT 的 ENG-OMLX-LOCAL 现指向门面
     # (原先指向 LiteLLM :4000), 于是 registry 回退路径有可能打回自己 ——
     # 一个请求在"直连端口失败 → 回退 registry → 门面 → 本网关"之间成环。
@@ -1542,13 +1562,15 @@ class ModelGateway:
         self._budget_guard(model_id)
         """经 registry/provider 链生成。display_name 是消费者原本要的名字。"""
 
-        async def _call(max_tokens: int | None, extra: dict | None = None):
+        suffix_model = any(k in model_id.lower() for k in self._config.no_think_suffix_models)
+
+        async def _call(max_tokens: int | None, extra: dict | None = None, nothink: bool = False):
             merged_extra = dict(request.extra)
             if extra:
                 merged_extra.update(extra)
             return await self._registry.chat(
                 model_id,
-                request.messages,
+                _with_nothink_suffix(request.messages) if nothink else request.messages,
                 ChatOptions(
                     temperature=request.temperature,
                     max_tokens=max_tokens,
@@ -1558,12 +1580,13 @@ class ModelGateway:
 
         # 之前已经证实过这个模型不关 thinking 就不出正文 —— 直接带上,
         # 省掉那次注定烧满预算的首发(实测 triage 热态 14s → 1s)。
+        known_no_think = model_id in self._needs_no_think
         preset = (
             dict(self._config.no_think_param)
-            if model_id in self._needs_no_think and self._config.no_think_param
+            if known_no_think and self._config.no_think_param and not suffix_model
             else None
         )
-        result = await _call(request.max_tokens, preset)
+        result = await _call(request.max_tokens, preset, nothink=known_no_think and suffix_model)
         if not result:
             raise RuntimeError(f"No response from {display_name}")
 
@@ -1576,14 +1599,18 @@ class ModelGateway:
         if not stripped.strip() and not (result.tool_calls or ()) and result.finish_reason == "length":
             # 第一手: 直接把 thinking 关掉。实测 qwen/qwen3.5-9b 从
             # 8.2s/64token 空回复变成 0.6s/2token 正常回答, 比抬预算划算得多。
-            if self._config.no_think_param:
+            if self._config.no_think_param or suffix_model:
                 _log.info(
                     "[ModelGateway] %s 预算耗尽在思考段(max_tokens=%s), 关 thinking 重试",
                     display_name,
                     request.max_tokens,
                 )
                 try:
-                    retry = await _call(request.max_tokens, dict(self._config.no_think_param))
+                    retry = (
+                        await _call(request.max_tokens, nothink=True)
+                        if suffix_model
+                        else await _call(request.max_tokens, dict(self._config.no_think_param or {}))
+                    )
                 except Exception as e:
                     _log.info("[ModelGateway] %s 不接受关 thinking 参数: %s", display_name, e)
                     retry = None
