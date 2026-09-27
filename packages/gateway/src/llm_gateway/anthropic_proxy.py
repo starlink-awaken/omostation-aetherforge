@@ -29,7 +29,7 @@ from collections.abc import Mapping
 
 from aiohttp import web
 
-from .gateway import GatewayRequest, get_gateway
+from .gateway import DEFAULT_REQUEST_TIMEOUT, GatewayRequest, get_gateway
 from .openai_proxy import _close_stream, _omlxc_http_status, _prime_stream
 
 _log = logging.getLogger(__name__)
@@ -409,7 +409,7 @@ async def handle_messages(request: web.Request) -> web.Response:
     req = GatewayRequest(
         messages=messages,
         model=model,
-        timeout=float(body.get("timeout", 120)),
+        timeout=float(body.get("timeout", DEFAULT_REQUEST_TIMEOUT)),
         temperature=body.get("temperature"),
         max_tokens=body.get("max_tokens"),
         task="chat",

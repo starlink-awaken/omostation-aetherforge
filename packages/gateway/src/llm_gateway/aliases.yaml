@@ -76,7 +76,9 @@ aliases:
   coder-fast: qwen3.6-35b-a3b-splash
   # coding-fast 故意不设别名: 测试夹具把它当"未别名的裸名"。调用方已改用 coding/coder。
   reasoning-lite: qwen3.6-35b-a3b-splash
-  coder-next: coding-next
+  # coder-next 走 LM Studio 的 Qwen3-Coder-Next(JIT+TTL): 原先落在 oMLX 的 coding-next(45G),
+  # 冷加载超过门面超时直接 504, 且加载期间拖慢同进程的常驻 mythos-fast(2026-09-27 实测)。
+  coder-next: qwen/qwen3-coder-next
   coder-moe: qwen3.6-35b-a3b-splash
   qwen3-coder: qwen3.6-35b-a3b-splash
   reasoner: qwen3.8-27b-splash
