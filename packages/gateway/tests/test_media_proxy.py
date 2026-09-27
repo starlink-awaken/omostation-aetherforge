@@ -324,3 +324,10 @@ def test_media_requests_are_recorded_in_usage_metrics(monkeypatch):
     _run(_with_facade(monkeypatch, seen, go))
     models = metrics.report()["models"]
     assert models["tts"]["requests"] == 1
+
+
+def test_gateway_app_accepts_uploads_over_aiohttp_default(monkeypatch):
+    """aiohttp 默认 client_max_size=1MB: 会议录音转写 / 高清截图看图会 413。"""
+    monkeypatch.delenv("AETHERFORGE_MAX_BODY_MB", raising=False)
+    app = proxy.create_app(api_key="k")
+    assert app._client_max_size >= 32 * 1024 * 1024
