@@ -59,6 +59,10 @@ THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 THINK_TAG_RE = re.compile(r"</?think>", re.IGNORECASE)
 # GLM-4.6V 等把最终答案包在 <|begin_of_box|>…<|end_of_box|> 里: 标记是模板控制符, 内容才是答案
 TEMPLATE_MARKER_RE = re.compile(r"<\|(?:begin|end)_of_box\|>")
+# Gemma-4 思考通道: 模板输出 <|channel>thought…<channel|>答案; LM Studio 会吃掉开头的
+# <|channel>, 只剩「思考文字<channel|>答案」, 且 reasoning_effort=none 下仍会带一小段 (2026-09-28 实测)。
+GEMMA_CHANNEL_BLOCK_RE = re.compile(r"<\|channel>.*?<channel\|>", re.DOTALL)
+GEMMA_CHANNEL_CLOSE = "<channel|>"
 
 
 def strip_thinking(text: str) -> str:
@@ -74,6 +78,9 @@ def strip_thinking(text: str) -> str:
         return text
     text = THINK_BLOCK_RE.sub("", text)
     text = THINK_TAG_RE.sub("", text)
+    text = GEMMA_CHANNEL_BLOCK_RE.sub("", text)
+    if GEMMA_CHANNEL_CLOSE in text:  # 开头标记已被吃掉: 收尾标记之前全是思考
+        text = text.rsplit(GEMMA_CHANNEL_CLOSE, 1)[1]
     text = TEMPLATE_MARKER_RE.sub("", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
@@ -1275,9 +1282,7 @@ class ModelGateway:
         # no_think 学习成果 + tools/tool_choice 透传 —— 此前流式只带前者,
         # agent 客户端带工具的流式请求会静默丢掉全部工具定义。
         extra: dict[str, Any] = {}
-        if self._config.no_think_param and (
-            model_id in self._needs_no_think or self._is_no_think_preset(model_id)
-        ):
+        if self._config.no_think_param and (model_id in self._needs_no_think or self._is_no_think_preset(model_id)):
             extra.update(self._config.no_think_param)
         extra.update(self._agent_fields(request.extra))
         source = self._registry.chat_stream(
