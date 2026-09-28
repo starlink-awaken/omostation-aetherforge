@@ -91,3 +91,26 @@ def test_other_models_unaffected(gateway_config, mock_registry, mock_scheduler):
     gw = _gateway(gateway_config, mock_registry, mock_scheduler, "pool/coding-fallback", calls)
     _ask(gw, "coding-fast")
     assert calls and "reasoning_effort" not in calls[0], f"非预设模型首发不该带关 thinking: {calls}"
+
+
+def test_gemma4_truncated_thinking_retries_with_budget(gateway_config, mock_registry, mock_scheduler):
+    """首发被 length 截断且没到 <channel|>: 全是思考 → 抬预算重试, 仍带关 thinking 参数, 只回正文。"""
+    gateway_config.lmstudio_fallback = {"coding-fast": "google/gemma-4-e2b"}
+    calls: list[tuple[int | None, dict]] = []
+
+    async def chat(mid, messages, options=None):
+        calls.append((options.max_tokens, dict(options.extra or {})))
+        if (options.max_tokens or 0) < 1000:
+            return ChatResult(content="用户要求我用一句话介绍自己。我需要根据身份信息", finish_reason="length")
+        return ChatResult(content="用户要求我用一句话介绍自己。<channel|>我是 Gemma 4。", finish_reason="stop")
+
+    mock_registry.chat = chat
+    mock_registry.get.return_value = MagicMock(id="google/gemma-4-e2b")
+    mock_registry.get_provider.return_value = MagicMock(name="p")
+    gw = ModelGateway(mock_registry, mock_scheduler, gateway_config)
+    gw._port_reachable = AsyncMock(return_value=False)
+    gw._ensure_model = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+    assert _ask(gw, "coding-fast").content == "我是 Gemma 4。"
+    assert [c[0] for c in calls] == [80, gateway_config.thinking_retry_budget], f"应首发一次再抬预算一次: {calls}"
+    assert all(c[1] == gateway_config.no_think_param for c in calls), f"两次都应带关 thinking: {calls}"
