@@ -531,6 +531,10 @@ class GatewayConfig:
     # reasoning_effort=none 反而正文全空; chat_template_kwargs / thinking.disabled 无效;
     # /nothink 后缀 → reasoning 0 token、6 token 出答案)。按模型 id 子串匹配。
     no_think_suffix_models: tuple[str, ...] = ("glm-4.6v", "glm-4.5v", "glm-4.1v")
+    # 首发就带 no_think_param 的模型 (按模型 id 子串匹配)。Gemma-4 默认思考: 预算小时正文全空,
+    # 经门面时思考段还会带 <channel|> 等标记漏进正文 (剥不掉, 触发不了「正文空 → 关 thinking 重试」);
+    # 2026-09-28 LM Studio 实测 reasoning_effort=none 4/4 干净作答。
+    no_think_preset_models: tuple[str, ...] = ("gemma-4",)
     # 本网关自己的 OpenAI 门面端点。SSOT 的 ENG-OMLX-LOCAL 现指向门面
     # (原先指向 LiteLLM :4000), 于是 registry 回退路径有可能打回自己 ——
     # 一个请求在"直连端口失败 → 回退 registry → 门面 → 本网关"之间成环。
@@ -1271,7 +1275,9 @@ class ModelGateway:
         # no_think 学习成果 + tools/tool_choice 透传 —— 此前流式只带前者,
         # agent 客户端带工具的流式请求会静默丢掉全部工具定义。
         extra: dict[str, Any] = {}
-        if model_id in self._needs_no_think and self._config.no_think_param:
+        if self._config.no_think_param and (
+            model_id in self._needs_no_think or self._is_no_think_preset(model_id)
+        ):
             extra.update(self._config.no_think_param)
         extra.update(self._agent_fields(request.extra))
         source = self._registry.chat_stream(
@@ -1499,6 +1505,10 @@ class ModelGateway:
         """引擎 ID → 凭据名 token(与 _PROVIDER_ALIASES 同规则)。"""
         return model_id.partition("/")[0].replace("ENG-", "").split("-")[0].lower()
 
+    def _is_no_think_preset(self, model_id: str) -> bool:
+        mid = model_id.lower()
+        return any(k in mid for k in self._config.no_think_preset_models)
+
     def _budget_guard(self, model_id: str) -> None:
         """预算拦截(codexbar 遗产接线): 超月限且 action=block 则拒绝。
 
@@ -1580,7 +1590,7 @@ class ModelGateway:
 
         # 之前已经证实过这个模型不关 thinking 就不出正文 —— 直接带上,
         # 省掉那次注定烧满预算的首发(实测 triage 热态 14s → 1s)。
-        known_no_think = model_id in self._needs_no_think
+        known_no_think = model_id in self._needs_no_think or self._is_no_think_preset(model_id)
         preset = (
             dict(self._config.no_think_param)
             if known_no_think and self._config.no_think_param and not suffix_model
