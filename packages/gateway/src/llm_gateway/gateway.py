@@ -1510,6 +1510,17 @@ class ModelGateway:
         """引擎 ID → 凭据名 token(与 _PROVIDER_ALIASES 同规则)。"""
         return model_id.partition("/")[0].replace("ENG-", "").split("-")[0].lower()
 
+    def _answer_part(self, model_id: str, result: Any, content: str) -> str:
+        """剥离思考后的正文。Gemma-4 等预设模型被 length 截断且没出现 <channel|> 收尾标记时,
+        输出全是思考 (剥不掉, 看似有正文) —— 当作无正文, 走「抬预算重试」(2026-09-28 实测)。"""
+        if (
+            self._is_no_think_preset(model_id)
+            and getattr(result, "finish_reason", None) == "length"
+            and GEMMA_CHANNEL_CLOSE not in content
+        ):
+            return ""
+        return _strip_thinking(content)
+
     def _is_no_think_preset(self, model_id: str) -> bool:
         mid = model_id.lower()
         return any(k in mid for k in self._config.no_think_preset_models)
@@ -1605,8 +1616,9 @@ class ModelGateway:
         if not result:
             raise RuntimeError(f"No response from {display_name}")
 
+        preset_applied = preset is not None or (known_no_think and suffix_model)
         content = result.content or ""
-        stripped = _strip_thinking(content)
+        stripped = self._answer_part(model_id, result, content)
 
         # 预算耗尽在思考段: finish_reason=length 且剥离后没正文。
         # 这不是模型不行, 是给的额度不够 —— 补足再来一次, 只补一次。
@@ -1614,7 +1626,8 @@ class ModelGateway:
         if not stripped.strip() and not (result.tool_calls or ()) and result.finish_reason == "length":
             # 第一手: 直接把 thinking 关掉。实测 qwen/qwen3.5-9b 从
             # 8.2s/64token 空回复变成 0.6s/2token 正常回答, 比抬预算划算得多。
-            if self._config.no_think_param or suffix_model:
+            # 首发已带关 thinking 参数时再发同样的请求没有意义, 直接抬预算。
+            if (self._config.no_think_param or suffix_model) and not preset_applied:
                 _log.info(
                     "[ModelGateway] %s 预算耗尽在思考段(max_tokens=%s), 关 thinking 重试",
                     display_name,
@@ -1629,19 +1642,20 @@ class ModelGateway:
                 except Exception as e:
                     _log.info("[ModelGateway] %s 不接受关 thinking 参数: %s", display_name, e)
                     retry = None
-                if retry and _strip_thinking(retry.content or "").strip():
+                if retry and self._answer_part(model_id, retry, retry.content or "").strip():
                     result = retry
                     content = retry.content or ""
-                    stripped = _strip_thinking(content)
+                    stripped = self._answer_part(model_id, result, content)
                     self._needs_no_think.add(model_id)  # 记住, 下次直接带上
 
             # 第二手: 下游不认这个参数(或认了仍不出正文)时才抬预算。
             budget = self._config.thinking_retry_budget
             if not stripped.strip() and not (result.tool_calls or ()) and budget and (request.max_tokens or 0) < budget:
                 _log.info("[ModelGateway] %s 仍无正文, 预算提到 %d 再试一次", display_name, budget)
-                result = await _call(budget)
+                # 抬预算时保留关 thinking 参数 (此前裸发, Gemma 会重新长篇思考)
+                result = await _call(budget, preset, nothink=known_no_think and suffix_model)
                 content = (result.content or "") if result else ""
-                stripped = _strip_thinking(content)
+                stripped = self._answer_part(model_id, result, content) if result else ""
 
         was_stripped = stripped != content
         # 到这儿还空, 就是真没回答。返回空的 200 会让上层以为成功, 必须当失败,
