@@ -108,7 +108,10 @@ aliases:
 
 
   # ── 明确直达三节点能力池的特化别名 ─────────────────────
-  mini-chat: gemma-4-e2b-it-mlx
+  # mini-chat: 原 gemma-4-e2b-it-mlx 只在 macmini 上, 本机 LM Studio 同一模型 id 为 google/gemma-4-e2b
+  # (2026-09-28 实测: 默认会思考, max_tokens 小时正文全空; reasoning_effort=none 4/4 正常 ——
+  #  门面「预算耗尽在思考段 → 关 thinking 重试并记住」自动处理)
+  mini-chat: google/gemma-4-e2b
   fast-think: gpt-oss:20b
   fast-oss: gpt-oss:20b
   # ── Splash 直达名 (2026-09-25 已晋升一等公民, 见顶部分档) ──
