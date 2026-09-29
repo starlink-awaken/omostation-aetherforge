@@ -1684,7 +1684,8 @@ class ModelGateway:
         provider = self._registry.get_provider(model_id)
         provider_name = provider.name if provider else ""
 
-        self._record_cloud_usage(model_id, usage, requested=display_name)
+        # display_name 是模型链里当前尝试的名字(兜底时已是替身), request.model 才是调用方原本要的
+        self._record_cloud_usage(model_id, usage, requested=request.model or display_name)
         return GatewayResponse(
             content=stripped,
             model=display_name,
