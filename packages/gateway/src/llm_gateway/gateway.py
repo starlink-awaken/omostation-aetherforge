@@ -668,6 +668,19 @@ def _daily_report_safely() -> None:
         _log.debug("daily report skipped: %s", exc)
 
 
+class _NullAsyncCtx:
+    """背压关闭时的空上下文(不排队)。"""
+
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+_NULL_SLOT = _NullAsyncCtx()
+
+
 class ModelGateway:
     """统一模型网关 — 所有 LLM 调用的唯一入口.
 
@@ -690,6 +703,7 @@ class ModelGateway:
     ):
         self._registry = registry
         self._scheduler = scheduler
+        self._model_slots: dict[str, asyncio.Semaphore] = {}  # 按目标模型的并发闸(背压)
         self._config = config or GatewayConfig()
         self._metrics = metrics or MetricsCollector()
         self._memory_guard = MemoryGuard(self._config.memory_safety_factor)
@@ -868,20 +882,32 @@ class ModelGateway:
         """Plain failure count for diagnostics (health() endpoint)."""
         return self._health_failures.get(model_name, (0, 0.0))[0]
 
+    def _slot(self, model_id: str) -> asyncio.Semaphore | None:
+        """按目标模型的并发闸(背压): 高负载下 N 路重模型同时推理互相拖垮
+        (全链路并发实测 2026-09-29: swap 20G 时 504/502 连发), 排队等槽好过全砸。
+        AETHERFORGE_MAX_CONCURRENT_PER_MODEL=0 关闭。"""
+        limit = int(os.environ.get("AETHERFORGE_MAX_CONCURRENT_PER_MODEL", "3") or 0)
+        if limit <= 0:
+            return None
+        if model_id not in self._model_slots:
+            self._model_slots[model_id] = asyncio.Semaphore(limit)
+        return self._model_slots[model_id]
+
     async def generate(self, request: GatewayRequest) -> GatewayResponse:
         """带端到端 deadline 的统一入口。
 
-        timeout 覆盖发现、选路、加载、重试和全部 fallback，而不是每一跳都重新
-        获得一份完整预算。这个区别决定故障时是 30 秒返回，还是挂几分钟。
+        timeout 覆盖发现、选路、加载、重试、排队(背压闸)和全部 fallback，而不是
+        每一跳都重新获得一份完整预算。这个区别决定故障时是 30 秒返回，还是挂几分钟。
         """
         t0 = time.time()
         try:
             async with asyncio.timeout(max(0.1, request.timeout)):
-                if self._config.omlxc_mode == "legacy":
-                    return await self._generate_legacy(request)
-                if self._config.omlxc_mode == "shadow":
-                    return await self._generate_shadow(request)
-                return await self._generate_active(request)
+                async with (self._slot(request.model or "__auto__") or _NULL_SLOT):
+                    if self._config.omlxc_mode == "legacy":
+                        return await self._generate_legacy(request)
+                    if self._config.omlxc_mode == "shadow":
+                        return await self._generate_shadow(request)
+                    return await self._generate_active(request)
         except TimeoutError:
             return GatewayResponse(
                 content="",
