@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
+import asyncio
 
+import pytest
 from llm_gateway.gateway import ModelGateway
 
 
@@ -22,8 +23,8 @@ async def test_slot_limits_concurrency_per_model(monkeypatch: pytest.MonkeyPatch
     await sem.acquire()
     await sem.acquire()
     assert gw._slot("heavy-model") is sem  # 同模型复用同一闸
-    with pytest.raises(ValueError):  # asyncio.Semaphore 超限抛 ValueError
-        sem.acquire_nowait()
+    with pytest.raises(TimeoutError):  # 第三次获取必须等待(并发上限生效)
+        await asyncio.wait_for(sem.acquire(), timeout=0.05)
 
 
 def test_slot_disabled_and_isolated_per_model(monkeypatch: pytest.MonkeyPatch) -> None:
