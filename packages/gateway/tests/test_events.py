@@ -138,3 +138,18 @@ class TestNoCapacityHandling:
 
         assert ModelGateway._classify_error(RuntimeError("local inference has no capacity")).endswith("no_capacity")
 
+
+
+def test_request_complete_records_requested_name(tmp_path: Path, monkeypatch) -> None:
+    """请求 A 被兜底成 B 时, 事件要同时留下 A(requested)与 B(model), 否则静默兜底不可见。"""
+    from llm_gateway import credentials
+    from llm_gateway.gateway import ModelGateway
+
+    _redirect(tmp_path, monkeypatch)
+    monkeypatch.setattr(credentials.CredentialsManager, "record_usage", lambda *a, **k: None)
+    fake = type("G", (), {"_cred_token_for": lambda self, m: "omlx"})()
+    ModelGateway._record_cloud_usage(fake, "ENG-OMLX-LOCAL/mythos-fast", {"prompt_tokens": 3}, requested="fast-oss")
+
+    got = events.tail_events(1, kind="request_complete")[0]["payload"]
+    assert got["requested"] == "fast-oss"
+    assert got["model"] == "ENG-OMLX-LOCAL/mythos-fast"
