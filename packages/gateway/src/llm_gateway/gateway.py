@@ -1120,7 +1120,7 @@ class ModelGateway:
                 self._metrics.record_error(model=model_name, error_type=code)
                 from .events import emit
 
-                emit("request_failed", {"model": model_name, "code": code})
+                emit("request_failed", {"model": model_name, "code": code, "requested": request.model})
                 _log.warning("[ModelGateway] %s failed [%s]: %s", model_name, code, last_error)
                 continue
 
@@ -1339,7 +1339,7 @@ class ModelGateway:
             cost=0.0,  # 与聚合路径一致(cost_usd 从未参与计算, 恒 0)
             tokens=int((final_usage or {}).get("total_tokens") or 0),
         )
-        self._record_cloud_usage(model_id, final_usage)
+        self._record_cloud_usage(model_id, final_usage, requested=request.model)
         yield OmlxcStreamChunk(
             model=logical,
             finish_reason="tool_calls" if final_tool_calls else (final_reason or "stop"),
@@ -1544,7 +1544,9 @@ class ModelGateway:
         except Exception:
             return  # 预算系统故障不挡请求(记账缺失≠拒绝服务)
 
-    def _record_cloud_usage(self, model_id: str, usage: Mapping[str, int] | None) -> None:
+    def _record_cloud_usage(
+        self, model_id: str, usage: Mapping[str, int] | None, requested: str | None = None
+    ) -> None:
         """云端调用记账: usage_log + month_spend 累计(PricingRegistry 定价)。
 
         record_usage 方法自创建以来零调用 —— usage_log 空表, month_spend
@@ -1573,6 +1575,9 @@ class ModelGateway:
                     "provider": self._cred_token_for(model_id),
                     "tokens_in": tokens_in,
                     "tokens_out": tokens_out,
+                    # 调用方请求的名字: /stats 与 model 只记实际服务方, 静默兜底
+                    # (请求 A 被换成 B)此前在统计和事件里都看不见
+                    "requested": requested,
                 },
             )
         except Exception:
@@ -1679,7 +1684,7 @@ class ModelGateway:
         provider = self._registry.get_provider(model_id)
         provider_name = provider.name if provider else ""
 
-        self._record_cloud_usage(model_id, usage)
+        self._record_cloud_usage(model_id, usage, requested=display_name)
         return GatewayResponse(
             content=stripped,
             model=display_name,
