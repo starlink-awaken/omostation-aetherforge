@@ -118,8 +118,9 @@ aliases:
   # mini-chat: 原 gemma-4-e2b-it-mlx 只在 macmini 上, 本机 LM Studio 同一模型 id 为 google/gemma-4-e2b
   # (2026-09-28 实测: 默认会思考, max_tokens 小时正文全空; reasoning_effort=none 4/4 正常 ——
   #  门面「预算耗尽在思考段 → 关 thinking 重试并记住」自动处理)
-  # 2026-10-06: mini-chat / vision-lite 改指 oMLX 常驻小模型 gemma-4-e2b-it-mlx-8bit(常驻, 免冷启动, 带视觉)。
-  mini-chat: gemma-4-e2b-it-mlx-8bit
+  # 2026-10-06: gemma-4-e2b 改为 LM Studio 常驻(lms-resident, 实测 82 tok/s)。注意: 门面 shadow 模式下
+  # oMLX chat 只可达 mythos-fast(_load_omlx_ports), 所以小模型必须走 LM Studio id, 不能写 oMLX 目录名。
+  mini-chat: google/gemma-4-e2b
   # fast-think/fast-oss 原指 gpt-oss:20b, 只在 macmini Ollama 上(外出期间离线) → 恒静默兜底到 mythos-fast。
   # 改指常驻的 35B Splash(实测 205-284 tok/s); 需要思考由调用方传 reasoning_effort。
   fast-think: qwen3.6-35b-a3b-splash
@@ -134,10 +135,10 @@ aliases:
   # embedding 链路只查 oMLX(+ omlxc 兜底), 不认 LM Studio 的模型 ID: 原 bge-m3-mlx 恒 502。
   embed-bge: embed-bge-m3
   # 2026-10-06: glm-ocr 只在 y7000p、qwen3-vl-4b 只在离线节点 → 静默兜底。改指本机:
-  # ocr → MiniCPM-V 4.6(带 OCR 能力, 2.2G), vision-lite → 常驻 gemma-4-e2b; y7000p 回来后可改回 glm-ocr。
+  # ocr → MiniCPM-V 4.6(带 OCR 能力, 2.2G), vision-lite → 常驻 gemma-4-e2b(LM Studio); y7000p 回来后可改回 glm-ocr。
   ocr: minicpm-v-4.6
   ocr-glm: minicpm-v-4.6
-  vision-lite: gemma-4-e2b-it-mlx-8bit
+  vision-lite: google/gemma-4-e2b
 
 # 2026-09-25 活体审计: 上面 12 个别名原指向不存在的目标(coding-qwen3-30b-a3b /
 # glm-4.7-flash / vision-minicpm / qwythos-9b-1m / vision-large / qwen-3.5-9b-pro 等),
