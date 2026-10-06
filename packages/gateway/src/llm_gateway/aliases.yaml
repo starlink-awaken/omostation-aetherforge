@@ -21,7 +21,9 @@ aliases:
   #   coding-next(oMLX)        ~64 tok/s, 8/8;  mythos-fast ~34 tok/s, 8/8
   # Splash = target+draft 推测解码包, 由 LM Studio 原生加载(compatibility_type
   # splash, JIT + TTL), 经 LM Link 池三机可见 —— 不另起进程。
-  opus: qwen3.8-27b-splash
+  # 2026-10-06 A/B(20 题自动判分: 12 代码执行 + 5 推理 + 3 格式): Swift-1.5 与 qwen3.8 同分 18/20,
+  # 总耗时 57s vs 70s(~48 vs 38 tok/s) → 27B 档切到 Swift-1.5; qwen38-27b / splash-27b 等点名保留旧版可回退。
+  opus: swift-1.5-qwen3.8-27b-splash
   sonnet: qwen3.6-35b-a3b-splash
   haiku: qwen3.6-35b-a3b-splash
 
@@ -32,7 +34,7 @@ aliases:
   #   mid-local  models.json 有键但 app-models 无投影 → 必失败
   # 别名优先于 omlx 键解析, 网关 fallback_chain/complexity_chains 里的
   # "coding"/"reasoning" 也随之落到可用档, 不必改 gateway.py。
-  reasoning: qwen3.8-27b-splash
+  reasoning: swift-1.5-qwen3.8-27b-splash
   coding: qwen3.6-35b-a3b-splash
   mid-local: qwen3.6-35b-a3b-splash
 
@@ -88,7 +90,7 @@ aliases:
   coder-next: qwen/qwen3-coder-next
   coder-moe: qwen3.6-35b-a3b-splash
   qwen3-coder: qwen3.6-35b-a3b-splash
-  reasoner: qwen3.8-27b-splash
+  reasoner: swift-1.5-qwen3.8-27b-splash
   reasoner-lite: qwen3.6-35b-a3b-splash
   glm-4.7: glm-4.7-flash:q4_k_m
   glm-flash: glm-4.7-flash:q4_k_m
@@ -107,8 +109,8 @@ aliases:
   triage: qwen3.6-35b-a3b-splash
   mini-9b: mythos-fast
   fast: qwen3.6-35b-a3b-splash
-  mid: qwen3.8-27b-splash
-  general: qwen3.8-27b-splash
+  mid: swift-1.5-qwen3.8-27b-splash
+  general: swift-1.5-qwen3.8-27b-splash
   qwen38-27b: qwen3.8-27b-splash
   # 轻量视觉用 catalog `vision`；重视觉走 vision-large，不占用 mid/chat 槽。
   vision-mid: qwen3.6-35b-a3b-splash
