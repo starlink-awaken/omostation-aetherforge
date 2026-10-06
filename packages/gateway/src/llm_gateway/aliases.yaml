@@ -36,6 +36,14 @@ aliases:
   coding: qwen3.6-35b-a3b-splash
   mid-local: qwen3.6-35b-a3b-splash
 
+  # ── 新 Splash/长上下文档 (2026-10-03 入库, 速度定档待健康环境复测) ──
+  # ornith-1.5-35b-A3B: 35B A3B splash, 与 sonnet 同规格的另一 35B 候选
+  sonnet-alt: ornith-1.5-35b-a3b-splash
+  # qwopus-3.8-27B-flash 1M: 27B flash 长上下文(975k 窗口), 长文档/大 diff 场景
+  long-context: qwopus3.8-27b-flash-1m
+  # qwythos-9B mythos-5 OQ8+MTP: mythos 档新变体(预测解码), 与 mini-9b 同级备选
+  mythos-next: qwythos-9b-claude-mythos-5-1m-mlx-oq8-mtp
+
   # ── 视觉档 (2026-09-25 同图 5 题对比, 经网关预热后单次延迟) ──
   #   Splash-35B     5/5  0.6s  (常驻主力, 零额外内存)
   #   MiniCPM-V-4.6  5/5  1.4s  (2.2GB 轻量)
