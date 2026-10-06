@@ -74,11 +74,11 @@ def test_ollama_names_route_through_logical_model_chain():
 def test_common_intents_route_to_measured_tiers():
     """高频意图落到 2026-09-25 实测档: Splash(LM Studio) 为主力, oMLX 保留可点名/兜底。"""
     table = aliases.load_aliases()
-    assert table["opus"] == "qwen3.8-27b-splash"
+    assert table["opus"] == "swift-1.5-qwen3.8-27b-splash"  # 2026-10-06 A/B 同分更快
     assert table["sonnet"] == table["haiku"] == table["coder"] == "qwen3.6-35b-a3b-splash"
     assert table["triage"] == table["fast"] == "qwen3.6-35b-a3b-splash"
     assert table["mini-9b"] == "mythos-fast"
-    assert table["mid"] == table["general"] == "qwen3.8-27b-splash"
+    assert table["mid"] == table["general"] == "swift-1.5-qwen3.8-27b-splash"
     assert table["coder-next"] == "qwen/qwen3-coder-next"  # LM Studio JIT, 不与 oMLX 常驻集争抢
     assert table["vision"] == table["vision-mid"] == "qwen3.6-35b-a3b-splash"
 
@@ -87,7 +87,7 @@ def test_directly_named_omlx_keys_are_shadowed_to_working_tiers():
     """调用方直呼 reasoning/coding/mid-local(工作区百余处): oMLX 对应物推理报错/无投影/极慢,
     别名层必须接住, 否则网关 fallback_chain 里的同名项也跟着失效。"""
     table = aliases.load_aliases()
-    assert table["reasoning"] == "qwen3.8-27b-splash"
+    assert table["reasoning"] == "swift-1.5-qwen3.8-27b-splash"
     assert table["coding"] == table["mid-local"] == "qwen3.6-35b-a3b-splash"
 
 
