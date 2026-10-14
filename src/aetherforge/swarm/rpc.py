@@ -11,10 +11,7 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
-SWARM_DISABLED_MSG = (
-    "swarm_engine removed (Y1Q4-T6-01); "
-    "swarm capability disabled by design"
-)
+SWARM_DISABLED_MSG = "swarm_engine removed (Y1Q4-T6-01); swarm capability disabled by design"
 
 
 def run_swarm_workflow(goal: str, **kwargs: Any) -> dict[str, Any]:

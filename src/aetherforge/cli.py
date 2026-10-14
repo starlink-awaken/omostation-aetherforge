@@ -129,6 +129,7 @@ def cmd_swarm(argv: list[str]) -> int:
     import argparse
     import json
     import sys
+
     parser = argparse.ArgumentParser(description="AetherForge Swarm CLI (disabled, Y1Q4-T6-01)")
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("run", help="DISABLED: swarm_engine removed (Y1Q4-T6-01)")

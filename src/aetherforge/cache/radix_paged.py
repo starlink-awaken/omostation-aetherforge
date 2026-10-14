@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -23,7 +22,7 @@ class RadixNode:
     """Radix Tree 节点 — 存储共享前缀片段."""
 
     segment: str  # 前缀片段 (非单字符, 压缩路径)
-    children: dict[str, "RadixNode"] = field(default_factory=dict)
+    children: dict[str, RadixNode] = field(default_factory=dict)
     kv_page_id: int | None = None  # 关联的 KV Cache 页面 ID
     is_terminal: bool = False  # 是否为一个完整 key 的终点
 
@@ -192,7 +191,7 @@ class RadixPagedCache:
             for child_key, child_node in current.children.items():
                 # 检查 remaining 是否以 child_key 开头
                 if remaining.startswith(child_key):
-                    remaining = remaining[len(child_key):]
+                    remaining = remaining[len(child_key) :]
                     current = child_node
                     matched = True
                     break
@@ -268,7 +267,7 @@ class RadixPagedCache:
             matched = False
             for child_key, child_node in current.children.items():
                 if remaining.startswith(child_key):
-                    remaining = remaining[len(child_key):]
+                    remaining = remaining[len(child_key) :]
                     matched_path += child_key
                     current = child_node
                     matched = True
@@ -353,7 +352,7 @@ class RadixPagedCache:
         }
 
     @classmethod
-    def from_snapshot(cls, data: dict[str, Any]) -> "RadixPagedCache":
+    def from_snapshot(cls, data: dict[str, Any]) -> RadixPagedCache:
         """从快照恢复."""
         cache = cls(
             page_size=data.get("page_size", 4096),

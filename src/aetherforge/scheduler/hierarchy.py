@@ -14,16 +14,15 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any
 
 
 class CognitiveTier(IntEnum):
     """认知阶梯层级 — 数值越大能力越强、成本越高."""
 
-    L0_FAST_INTERCEPT = 0   # 1B~3B: 意图/护栏/毫秒拦截
-    L1_B_EXECUTOR = 1       # 7B~14B: 骨干任务执行
-    L2_HEAVY_ARBITER = 2    # 32B~70B+: 重型仲裁
-    L3_CLOUD_FALLBACK = 3   # 云端/外部 API
+    L0_FAST_INTERCEPT = 0  # 1B~3B: 意图/护栏/毫秒拦截
+    L1_B_EXECUTOR = 1  # 7B~14B: 骨干任务执行
+    L2_HEAVY_ARBITER = 2  # 32B~70B+: 重型仲裁
+    L3_CLOUD_FALLBACK = 3  # 云端/外部 API
 
 
 @dataclass(frozen=True)
@@ -69,11 +68,13 @@ class HierarchyConfig:
     l0_max_latency_ms: float = 5.0
 
     # 降级链: 当前层失败时回退到哪一层
-    degradation_chain: dict[CognitiveTier, CognitiveTier] = field(default_factory=lambda: {
-        CognitiveTier.L0_FAST_INTERCEPT: CognitiveTier.L1_B_EXECUTOR,
-        CognitiveTier.L1_B_EXECUTOR: CognitiveTier.L2_HEAVY_ARBITER,
-        CognitiveTier.L2_HEAVY_ARBITER: CognitiveTier.L3_CLOUD_FALLBACK,
-    })
+    degradation_chain: dict[CognitiveTier, CognitiveTier] = field(
+        default_factory=lambda: {
+            CognitiveTier.L0_FAST_INTERCEPT: CognitiveTier.L1_B_EXECUTOR,
+            CognitiveTier.L1_B_EXECUTOR: CognitiveTier.L2_HEAVY_ARBITER,
+            CognitiveTier.L2_HEAVY_ARBITER: CognitiveTier.L3_CLOUD_FALLBACK,
+        }
+    )
 
 
 class CognitiveHierarchy:
@@ -153,8 +154,7 @@ class CognitiveHierarchy:
         if not capable:
             # 当前层无法满足能力需求 — 向上升级
             return self._upgrade_tier(
-                start_tier, required, intent_complexity, start, visited,
-                reason="capability mismatch"
+                start_tier, required, intent_complexity, start, visited, reason="capability mismatch"
             )
 
         # 检查延迟约束
@@ -162,8 +162,7 @@ class CognitiveHierarchy:
             latency_ok = [r for r in capable if r.max_latency_ms <= max_latency_ms]
             if not latency_ok:
                 return self._upgrade_tier(
-                    start_tier, required, intent_complexity, start, visited,
-                    reason=f"latency > {max_latency_ms}ms"
+                    start_tier, required, intent_complexity, start, visited, reason=f"latency > {max_latency_ms}ms"
                 )
             capable = latency_ok
 
@@ -178,8 +177,12 @@ class CognitiveHierarchy:
         threshold = self._threshold_for_tier(start_tier)
         if confidence < threshold and start_tier != CognitiveTier.L3_CLOUD_FALLBACK:
             return self._upgrade_tier(
-                start_tier, required, intent_complexity, start, visited,
-                reason=f"confidence {confidence:.2f} < threshold {threshold}"
+                start_tier,
+                required,
+                intent_complexity,
+                start,
+                visited,
+                reason=f"confidence {confidence:.2f} < threshold {threshold}",
             )
 
         return TierDecision(
@@ -236,8 +239,12 @@ class CognitiveHierarchy:
         if not capable:
             # fallback 也无法满足, 继续向上
             return self._upgrade_tier(
-                fallback, required, complexity, start_time, visited,
-                reason=f"{reason}, capability mismatch at {fallback.name}"
+                fallback,
+                required,
+                complexity,
+                start_time,
+                visited,
+                reason=f"{reason}, capability mismatch at {fallback.name}",
             )
 
         best = min(capable, key=lambda r: r.max_latency_ms)
@@ -247,8 +254,12 @@ class CognitiveHierarchy:
         threshold = self._threshold_for_tier(fallback)
         if confidence < threshold and fallback != CognitiveTier.L3_CLOUD_FALLBACK:
             return self._upgrade_tier(
-                fallback, required, complexity, start_time, visited,
-                reason=f"{reason}, confidence {confidence:.2f} < {threshold}"
+                fallback,
+                required,
+                complexity,
+                start_time,
+                visited,
+                reason=f"{reason}, confidence {confidence:.2f} < {threshold}",
             )
 
         return TierDecision(
