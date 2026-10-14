@@ -43,10 +43,14 @@ from typing import Any
 
 def _ensure_gateway_paths() -> None:
     """Inject sys.path for aetherforge gateway/swarm packages."""
-    _workspace = Path(os.environ.get(
-        "WORKSPACE_ROOT",
-        str(Path(__file__).resolve().parents[3]),  # src/aetherforge/ → projects/aetherforge/ → projects/ → workspace
-    ))
+    _workspace = Path(
+        os.environ.get(
+            "WORKSPACE_ROOT",
+            str(
+                Path(__file__).resolve().parents[3]
+            ),  # src/aetherforge/ → projects/aetherforge/ → projects/ → workspace
+        )
+    )
     candidates = [
         str(_workspace / "projects" / "aetherforge" / "packages" / "gateway" / "src"),
         str(_workspace / "projects" / "aetherforge" / "packages" / "swarm" / "src"),
@@ -64,6 +68,7 @@ _ensure_gateway_paths()
 def _get_gateway():
     """Get or create ModelGateway singleton."""
     from llm_gateway import get_gateway
+
     return get_gateway()
 
 
@@ -98,13 +103,17 @@ def llm_generate(
     messages.append({"role": "user", "content": prompt})
 
     gw = _get_gateway()
-    resp = run_async(gw.generate(GatewayRequest(
-        messages=messages,
-        model=model,
-        timeout=timeout,
-        content_title=title,
-        content_url=url,
-    )))
+    resp = run_async(
+        gw.generate(
+            GatewayRequest(
+                messages=messages,
+                model=model,
+                timeout=timeout,
+                content_title=title,
+                content_url=url,
+            )
+        )
+    )
 
     return {
         "content": resp.content,
@@ -128,6 +137,7 @@ def llm_embed(texts: list[str]) -> list[list[float]]:
     """
     gw = _get_gateway()
     from llm_gateway.gateway import run_async
+
     return run_async(gw.embed(texts))
 
 
@@ -138,13 +148,11 @@ def llm_list_models() -> list[dict[str, Any]]:
         List of dicts with: id, provider, name.
     """
     import asyncio
+
     gw = _get_gateway()
     if not gw._registry.list_models():
         asyncio.run(gw._registry.refresh())
-    return [
-        {"id": m.id, "provider": m.provider, "name": m.name}
-        for m in gw._registry.list_models()
-    ]
+    return [{"id": m.id, "provider": m.provider, "name": m.name} for m in gw._registry.list_models()]
 
 
 def llm_health() -> dict[str, Any]:
@@ -155,4 +163,5 @@ def llm_health() -> dict[str, Any]:
     """
     gw = _get_gateway()
     from llm_gateway.gateway import run_async
+
     return run_async(gw.health())

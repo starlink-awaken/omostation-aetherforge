@@ -90,4 +90,3 @@ def test_forge_swarm_run() -> None:
         res = forge_swarm_run("Build an AST triage agent")
         assert res["status"] == "success"
         assert len(res["steps"]) == 2
-
