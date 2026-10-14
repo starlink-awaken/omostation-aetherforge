@@ -9,20 +9,16 @@
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
-from aetherforge.cache import PagedKVCache, RadixNode, RadixPagedCache
+from aetherforge.cache import RadixNode, RadixPagedCache
 from aetherforge.engine import SpeculativeConfig, SpeculativeEngine, SpeculativeResult
 from aetherforge.scheduler import (
     CognitiveHierarchy,
     CognitiveTier,
     HierarchyConfig,
-    TierDecision,
     TierRoute,
 )
-
 
 # ═══════════════════════════════════════════════════════════════
 # Fixtures
@@ -328,9 +324,7 @@ class TestSpeculativeEngine:
 class TestIntegration:
     """集成测试 — 调度器 + 缓存."""
 
-    def test_hierarchy_decision_can_be_cached(
-        self, hierarchy: CognitiveHierarchy, cache: RadixPagedCache
-    ) -> None:
+    def test_hierarchy_decision_can_be_cached(self, hierarchy: CognitiveHierarchy, cache: RadixPagedCache) -> None:
         """调度决策结果可缓存."""
         decision = hierarchy.select_tier(intent_complexity=0.2, required_capabilities={"intent"})
 
