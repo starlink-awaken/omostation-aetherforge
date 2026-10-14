@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from aetherforge.endpoint import chat_url, gateway_key
 
 from .router import TriageResult, TriageRouter
 
@@ -20,8 +22,8 @@ class MultiModalTriage:
     """多模态分诊器."""
 
     router: TriageRouter
-    gateway_url: str = "http://127.0.0.1:9000/v1/chat/completions"
-    api_key: str = "sk-omlx-admin"
+    gateway_url: str = field(default_factory=chat_url)
+    api_key: str = field(default_factory=gateway_key)
 
     def triage_url(self, url: str, title: str = "") -> TriageResult:
         """URL 分诊 — 抓取内容后分诊."""

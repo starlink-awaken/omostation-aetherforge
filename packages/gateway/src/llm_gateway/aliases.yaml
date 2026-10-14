@@ -14,42 +14,151 @@
 # 那是 compute_engine SSOT 与 compute_mesh 的职责。
 
 aliases:
+  # ── 一等公民 · Claude 分档 (gw-claude / omlx launch 注入用) ──
+  # 2026-09-25 实测(干净环境, 400 tok 编码题 + 8 道可执行判分题):
+  #   Qwen3.6-35B-A3B-Splash  ~300 tok/s, 2 路并发各 ~310, 8/8
+  #   Qwen3.8-27B-Splash      ~126 tok/s, 8/8 (dense, 深度推理更稳)
+  #   coding-next(oMLX)        ~64 tok/s, 8/8;  mythos-fast ~34 tok/s, 8/8
+  # Splash = target+draft 推测解码包, 由 LM Studio 原生加载(compatibility_type
+  # splash, JIT + TTL), 经 LM Link 池三机可见 —— 不另起进程。
+  # 2026-10-06 A/B(20 题自动判分: 12 代码执行 + 5 推理 + 3 格式): Swift-1.5 与 qwen3.8 同分 18/20,
+  # 总耗时 57s vs 70s(~48 vs 38 tok/s) → 27B 档切到 Swift-1.5; qwen38-27b / splash-27b 等点名保留旧版可回退。
+  opus: swift-1.5-qwen3.8-27b-splash
+  sonnet: qwen3.6-35b-a3b-splash
+  haiku: qwen3.6-35b-a3b-splash
+
+  # ── 调用方高频直呼的 omlx 目录名 → 实测可用档 (2026-09-25) ──
+  # 工作区代码直接写 model="reasoning"(127 处)/"coding"(82)/"mid-local"(14):
+  #   reasoning  oMLX GLM-4.7-Flash 能加载但推理报 local_inference_error → 真失败
+  #   coding     oMLX Devstral-Small-2 24B 8bit, 6.9 tok/s
+  #   mid-local  models.json 有键但 app-models 无投影 → 必失败
+  # 别名优先于 omlx 键解析, 网关 fallback_chain/complexity_chains 里的
+  # "coding"/"reasoning" 也随之落到可用档, 不必改 gateway.py。
+  reasoning: swift-1.5-qwen3.8-27b-splash
+  coding: qwen3.6-35b-a3b-splash
+  mid-local: qwen3.6-35b-a3b-splash
+
+  # ── 新 Splash/长上下文档 (2026-10-03 入库, 速度定档待健康环境复测) ──
+  # ornith-1.5-35b-A3B: 35B A3B splash, 与 sonnet 同规格的另一 35B 候选
+  sonnet-alt: ornith-1.5-35b-a3b-splash
+  # qwopus-3.8-27B-flash 1M: 27B flash 长上下文(975k 窗口), 长文档/大 diff 场景
+  long-context: qwopus3.8-27b-flash-1m
+  # qwythos-9B mythos-5 OQ8+MTP: mythos 档新变体(预测解码), 与 mini-9b 同级备选
+  mythos-next: qwythos-9b-claude-mythos-5-1m-mlx-oq8-mtp
+
+  # ── 视觉档 (2026-09-25 同图 5 题对比, 经网关预热后单次延迟) ──
+  #   Splash-35B     5/5  0.6s  (常驻主力, 零额外内存)
+  #   MiniCPM-V-4.6  5/5  1.4s  (2.2GB 轻量)
+  #   GLM-4.6V-Flash 5/5  7.4s  (思考型, 输出带 <|begin_of_box|> 标记)
+  #   oMLX vision(Qwen3-VL-8B) 5/5 但 258s —— 工作区直呼 "vision" 85 处, 接到 Splash
+  vision: qwen3.6-35b-a3b-splash
+  vision-think: zai-org/glm-4.6v-flash
+  glm-4.6v: zai-org/glm-4.6v-flash
+
+  # ── 多媒体档 (2026-09-26; 路由见 media_proxy.py: 语音→oMLX, 图像→Unsloth Studio) ──
+  #   tts-qwen3   Qwen3-TTS 1.7B 8bit, 中文母语级, 7s 音频 ~6-8s, whisper 回识别逐字一致
+  #   tts-kokoro  Kokoro-82M, 英文 0.15s/4.7s 音频(oMLX 缺 misaki[zh], 不能说中文)
+  #   asr-whisper Whisper-large-v3-turbo 4bit, 预热 0.85s
+  #   图像 phosphene FLUX.2-klein-4B(1024² 22s, 遵循风格); Unsloth Qwen-Image-2.1 5min 且不遵循 → 弃
+  tts: tts-qwen3
+  tts-zh: tts-qwen3
+  tts-en: tts-kokoro
+  asr: asr-whisper
+  whisper: asr-whisper
+  image: phosphene-flux2-klein
+  # 视频 → phosphene(/v1/videos, 异步): LTX-2.5 全能 / MiniMax H3 对白+音效+配乐(3s 草稿实测 ~6min)
+  video: phosphene-ltx
+  video-ltx: phosphene-ltx
+  video-h3: phosphene-h3
+  video-dialogue: phosphene-h3
+
+  # ── 决策档 (2026-09-26; /v1/decisions → 本地决策服务 :8890) ──
+  #   laya-multilingual  mmBERT 编码器, 中文可用, ~10ms/次(3 题), 适合路由/分诊热路径
+  #   jev-v2             Qwen3.5-2B decision v2, ECE≈0.017, ~0.6-0.9s/次, 要准确概率时用
+  decide: laya-multilingual
+  decide-fast: laya-multilingual
+  decide-calibrated: jev-v2
+
   # ── 本机 omlx 后端 ───────────────────────────────
-  # coder 默认先上 coding-next；coding 仍是可点名的第二档，不从目录删除。
-  coder: coding-next
-  coder-fast: coding-fast
-  coder-next: coding-next
-  reasoner: reasoning
-  reasoner-lite: reasoning-lite
+  # coder 跟 sonnet 同档(Splash); coding-next 降为可点名/兜底档, 不再常驻。
+  coder: qwen3.6-35b-a3b-splash
+  coder-fast: qwen3.6-35b-a3b-splash
+  # coding-fast 故意不设别名: 测试夹具把它当"未别名的裸名"。调用方已改用 coding/coder。
+  reasoning-lite: qwen3.6-35b-a3b-splash
+  # coder-next 走 LM Studio 的 Qwen3-Coder-Next(JIT+TTL): 原先落在 oMLX 的 coding-next(45G),
+  # 冷加载超过门面超时直接 504, 且加载期间拖慢同进程的常驻 mythos-fast(2026-09-27 实测)。
+  coder-next: qwen/qwen3-coder-next
+  coder-moe: qwen3.6-35b-a3b-splash
+  qwen3-coder: qwen3.6-35b-a3b-splash
+  reasoner: swift-1.5-qwen3.8-27b-splash
+  reasoner-lite: qwen3.6-35b-a3b-splash
+  glm-4.7: glm-4.7-flash:q4_k_m
+  glm-flash: glm-4.7-flash:q4_k_m
   embed: embedding
+  minicpm: minicpm-v-4.6
+  vision-pro: minicpm-v-4.6
+  qwen38-ollama: qwen3.8-27b-splash
+  mythos-1m: mythos-fast
+  # 重排经门面 /v1/rerank → oMLX(LM Studio/Ollama 无重排接口)
+  rerank-fast: baai-bge-reranker-v2-m3-mlx-fp16
 
   # 高频意图先走 MBP 的 oMLX App。若 App 不可用，由 omlxc models.json 的
   # fallback / fallback_ollama 依次落到 LM Link 与 Ollama，别在别名层绕开
   # 统一内存准入和降级链。原 qwen/qwen3.5-9b 与 gemma-4-12b 当前均不在
   # LM Link 可见模型清单中，继续硬指会形成“配置上存在、运行时必失败”。
-  triage: mythos-fast
+  triage: qwen3.6-35b-a3b-splash
   mini-9b: mythos-fast
-  fast: mythos-fast
-  mid: qwen-3.8-27b
-  general: qwen-3.8-27b
-  qwen38-27b: qwen-3.8-27b
+  fast: qwen3.6-35b-a3b-splash
+  mid: swift-1.5-qwen3.8-27b-splash
+  general: swift-1.5-qwen3.8-27b-splash
+  qwen38-27b: qwen3.8-27b-splash
   # 轻量视觉用 catalog `vision`；重视觉走 vision-large，不占用 mid/chat 槽。
-  vision-mid: vision-large
+  vision-mid: qwen3.6-35b-a3b-splash
 
-  # Catalog IDs are qwen-3.5-9b-*. DeepSeek was a leftover weight-folder
-  # name and is not a logical model. Keep it as an alias only.
-  deepseek-v4-flash: qwen-3.5-9b-flash
-  deepseek-v4-pro: qwen-3.5-9b-pro
 
-  # ── 明确直达 LM Link 池的能力别名 ─────────────────────
-  mini-chat: gemma-4-e4b-it-mlx
-  rerank: baai-bge-reranker-v2-m3-mlx
-  embed-bge: bge-m3-mlx
-  ocr: deepseek-ocr
-  vision-lite: zai-org/glm-4.6v-flash
+  # ── 明确直达三节点能力池的特化别名 ─────────────────────
+  # mini-chat: 原 gemma-4-e2b-it-mlx 只在 macmini 上, 本机 LM Studio 同一模型 id 为 google/gemma-4-e2b
+  # (2026-09-28 实测: 默认会思考, max_tokens 小时正文全空; reasoning_effort=none 4/4 正常 ——
+  #  门面「预算耗尽在思考段 → 关 thinking 重试并记住」自动处理)
+  # 2026-10-06: gemma-4-e2b 改为 LM Studio 常驻(lms-resident, 实测 82 tok/s)。注意: 门面 shadow 模式下
+  # oMLX chat 只可达 mythos-fast(_load_omlx_ports), 所以小模型必须走 LM Studio id, 不能写 oMLX 目录名。
+  mini-chat: google/gemma-4-e2b
+  # fast-think/fast-oss 原指 gpt-oss:20b, 只在 macmini Ollama 上(外出期间离线) → 恒静默兜底到 mythos-fast。
+  # 改指常驻的 35B Splash(实测 205-284 tok/s); 需要思考由调用方传 reasoning_effort。
+  fast-think: qwen3.6-35b-a3b-splash
+  fast-oss: qwen3.6-35b-a3b-splash
+  # ── Splash 直达名 (2026-09-25 已晋升一等公民, 见顶部分档) ──
+  coder-splash: qwen3.6-35b-a3b-splash
+  splash: qwen3.6-35b-a3b-splash
+  splash-27b: qwen3.8-27b-splash
+  # vision-v2: MiniCPM-V 4.6(当前 vision-pro 是旧版); 同上, 试用并列。
+  vision-v2: minicpm-v-4.6
+  rerank: baai-bge-reranker-v2-m3-mlx-fp16
+  # embedding 链路只查 oMLX(+ omlxc 兜底), 不认 LM Studio 的模型 ID: 原 bge-m3-mlx 恒 502。
+  embed-bge: embed-bge-m3
+  # 2026-10-06: glm-ocr 只在 y7000p、qwen3-vl-4b 只在离线节点 → 静默兜底。改指本机:
+  # ocr → MiniCPM-V 4.6(带 OCR 能力, 2.2G), vision-lite → 常驻 gemma-4-e2b(LM Studio); y7000p 回来后可改回 glm-ocr。
+  ocr: minicpm-v-4.6
+  ocr-glm: minicpm-v-4.6
+  vision-lite: google/gemma-4-e2b
+
+# 2026-09-25 活体审计: 上面 12 个别名原指向不存在的目标(coding-qwen3-30b-a3b /
+# glm-4.7-flash / vision-minicpm / qwythos-9b-1m / vision-large / qwen-3.5-9b-pro 等),
+# 网关全部静默兜底到 mythos-fast(含视觉别名 → 纯文本模型)。已按真实存在的模型重映射;
+# 新增别名后务必实测响应的 model/provider 字段, 不能只看 HTTP 200。
 
 # 已知未覆盖 —— 如实记录, 不要假装齐了
 unsupported:
+  - name: "deepseek-v4-flash · deepseek-v4-pro"
+    reason: >-
+      2026-09-25 实测 DeepSeek-V4 MTP MLX 权重在 oMLX(qwen-3.5-9b-flash 投影)与
+      LM Studio(deepseek-v4-*-mtp-mlx)均无法推理, 此前两个别名全部静默兜底到
+      mythos-fast。删除别名如实失败, 等运行时支持 deepseek_v4_mtp 再恢复。
+  - name: "reasoning · reasoning-lite (oMLX GLM-4.7-Flash / Nemotron-Cascade-2)"
+    reason: >-
+      2026-09-25 实测 oMLX 能加载但推理返回 local_inference_error。
+      reasoner → qwen3.8-27b-splash, reasoner-lite → qwen3.6-35b-a3b-splash,
+      glm-4.7/glm-flash → mbp Ollama glm-4.7-flash:q4_k_m(实测可用)。
   - name: "macmini/* · macmini-ollama/* · y7000p/* · lms/* 通配符"
     reason: >-
       LiteLLM 用通配符做"直接按机器寻址"。LM Link 已把三机合成同一池,

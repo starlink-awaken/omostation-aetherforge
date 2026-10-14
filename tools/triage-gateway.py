@@ -15,6 +15,8 @@ import sys
 import time
 from pathlib import Path
 
+from aetherforge.endpoint import chat_url
+
 # 添加 src 到路径
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -28,8 +30,8 @@ def main():
     parser.add_argument("--benchmark", action="store_true", help="跑标准 benchmark")
     parser.add_argument("--consensus", action="store_true", help="共识模式 (3模型并行投票)")
     parser.add_argument("--log", help="记账日志路径 (JSONL)")
-    parser.add_argument("--gateway", default="http://127.0.0.1:9000/v1/chat/completions")
-    parser.add_argument("--key", default="sk-omlx-admin")
+    parser.add_argument("--gateway", default=chat_url())
+    parser.add_argument("--key", default=None, help="默认读 Keychain aetherforge-gateway")
     args = parser.parse_args()
 
     # 共识模式不需要 router
@@ -49,12 +51,17 @@ def main():
         print("batch: 使用 --consensus 模式")
     elif args.text:
         result = router.triage_one(args.text)  # type: ignore[reportUndefinedVariable]  # noqa: F821 — 占位适配
-        print(json.dumps({
-            "verdict": result.verdict,
-            "model": result.model,
-            "latency": round(result.latency, 3),
-            "error": result.error,
-        }, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "verdict": result.verdict,
+                    "model": result.model,
+                    "latency": round(result.latency, 3),
+                    "error": result.error,
+                },
+                ensure_ascii=False,
+            )
+        )
     else:
         parser.print_help()
 
@@ -78,14 +85,20 @@ def run_consensus(text: str, gateway: str, key: str):
         payload = {
             "model": model,
             "messages": [{"role": "user", "content": prompt.format(text=text)}],
-            "max_tokens": 20, "temperature": 0,
+            "max_tokens": 20,
+            "temperature": 0,
         }
         if needs_off:
             payload["extra_body"] = {"reasoning_effort": "none"}
         data = json.dumps(payload).encode()
-        req = urllib.request.Request(gateway, data=data, headers={  # noqa: S310 — internal gateway
-            "Content-Type": "application/json", "Authorization": f"Bearer {key}"
-        })
+        req = urllib.request.Request(  # noqa: S310 — 内部门面地址(aetherforge.endpoint, http)
+            gateway,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+            },
+        )
         t0 = time.time()
         try:
             with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310 — internal gateway
@@ -109,7 +122,7 @@ def run_consensus(text: str, gateway: str, key: str):
     max_v = max(votes, key=votes.get) if votes else "未知"  # type: ignore[reportArgumentType]
     max_c = max(votes.values()) if votes else 0
     agreement = max_c / 3
-    status = "共识" if agreement == 1.0 else ("多数" if agreement >= 2/3 else "分歧")
+    status = "共识" if agreement == 1.0 else ("多数" if agreement >= 2 / 3 else "分歧")
 
     output = {
         "verdict": max_v,
@@ -158,7 +171,7 @@ def run_benchmark(router: TriageRouter, tracker: TriageTracker):
         if ok:
             correct += 1
         mark = "✅" if ok else "❌"
-        print(f"  {mark} #{i+1:2d} {result.verdict:4s} (expect {expected})  {result.latency:.2f}s  [{result.model}]")
+        print(f"  {mark} #{i + 1:2d} {result.verdict:4s} (expect {expected})  {result.latency:.2f}s  [{result.model}]")
 
     total = time.time() - t0
     acc = correct / len(samples)
@@ -173,12 +186,17 @@ def run_batch(path: str, router: TriageRouter, tracker: TriageTracker):
     print(f"批量分诊: {len(texts)} 条")
     for text in texts:
         result = router.triage_one(text)
-        print(json.dumps({
-            "text": text[:30],
-            "verdict": result.verdict,
-            "model": result.model,
-            "latency": round(result.latency, 3),
-        }, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "text": text[:30],
+                    "verdict": result.verdict,
+                    "model": result.model,
+                    "latency": round(result.latency, 3),
+                },
+                ensure_ascii=False,
+            )
+        )
     print(f"\n汇总: {json.dumps(tracker.summary(), ensure_ascii=False, indent=2)}")
 
 

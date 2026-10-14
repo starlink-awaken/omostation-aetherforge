@@ -29,7 +29,7 @@ Design:
 
 Replaces:
   - Direct openai.OpenAI() / anthropic.Anthropic() calls
-  - Hardcoded http://127.0.0.1:9290 URLs (dead LiteLLM proxy)
+  - Hardcoded gateway URLs (note: :9290/:4000 are the live aetherforge gateway today)
   - Environment variable API key management
 """
 

@@ -71,10 +71,16 @@ async def test_omlxc_client_forwards_agent_fields_and_parses_nonstream_tool_call
         ],
         tools=TOOLS,
         tool_choice="auto",
+        top_p=0.8,
+        top_k=20,
+        stop=["END"],
     )
 
     assert captured["tools"] == TOOLS
     assert captured["tool_choice"] == "auto"
+    assert captured["top_p"] == 0.8
+    assert captured["top_k"] == 20
+    assert captured["stop"] == ["END"]
     assert captured["messages"][1]["tool_call_id"] == "call_read"  # type: ignore[index]
     assert result.content == ""
     assert result.tool_calls == (TOOL_CALL,)
@@ -303,7 +309,14 @@ async def test_active_gateway_forwards_only_agent_fields_and_preserves_tool_call
     request = GatewayRequest(
         messages=[{"role": "user", "content": "inspect"}],
         model="coding",
-        extra={"tools": TOOLS, "tool_choice": "auto", "response_format": {"type": "json"}},
+        extra={
+            "tools": TOOLS,
+            "tool_choice": "auto",
+            "top_p": 0.8,
+            "top_k": 20,
+            "stop": ["END"],
+            "response_format": {"type": "json"},
+        },
     )
 
     response = await gateway.generate(request)
@@ -311,6 +324,9 @@ async def test_active_gateway_forwards_only_agent_fields_and_preserves_tool_call
 
     assert client.chat_calls[0]["tools"] == TOOLS
     assert client.chat_calls[0]["tool_choice"] == "auto"
+    assert client.chat_calls[0]["top_p"] == 0.8
+    assert client.chat_calls[0]["top_k"] == 20
+    assert client.chat_calls[0]["stop"] == ["END"]
     assert "response_format" not in client.chat_calls[0]
     assert client.stream_calls[0]["tools"] == TOOLS
     assert response.tool_calls == (TOOL_CALL,)
@@ -416,3 +432,209 @@ def test_openai_facade_rejects_conflicting_completion_token_fields(
     response = asyncio.run(openai_proxy.handle_chat_completions(request))
 
     assert response.status == 400
+
+
+def test_gemini_generate_content_translates_text_system_and_generation_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Gateway:
+        async def generate(self, request: GatewayRequest) -> GatewayResponse:
+            captured["request"] = request
+            return GatewayResponse(
+                content="hello from local",
+                model="coding",
+                latency_ms=1,
+                tokens_in=7,
+                tokens_out=3,
+                finish_reason="stop",
+            )
+
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+    request = SimpleNamespace(
+        match_info={"model": "coding"},
+        path="/v1beta/models/coding:generateContent",
+    )
+
+    async def body() -> dict[str, object]:
+        return {
+            "systemInstruction": {"parts": [{"text": "Be concise."}]},
+            "contents": [{"role": "user", "parts": [{"text": "Say hello"}]}],
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": 64,
+                "topP": 0.9,
+                "topK": 20,
+                "stopSequences": ["END"],
+            },
+        }
+
+    request.json = body
+    response = asyncio.run(openai_proxy.handle_gemini_generate_content(request))
+
+    assert response.status == 200
+    payload = json.loads(response.body)
+    assert payload["candidates"][0]["content"] == {
+        "role": "model",
+        "parts": [{"text": "hello from local"}],
+    }
+    assert payload["usageMetadata"] == {
+        "promptTokenCount": 7,
+        "candidatesTokenCount": 3,
+        "totalTokenCount": 10,
+    }
+    gateway_request = captured["request"]
+    assert gateway_request.messages == [
+        {"role": "system", "content": "Be concise."},
+        {"role": "user", "content": "Say hello"},
+    ]
+    assert gateway_request.temperature == 0.2
+    assert gateway_request.max_tokens == 64
+    assert gateway_request.extra["top_p"] == 0.9
+    assert gateway_request.extra["top_k"] == 20
+    assert gateway_request.extra["stop"] == ["END"]
+
+
+def test_gemini_function_declarations_and_function_call_response_round_trip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Gateway:
+        async def generate(self, request: GatewayRequest) -> GatewayResponse:
+            captured["request"] = request
+            return GatewayResponse(
+                content="",
+                model="coding",
+                latency_ms=1,
+                finish_reason="tool_calls",
+                tool_calls=(
+                    {
+                        "id": "gemini_get_weather",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"city":"Paris"}',
+                        },
+                    },
+                ),
+            )
+
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+    request = SimpleNamespace(
+        match_info={"model": "coding"},
+        path="/v1beta/models/coding:generateContent",
+    )
+
+    async def body() -> dict[str, object]:
+        return {
+            "contents": [
+                {
+                    "role": "model",
+                    "parts": [
+                        {
+                            "functionCall": {
+                                "name": "get_weather",
+                                "args": {"city": "Paris"},
+                            }
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "functionResponse": {
+                                "name": "get_weather",
+                                "response": {"temperature": 18},
+                            }
+                        }
+                    ],
+                },
+            ],
+            "tools": [
+                {
+                    "functionDeclarations": [
+                        {
+                            "name": "get_weather",
+                            "description": "Get weather",
+                            "parameters": {"type": "object", "properties": {}},
+                        }
+                    ]
+                }
+            ],
+            "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}},
+        }
+
+    request.json = body
+    response = asyncio.run(openai_proxy.handle_gemini_generate_content(request))
+
+    assert response.status == 200
+    payload = json.loads(response.body)
+    assert payload["candidates"][0]["content"]["parts"] == [
+        {"functionCall": {"name": "get_weather", "args": {"city": "Paris"}}}
+    ]
+    gateway_request = captured["request"]
+    assert gateway_request.messages[0]["tool_calls"][0]["function"]["name"] == "get_weather"
+    assert gateway_request.messages[1]["role"] == "tool"
+    assert gateway_request.messages[1]["tool_call_id"] == "gemini_get_weather"
+    assert gateway_request.extra["tools"][0]["function"]["name"] == "get_weather"
+    assert gateway_request.extra["tool_choice"] == "auto"
+
+
+def test_gemini_stream_emits_sse_chunks_and_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Gateway:
+        async def generate_stream(self, _request: GatewayRequest) -> AsyncIterator[OmlxcStreamChunk]:
+            yield OmlxcStreamChunk(content="Hel", model="coding", request_id="r1")
+            yield OmlxcStreamChunk(
+                content="lo",
+                model="coding",
+                request_id="r1",
+                finish_reason="stop",
+                usage={"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+            )
+
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+    request = SimpleNamespace(
+        match_info={"model": "coding"},
+        path="/v1beta/models/coding:streamGenerateContent",
+    )
+
+    async def body() -> dict[str, object]:
+        return {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]}
+
+    async def collect() -> bytes:
+        request.json = body
+        response = await openai_proxy.handle_gemini_stream_generate_content(request)
+        return b"".join([chunk async for chunk in response.body._value])
+
+    raw = asyncio.run(collect()).decode()
+    events = [
+        json.loads(block.removeprefix("data: "))
+        for block in raw.split("\n\n")
+        if block.strip()
+    ]
+
+    assert [event["candidates"][0]["content"]["parts"][0]["text"] for event in events] == ["Hel", "lo"]
+    assert events[-1]["candidates"][0]["finishReason"] == "STOP"
+    assert events[-1]["usageMetadata"]["totalTokenCount"] == 7
+
+
+def test_gemini_models_endpoint_uses_gemini_model_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Gateway:
+        async def list_omlxc_models(self):
+            return (
+                SimpleNamespace(id="ENG-OMLX-LOCAL/coding"),
+                SimpleNamespace(id="ENG-OMLX-LOCAL/vision"),
+            )
+
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+    request = SimpleNamespace(query={})
+    response = asyncio.run(openai_proxy.handle_gemini_list_models(request))
+    payload = json.loads(response.body)
+
+    assert [model["name"] for model in payload["models"]] == [
+        "models/ENG-OMLX-LOCAL/coding",
+        "models/ENG-OMLX-LOCAL/vision",
+    ]

@@ -2,6 +2,7 @@
 type: ssot
 owner: governance-team
 last_updated: 2026-09-03
+last-reviewed: 2026-09-18
 ---
 
 # AetherForge 网关治理架构 v1 — 成熟度模型、差距与落地路线

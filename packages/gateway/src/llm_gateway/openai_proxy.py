@@ -6,6 +6,9 @@ Any tool using the openai Python library can point to this server:
 Endpoints:
     POST /v1/chat/completions  → ModelGateway.generate()
     GET  /v1/models            → active: omlxcd logical catalog; shadow/legacy: registry
+    GET  /v1beta/models        → Gemini-compatible model catalog
+    POST /v1beta/models/{model}:generateContent
+    POST /v1beta/models/{model}:streamGenerateContent
     POST /v1/embeddings        → ModelGateway.embed()
     GET  /v1/compute           → omlxcd inventory observe (warnings only; not liveness)
     GET  /health               → simple health check
@@ -24,10 +27,11 @@ import logging
 import os
 import time
 from collections.abc import Mapping, Sequence
+from urllib.parse import unquote
 
 from aiohttp import web
 
-from .gateway import GatewayRequest, get_gateway
+from .gateway import DEFAULT_REQUEST_TIMEOUT, GatewayRequest, get_gateway
 from .omlxc_client import OmlxcError, OmlxcErrorCode
 
 _log = logging.getLogger(__name__)
@@ -209,6 +213,525 @@ async def _prime_stream(source, timeout: float) -> tuple[list, web.Response | No
     return pending_chunks, None
 
 
+# ============================================================
+# Gemini generateContent compatibility facade
+#
+# Gemini clients (including agy) use a different wire shape from the
+# OpenAI-compatible physical gateway.  Keep this translation layer at the HTTP
+# boundary and reuse ModelGateway for all routing, policy and accounting.
+# ============================================================
+
+_GEMINI_FINISH_REASONS = {
+    "stop": "STOP",
+    "length": "MAX_TOKENS",
+    "tool_calls": "STOP",
+    "content_filter": "SAFETY",
+    "error": "OTHER",
+}
+
+
+class _GeminiRequestError(ValueError):
+    """A client-visible Gemini request validation failure."""
+
+
+def _gemini_error_payload(message: str, status: int, *, status_name: str | None = None) -> dict[str, object]:
+    """Build the REST error envelope used by Gemini's generateContent API."""
+    return {
+        "error": {
+            "code": status,
+            "message": message,
+            "status": status_name
+            or {
+                400: "INVALID_ARGUMENT",
+                401: "UNAUTHENTICATED",
+                404: "NOT_FOUND",
+                409: "ABORTED",
+                502: "BAD_GATEWAY",
+                503: "UNAVAILABLE",
+                504: "DEADLINE_EXCEEDED",
+            }.get(status, "INTERNAL"),
+        }
+    }
+
+
+def _gemini_model_from_request(request: web.Request) -> str:
+    match_info = getattr(request, "match_info", {})
+    model = str(match_info.get("model") or "")
+    for suffix in (":generateContent", ":streamGenerateContent"):
+        if model.endswith(suffix):
+            model = model[: -len(suffix)]
+            break
+    model = unquote(model)
+    if model.startswith("models/"):
+        model = model.removeprefix("models/")
+    if not model:
+        raise _GeminiRequestError("model is required in the request path")
+    return model
+
+
+def _gemini_text_from_parts(parts: object, *, field: str) -> str:
+    if isinstance(parts, Mapping):
+        parts = parts.get("parts")
+    if not isinstance(parts, list):
+        raise _GeminiRequestError(f"{field}.parts must be an array")
+    text: list[str] = []
+    for part in parts:
+        if not isinstance(part, Mapping):
+            raise _GeminiRequestError(f"{field}.parts entries must be objects")
+        value = part.get("text")
+        if value is not None:
+            if not isinstance(value, str):
+                raise _GeminiRequestError(f"{field}.parts.text must be a string")
+            text.append(value)
+            continue
+        unsupported = next(
+            (key for key in ("inlineData", "fileData", "functionCall", "functionResponse") if key in part),
+            None,
+        )
+        if unsupported:
+            raise _GeminiRequestError(f"{field} does not support {unsupported}")
+        raise _GeminiRequestError(f"{field}.parts must contain text parts")
+    return "\n".join(text)
+
+
+def _gemini_part_to_openai(part: Mapping[str, object]) -> tuple[object | None, Mapping[str, object] | None, Mapping[str, object] | None]:
+    """Translate one Gemini part into content, a tool call, or a tool result."""
+    if "text" in part:
+        text = part["text"]
+        if not isinstance(text, str):
+            raise _GeminiRequestError("parts.text must be a string")
+        return {"type": "text", "text": text}, None, None
+
+    inline_data = part.get("inlineData")
+    if inline_data is not None:
+        if not isinstance(inline_data, Mapping):
+            raise _GeminiRequestError("inlineData must be an object")
+        mime_type = inline_data.get("mimeType")
+        data = inline_data.get("data")
+        if not isinstance(mime_type, str) or not mime_type:
+            raise _GeminiRequestError("inlineData.mimeType is required")
+        if not isinstance(data, str) or not data:
+            raise _GeminiRequestError("inlineData.data is required")
+        if not mime_type.startswith("image/"):
+            raise _GeminiRequestError(f"inlineData mime type is not supported locally: {mime_type}")
+        return {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{data}"}}, None, None
+
+    if "fileData" in part:
+        raise _GeminiRequestError("fileData is not supported by the local Gemini facade; use inlineData")
+
+    function_call = part.get("functionCall")
+    if function_call is not None:
+        if not isinstance(function_call, Mapping):
+            raise _GeminiRequestError("functionCall must be an object")
+        name = function_call.get("name")
+        args = function_call.get("args", {})
+        if not isinstance(name, str) or not name:
+            raise _GeminiRequestError("functionCall.name is required")
+        if not isinstance(args, Mapping):
+            raise _GeminiRequestError("functionCall.args must be an object")
+        return None, {
+            "id": f"gemini_{name}",
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args, separators=(",", ":"))},
+        }, None
+
+    function_response = part.get("functionResponse")
+    if function_response is not None:
+        if not isinstance(function_response, Mapping):
+            raise _GeminiRequestError("functionResponse must be an object")
+        name = function_response.get("name")
+        response = function_response.get("response", {})
+        if not isinstance(name, str) or not name:
+            raise _GeminiRequestError("functionResponse.name is required")
+        if not isinstance(response, Mapping):
+            raise _GeminiRequestError("functionResponse.response must be an object")
+        return None, None, {
+            "role": "tool",
+            "tool_call_id": f"gemini_{name}",
+            "content": json.dumps(response, ensure_ascii=True, separators=(",", ":")),
+        }
+
+    raise _GeminiRequestError("each part must contain text, inlineData, functionCall, or functionResponse")
+
+
+def _gemini_content_to_openai(content: object, index: int) -> list[dict[str, object]]:
+    if not isinstance(content, Mapping):
+        raise _GeminiRequestError(f"contents[{index}] must be an object")
+    role = content.get("role", "user")
+    if role == "model":
+        openai_role = "assistant"
+    elif role == "user":
+        openai_role = "user"
+    else:
+        raise _GeminiRequestError(f"contents[{index}].role must be user or model")
+    parts = content.get("parts")
+    if not isinstance(parts, list) or not parts:
+        raise _GeminiRequestError(f"contents[{index}].parts must be a non-empty array")
+
+    content_parts: list[object] = []
+    tool_calls: list[Mapping[str, object]] = []
+    messages: list[dict[str, object]] = []
+    for part in parts:
+        if not isinstance(part, Mapping):
+            raise _GeminiRequestError(f"contents[{index}].parts entries must be objects")
+        translated, tool_call, tool_result = _gemini_part_to_openai(part)
+        if translated is not None:
+            content_parts.append(translated)
+        if tool_call is not None:
+            tool_calls.append(tool_call)
+        if tool_result is not None:
+            messages.append(dict(tool_result))
+
+    if content_parts or tool_calls:
+        if all(isinstance(part, Mapping) and part.get("type") == "text" for part in content_parts):
+            message_content: object = "\n".join(str(part["text"]) for part in content_parts)
+        else:
+            message_content = content_parts
+        message: dict[str, object] = {"role": openai_role, "content": message_content}
+        if tool_calls:
+            message["content"] = message_content if content_parts else None
+            message["tool_calls"] = tool_calls
+        messages.insert(0, message)
+    return messages
+
+
+def _gemini_contents_to_messages(contents: object) -> list[dict[str, object]]:
+    if not isinstance(contents, list) or not contents:
+        raise _GeminiRequestError("contents must be a non-empty array")
+    messages: list[dict[str, object]] = []
+    for index, content in enumerate(contents):
+        messages.extend(_gemini_content_to_openai(content, index))
+    return messages
+
+
+def _gemini_system_message(system_instruction: object) -> dict[str, object] | None:
+    if system_instruction is None:
+        return None
+    text = _gemini_text_from_parts(system_instruction, field="systemInstruction")
+    return {"role": "system", "content": text}
+
+
+def _gemini_tools(body: Mapping[str, object]) -> list[dict[str, object]]:
+    raw_tools = body.get("tools") or []
+    if not isinstance(raw_tools, list):
+        raise _GeminiRequestError("tools must be an array")
+    tools: list[dict[str, object]] = []
+    for index, raw_tool in enumerate(raw_tools):
+        if not isinstance(raw_tool, Mapping):
+            raise _GeminiRequestError(f"tools[{index}] must be an object")
+        declarations = raw_tool.get("functionDeclarations")
+        if not isinstance(declarations, list):
+            raise _GeminiRequestError("only functionDeclarations tools are supported")
+        for declaration in declarations:
+            if not isinstance(declaration, Mapping):
+                raise _GeminiRequestError("functionDeclarations entries must be objects")
+            name = declaration.get("name")
+            if not isinstance(name, str) or not name:
+                raise _GeminiRequestError("function declaration name is required")
+            parameters = declaration.get("parameters") or {"type": "object", "properties": {}}
+            if not isinstance(parameters, Mapping):
+                raise _GeminiRequestError(f"function declaration {name!r} parameters must be an object")
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": str(declaration.get("description") or ""),
+                        "parameters": dict(parameters),
+                    },
+                }
+            )
+    return tools
+
+
+def _gemini_tool_choice(body: Mapping[str, object], tools: Sequence[Mapping[str, object]]) -> object | None:
+    config = body.get("toolConfig")
+    if config is None:
+        return None
+    if not isinstance(config, Mapping):
+        raise _GeminiRequestError("toolConfig must be an object")
+    calling = config.get("functionCallingConfig")
+    if not isinstance(calling, Mapping):
+        raise _GeminiRequestError("toolConfig.functionCallingConfig must be an object")
+    mode = calling.get("mode", "AUTO")
+    if mode == "AUTO":
+        choice: object = "auto"
+    elif mode == "NONE":
+        choice = "none"
+    elif mode == "ANY":
+        choice = "required"
+    else:
+        raise _GeminiRequestError(f"unsupported function calling mode: {mode!r}")
+    allowed = calling.get("allowedFunctionNames")
+    if allowed is not None:
+        if not isinstance(allowed, list) or not all(isinstance(name, str) for name in allowed):
+            raise _GeminiRequestError("allowedFunctionNames must be an array of strings")
+        if len(allowed) > 1:
+            raise _GeminiRequestError("multiple allowedFunctionNames are not supported by the local facade")
+        if allowed:
+            if not any(
+                isinstance(tool.get("function"), Mapping) and tool["function"].get("name") == allowed[0]
+                for tool in tools
+            ):
+                raise _GeminiRequestError(f"allowed function is not declared: {allowed[0]!r}")
+            choice = {"type": "function", "function": {"name": allowed[0]}}
+    return choice
+
+
+def _gemini_request_to_gateway(body: Mapping[str, object], model: str) -> GatewayRequest:
+    if body.get("cachedContent") is not None:
+        raise _GeminiRequestError("cachedContent is not supported by the local facade")
+    if body.get("safetySettings") is not None:
+        raise _GeminiRequestError("safetySettings are not supported by the local facade")
+    messages = _gemini_contents_to_messages(body.get("contents"))
+    system_message = _gemini_system_message(body.get("systemInstruction"))
+    if system_message is not None:
+        messages.insert(0, system_message)
+
+    tools = _gemini_tools(body)
+    extra: dict[str, object] = {}
+    if tools:
+        extra["tools"] = tools
+    tool_choice = _gemini_tool_choice(body, tools)
+    if tool_choice is not None:
+        extra["tool_choice"] = tool_choice
+
+    generation = body.get("generationConfig") or {}
+    if not isinstance(generation, Mapping):
+        raise _GeminiRequestError("generationConfig must be an object")
+    temperature = generation.get("temperature")
+    if temperature is not None and (isinstance(temperature, bool) or not isinstance(temperature, (int, float))):
+        raise _GeminiRequestError("generationConfig.temperature must be a number")
+    max_tokens = generation.get("maxOutputTokens")
+    if max_tokens is not None and (isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0):
+        raise _GeminiRequestError("generationConfig.maxOutputTokens must be a positive integer")
+    stop_sequences = generation.get("stopSequences")
+    if stop_sequences is not None:
+        if not isinstance(stop_sequences, list) or not all(isinstance(value, str) for value in stop_sequences):
+            raise _GeminiRequestError("generationConfig.stopSequences must be an array of strings")
+        extra["stop"] = list(stop_sequences)
+    for source, target in (("topP", "top_p"), ("topK", "top_k")):
+        value = generation.get(source)
+        if value is not None:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise _GeminiRequestError(f"generationConfig.{source} must be a number")
+            extra[target] = value
+
+    response_mime = generation.get("responseMimeType")
+    if response_mime is not None:
+        if response_mime != "application/json":
+            raise _GeminiRequestError("only responseMimeType=application/json is supported")
+        extra["response_format"] = {"type": "json_object"}
+    if generation.get("responseSchema") is not None:
+        schema = generation["responseSchema"]
+        if not isinstance(schema, Mapping):
+            raise _GeminiRequestError("generationConfig.responseSchema must be an object")
+        extra["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "gemini_response", "schema": dict(schema)},
+        }
+
+    return GatewayRequest(
+        messages=messages,
+        model=model,
+        timeout=float(body.get("timeout", DEFAULT_REQUEST_TIMEOUT)),
+        temperature=float(temperature) if temperature is not None else None,
+        max_tokens=max_tokens,
+        task="chat",
+        extra=extra,
+        routing_mode=str(body.get("routing_mode") or "local"),
+    )
+
+
+def _gemini_tool_arguments(call: Mapping[str, object]) -> object:
+    function = call.get("function")
+    if not isinstance(function, Mapping):
+        return {}
+    raw = function.get("arguments", "{}")
+    try:
+        parsed = json.loads(str(raw))
+    except (TypeError, json.JSONDecodeError):
+        return {"raw_arguments": str(raw)}
+    return parsed if isinstance(parsed, Mapping) else {"value": parsed}
+
+
+def _gemini_finish_reason(reason: object) -> str:
+    return _GEMINI_FINISH_REASONS.get(str(reason or "stop"), str(reason).upper())
+
+
+def _gemini_usage(resp: object) -> dict[str, int]:
+    prompt = int(getattr(resp, "tokens_in", 0) or 0)
+    completion = int(getattr(resp, "tokens_out", 0) or 0)
+    return {
+        "promptTokenCount": prompt,
+        "candidatesTokenCount": completion,
+        "totalTokenCount": prompt + completion,
+    }
+
+
+def _gemini_response_payload(resp: object, model: str) -> dict[str, object]:
+    parts: list[dict[str, object]] = []
+    content = str(getattr(resp, "content", "") or "")
+    if content:
+        parts.append({"text": content})
+    for call in getattr(resp, "tool_calls", ()) or ():
+        if isinstance(call, Mapping):
+            function = call.get("function")
+            if isinstance(function, Mapping):
+                parts.append(
+                    {
+                        "functionCall": {
+                            "name": str(function.get("name") or ""),
+                            "args": _gemini_tool_arguments(call),
+                        }
+                    }
+                )
+    candidate: dict[str, object] = {
+        "content": {"role": "model", "parts": parts},
+        "index": 0,
+        "finishReason": _gemini_finish_reason(getattr(resp, "finish_reason", "stop")),
+    }
+    return {
+        "candidates": [candidate],
+        "usageMetadata": _gemini_usage(resp),
+        "modelVersion": str(getattr(resp, "model", "") or model),
+    }
+
+
+async def _gemini_sse(gateway, request: GatewayRequest, model: str):
+    stream = gateway.generate_stream(request)
+    emitted = False
+    try:
+        async for chunk in stream:
+            parts: list[dict[str, object]] = []
+            if chunk.content:
+                parts.append({"text": chunk.content})
+                emitted = True
+            for call in chunk.tool_calls or ():
+                if isinstance(call, Mapping):
+                    function = call.get("function")
+                    if isinstance(function, Mapping):
+                        parts.append(
+                            {
+                                "functionCall": {
+                                    "name": str(function.get("name") or ""),
+                                    "args": _gemini_tool_arguments(call),
+                                }
+                            }
+                        )
+                        emitted = True
+            candidate: dict[str, object] = {
+                "content": {"role": "model", "parts": parts},
+                "index": 0,
+            }
+            if chunk.finish_reason:
+                candidate["finishReason"] = _gemini_finish_reason(chunk.finish_reason)
+            payload: dict[str, object] = {
+                "candidates": [candidate],
+                "modelVersion": chunk.model or model,
+            }
+            if chunk.usage is not None:
+                usage = dict(chunk.usage)
+                payload["usageMetadata"] = {
+                    "promptTokenCount": int(usage.get("prompt_tokens") or 0),
+                    "candidatesTokenCount": int(usage.get("completion_tokens") or 0),
+                    "totalTokenCount": int(usage.get("total_tokens") or 0),
+                }
+            yield f"data: {json.dumps(payload, ensure_ascii=True, separators=(',', ':'))}\n\n".encode()
+    except OmlxcError as error:
+        yield f"data: {json.dumps(_gemini_error_payload(str(error), _omlxc_http_status(error.code)), separators=(',', ':'))}\n\n".encode()
+    except Exception:
+        _log.exception("Gemini stream translation failed emitted=%s", emitted)
+        yield f"data: {json.dumps(_gemini_error_payload('local inference failed', 502), separators=(',', ':'))}\n\n".encode()
+    finally:
+        await _close_stream(stream)
+
+
+async def handle_gemini_generate_content(request: web.Request) -> web.Response:
+    """POST /v1beta/models/{model}:generateContent."""
+    try:
+        body = await request.json()
+        if not isinstance(body, Mapping):
+            raise _GeminiRequestError("request body must be an object")
+        model = _gemini_model_from_request(request)
+        gateway_request = _gemini_request_to_gateway(body, model)
+    except _GeminiRequestError as error:
+        return web.json_response(_gemini_error_payload(str(error), 400), status=400)
+    except Exception:
+        return web.json_response(_gemini_error_payload("Invalid JSON", 400), status=400)
+
+    response = await get_gateway().generate(gateway_request)
+    if response.error and not response.content and not response.tool_calls:
+        code = getattr(response, "error_code", None)
+        status = _omlxc_http_status(code)
+        return web.json_response(_gemini_error_payload(response.error, status), status=status)
+    return web.json_response(_gemini_response_payload(response, model))
+
+
+async def handle_gemini_stream_generate_content(request: web.Request) -> web.Response:
+    """POST /v1beta/models/{model}:streamGenerateContent (SSE)."""
+    try:
+        body = await request.json()
+        if not isinstance(body, Mapping):
+            raise _GeminiRequestError("request body must be an object")
+        model = _gemini_model_from_request(request)
+        gateway_request = _gemini_request_to_gateway(body, model)
+    except _GeminiRequestError as error:
+        return web.json_response(_gemini_error_payload(str(error), 400), status=400)
+    except Exception:
+        return web.json_response(_gemini_error_payload("Invalid JSON", 400), status=400)
+    return web.Response(
+        body=_gemini_sse(get_gateway(), gateway_request, model),
+        status=200,
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        content_type="text/event-stream",
+    )
+
+
+async def handle_gemini_list_models(request: web.Request) -> web.Response:
+    """GET /v1beta/models — expose the gateway catalog in Gemini shape."""
+    try:
+        models = await get_gateway().list_omlxc_models()
+    except OmlxcError as error:
+        status = _omlxc_http_status(error.code)
+        return web.json_response(_gemini_error_payload(str(error), status), status=status)
+    return web.json_response(
+        {
+            "models": [
+                {
+                    "name": f"models/{model.id}",
+                    "baseModelId": model.id,
+                    "version": "aetherforge-local",
+                    "displayName": model.id,
+                    "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
+                }
+                for model in models
+            ]
+        }
+    )
+
+
+async def handle_gemini_get_model(request: web.Request) -> web.Response:
+    """GET /v1beta/models/{model} — return one catalog entry."""
+    model_id = _gemini_model_from_request(request)
+    try:
+        models = await get_gateway().list_omlxc_models()
+    except OmlxcError as error:
+        status = _omlxc_http_status(error.code)
+        return web.json_response(_gemini_error_payload(str(error), status), status=status)
+    if not any(model.id == model_id for model in models):
+        return web.json_response(_gemini_error_payload(f"model {model_id!r} was not found", 404), status=404)
+    return web.json_response(
+        {
+            "name": f"models/{model_id}",
+            "baseModelId": model_id,
+            "version": "aetherforge-local",
+            "displayName": model_id,
+            "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
+        }
+    )
+
+
 async def handle_chat_completions(request: web.Request) -> web.Response:
     """POST /v1/chat/completions — OpenAI-compatible chat endpoint."""
     try:
@@ -251,7 +774,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     req = GatewayRequest(
         messages=messages,
         model=model,
-        timeout=float(body.get("timeout", 120)),
+        timeout=float(body.get("timeout", DEFAULT_REQUEST_TIMEOUT)),
         temperature=temperature,
         max_tokens=max_tokens,
         task=str(body.get("task") or "chat"),
@@ -282,6 +805,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         latency,
     )
 
+    failed = bool(resp.error and not resp.content)
     # Build OpenAI-compatible response
     response_body = {
         "id": f"chatcmpl-aetherforge-{int(time.time())}",
@@ -298,7 +822,8 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                         {"tool_calls": list(getattr(resp, "tool_calls", ()))} if getattr(resp, "tool_calls", ()) else {}
                     ),
                 },
-                "finish_reason": resp.finish_reason,
+                # 失败响应在序列化层统一标 error, 不依赖每个构造点记得设 finish_reason
+                "finish_reason": "error" if failed else resp.finish_reason,
             }
         ],
         "usage": {
@@ -309,7 +834,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         "provider": resp.provider,
     }
 
-    if resp.error and not resp.content:
+    if failed:
         code = getattr(resp, "error_code", None)
         response_body.update(_openai_error_payload(code))
         return web.json_response(response_body, status=_omlxc_http_status(code))
@@ -815,7 +1340,7 @@ async def handle_responses(request: web.Request) -> web.Response:
     req = GatewayRequest(
         messages=messages,
         model=model,
-        timeout=float(body.get("timeout", 120)),
+        timeout=float(body.get("timeout", DEFAULT_REQUEST_TIMEOUT)),
         temperature=body.get("temperature"),
         max_tokens=body.get("max_output_tokens"),
         task="chat",
@@ -977,15 +1502,28 @@ async def handle_ready(request: web.Request) -> web.Response:
             routing_mode="local",
         )
     )
+    # 兜底承接(响应 model ≠ 请求档)时 /ready 此前照报 ready —— 判活方看不出"这个档其实挂了"。
+    # 标 degraded + fallback=true; 默认仍 200(备用站本就靠兜底承接, gw-resolve 只关心能否出字),
+    # strict=1 时兜底即 503(部署校验/e2e 要求精确到档)。
+    served = resp.model or model
+    fallback = bool(resp.content) and served != model
+    strict = request.query.get("strict", "").lower() in {"1", "true", "yes"}
+    if not resp.content:
+        status = "not_ready"
+    else:
+        status = "degraded" if fallback else "ready"
     payload = {
-        "status": "ready" if resp.content else "not_ready",
-        "model": resp.model or model,
+        "status": status,
+        "model": served,
+        "requested": model,
+        "fallback": fallback,
         "provider": resp.provider,
         "latency_ms": round(resp.latency_ms, 1),
     }
     if resp.error:
         payload["error"] = resp.error
-    return web.json_response(payload, status=200 if resp.content else 503)
+    ok = bool(resp.content) and not (strict and fallback)
+    return web.json_response(payload, status=200 if ok else 503)
 
 
 @web.middleware
@@ -1004,7 +1542,7 @@ async def trace_middleware(request: web.Request, handler):
     request["trace_id"] = trace_id
     resp = await handler(request)
     resp.headers["X-Request-ID"] = trace_id
-    if request.path.startswith("/v1/") and request.method == "POST":
+    if (request.path.startswith("/v1/") or request.path.startswith("/v1beta/")) and request.method == "POST":
         emit("http_request", {"trace": trace_id, "path": request.path, "method": request.method})
     return resp
 
@@ -1013,11 +1551,18 @@ async def trace_middleware(request: web.Request, handler):
 async def auth_middleware(request: web.Request, handler):
     """Bearer 鉴权。未配 key 时整体放行(仅 loopback 场景, 见 serve 的守卫)。"""
     key = request.app.get(API_KEY)
-    if not key or request.path in ("/health", "/"):
+    path = getattr(request, "path", "")
+    if not key or path in ("/health", "/"):
         return await handler(request)
     got = request.headers.get("Authorization", "")
     if got.startswith("Bearer "):
         got = got[7:]
+    if not got and path.startswith("/v1beta/"):
+        got = request.headers.get("x-goog-api-key", "")
+        if not got:
+            query = getattr(request, "query", None)
+            if query is not None:
+                got = query.get("key", "")
     # 常数时间比较, 免得把 key 的前缀通过时间差漏出去
     import hmac
 
@@ -1035,7 +1580,9 @@ def create_app(api_key: str | None = None) -> web.Application:
     # from this module, so a top-level import here would be circular.
     from .anthropic_proxy import handle_messages
 
-    app = web.Application(middlewares=[trace_middleware, auth_middleware])
+    # 请求体上限: aiohttp 默认 1MB —— 30s 会议录音(~1.1MB wav)转写、高清截图(base64 后 >1MB)看图都会 413。
+    max_mb = float(os.environ.get("AETHERFORGE_MAX_BODY_MB", "64"))
+    app = web.Application(middlewares=[trace_middleware, auth_middleware], client_max_size=int(max_mb * 1024 * 1024))
     if api_key:
         app[API_KEY] = api_key
 
@@ -1052,6 +1599,14 @@ def create_app(api_key: str | None = None) -> web.Application:
     app.router.add_post("/v1/messages", handle_messages)
     app.router.add_get("/v1/models", handle_list_models)
     app.router.add_post("/v1/embeddings", handle_embeddings)
+    # 图像生成 / 语音合成 / 语音识别 → 本地多媒体后端(Unsloth Studio), 别名与文本路由共用一张表
+    from .media_proxy import register_media_routes
+
+    register_media_routes(app, resolve_alias=lambda name: get_gateway().resolve_alias(name))
+    app.router.add_post("/v1beta/models/{model:.*}:generateContent", handle_gemini_generate_content)
+    app.router.add_post("/v1beta/models/{model:.*}:streamGenerateContent", handle_gemini_stream_generate_content)
+    app.router.add_get("/v1beta/models", handle_gemini_list_models)
+    app.router.add_get("/v1beta/models/{model:.*}", handle_gemini_get_model)
     app.router.add_get("/v1/compute", handle_compute)
     app.router.add_get("/stats", handle_stats)
     app.router.add_get("/health", handle_health)
@@ -1061,21 +1616,39 @@ def create_app(api_key: str | None = None) -> web.Application:
 
 
 def _tailnet_ip() -> str | None:
-    """本机的 tailnet 地址。拿不到就返回 None(只绑 loopback, 不猜)。"""
+    """本机的 tailnet 地址。拿不到就返回 None(只绑 loopback, 不猜)。
+
+    先问 tailscale CLI; 问不到再读网卡。CLI 不可靠: Homebrew 版 tailscaled 常跑在
+    非默认 socket 上, App 版的 CLI 又不在 PATH —— 此时 `tailscale ip` 失败, 但
+    utun 网卡上的地址是真的。两条路都只认 100.64.0.0/10。
+    """
+    import ipaddress
+    import re
     import shutil
     import subprocess
 
-    exe = shutil.which("tailscale") or "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-    if not os.path.exists(exe):
+    tailnet = ipaddress.ip_network("100.64.0.0/10")
+
+    def first_tailnet(text: str) -> str | None:
+        for cand in re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", text):
+            try:
+                if ipaddress.ip_address(cand) in tailnet:
+                    return cand
+            except ValueError:
+                pass
         return None
-    try:
-        out = subprocess.run([exe, "ip", "-4"], capture_output=True, text=True, timeout=5).stdout
-    except Exception:
-        return None
-    for ln in out.splitlines():
-        ip = ln.strip()
-        # tailnet 是 100.64.0.0/10; 只认这个段, 免得把别的网卡地址绑出去
-        if ip.startswith("100.") and ip.count(".") == 3:
+
+    probes = [[exe, "ip", "-4"] for exe in (shutil.which("tailscale"),) if exe]
+    probes.append(["ifconfig"])
+    for cmd in probes:
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        # ifconfig 里 inet 行形如 "inet 100.68.80.44 --> 100.68.80.44", 只取 inet 后的本端地址
+        text = out if cmd[0] != "ifconfig" else "\n".join(re.findall(r"\binet (\S+)", out))
+        ip = first_tailnet(text)
+        if ip:
             return ip
     return None
 
@@ -1129,6 +1702,8 @@ def serve(port: int | str = 9290, bind: str = "local") -> None:
     _log.info("Starting AetherForge OpenAI proxy on :%s", port)
     _log.info("  POST /v1/chat/completions  — LLM inference")
     _log.info("  GET  /v1/models            — list models")
+    _log.info("  GET  /v1beta/models        — Gemini-compatible model catalog")
+    _log.info("  POST /v1beta/models/{model}:generateContent — Gemini inference")
     _log.info("  GET  /v1/compute           — omlxc inventory observe")
     _log.info("  POST /v1/embeddings        — embeddings")
     import asyncio

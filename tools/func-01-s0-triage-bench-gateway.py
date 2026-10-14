@@ -9,6 +9,7 @@
 判据: 准确率 ≥80% 且延迟 <2s.
 红线: reasoner/mythos/ornith 不参与分诊评测.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,8 +18,10 @@ import time
 import urllib.error
 import urllib.request
 
-GATEWAY_URL = "http://127.0.0.1:9000/v1/chat/completions"
-GATEWAY_KEY = os.environ.get("OMLX_GATEWAY_KEY", "sk-omlx-admin")
+from aetherforge.endpoint import chat_url, gateway_key, gateway_url
+
+GATEWAY_URL = chat_url()
+GATEWAY_KEY = os.environ.get("OMLX_GATEWAY_KEY") or gateway_key()
 
 # 20 条真实分诊样本 (覆盖三档: 丢弃6/沉淀8/提醒6)
 SAMPLES = [
@@ -64,13 +67,15 @@ EXCLUDED_KEYWORDS = ["reasoner", "mythos", "ornith"]
 
 def triage_gateway(model: str, text: str) -> tuple[str, float]:
     """通过 omlx 网关分诊, 返回 (判定, 延迟秒)."""
-    payload = json.dumps({
-        "model": model,
-        "messages": [{"role": "user", "content": PROMPT_TEMPLATE.format(text=text)}],
-        "max_tokens": 100,
-        "temperature": 0,
-    }).encode()
-    req = urllib.request.Request(
+    payload = json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": PROMPT_TEMPLATE.format(text=text)}],
+            "max_tokens": 100,
+            "temperature": 0,
+        }
+    ).encode()
+    req = urllib.request.Request(  # noqa: S310 — 内部门面地址(aetherforge.endpoint, http)
         GATEWAY_URL,
         data=payload,
         headers={
@@ -95,8 +100,8 @@ def triage_gateway(model: str, text: str) -> tuple[str, float]:
 def list_gateway_models() -> list[str]:
     """列出网关所有模型别名."""
     try:
-        req = urllib.request.Request(
-            "http://127.0.0.1:9000/v1/models",
+        req = urllib.request.Request(  # noqa: S310 — 内部门面地址(aetherforge.endpoint, http)
+            f"{gateway_url()}/v1/models",
             headers={"Authorization": f"Bearer {GATEWAY_KEY}"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 — internal gateway
@@ -113,11 +118,11 @@ def is_excluded(model: str) -> bool:
 def main():
     # G1' 目标模型 (必须走网关, 不直连)
     target_models = [
-        "fast",                          # Y7000P LMStudio qwen3.5-9b
-        "mini-9b",                       # mac-mini Ollama qwen3.5:9b
-        "macmini-ollama/qwen3.5:9b",    # 常驻零冷启
-        "deepseek-chat",                 # 云端 DeepSeek (对比基线)
-        "deepseek-v4-flash",             # MBP 本地 DeepSeek flash
+        "fast",  # Y7000P LMStudio qwen3.5-9b
+        "mini-9b",  # mac-mini Ollama qwen3.5:9b
+        "macmini-ollama/qwen3.5:9b",  # 常驻零冷启
+        "deepseek-chat",  # 云端 DeepSeek (对比基线)
+        "deepseek-v4-flash",  # MBP 本地 DeepSeek flash
     ]
 
     # 过滤 reasoning 模型
@@ -136,12 +141,14 @@ def main():
         status = "✅ 网关可达" if available else "❌ 网关无此别名"
         print(f"  {m}: {status}")
 
-    print(f"\n{'='*60}")
-    print(f"分诊实测: {len(SAMPLES)} 样本, 三档 (丢弃{sum(1 for s in SAMPLES if s['expected']=='丢弃')}/"
-          f"沉淀{sum(1 for s in SAMPLES if s['expected']=='沉淀')}/"
-          f"提醒{sum(1 for s in SAMPLES if s['expected']=='提醒')})")
+    print(f"\n{'=' * 60}")
+    print(
+        f"分诊实测: {len(SAMPLES)} 样本, 三档 (丢弃{sum(1 for s in SAMPLES if s['expected'] == '丢弃')}/"
+        f"沉淀{sum(1 for s in SAMPLES if s['expected'] == '沉淀')}/"
+        f"提醒{sum(1 for s in SAMPLES if s['expected'] == '提醒')})"
+    )
     print("判据: 准确率 ≥80% 且延迟 <2s")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     results = []
     for model in target_models:
@@ -155,28 +162,30 @@ def main():
             latencies.append(lat)
             if "错误" in verdict or "未知" in verdict:
                 errors += 1
-                error_details.append(f"  样本{i+1}: {verdict}")
+                error_details.append(f"  样本{i + 1}: {verdict}")
             elif verdict == s["expected"]:
                 correct += 1
         acc = correct / len(SAMPLES)
         avg_lat = sum(latencies) / len(latencies)
         p95_lat = sorted(latencies)[int(len(latencies) * 0.95)]
-        results.append({
-            "model": model,
-            "accuracy": acc,
-            "avg_latency": avg_lat,
-            "p95_latency": p95_lat,
-            "errors": errors,
-        })
+        results.append(
+            {
+                "model": model,
+                "accuracy": acc,
+                "avg_latency": avg_lat,
+                "p95_latency": p95_lat,
+                "errors": errors,
+            }
+        )
         print(f"准确率 {correct}/{len(SAMPLES)} ({acc:.0%}), 延迟 avg={avg_lat:.2f}s p95={p95_lat:.2f}s, 错误 {errors}")
         if error_details:
             for ed in error_details[:3]:
                 print(ed)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("选型结果 (G1' 判据: 准确率 ≥80% 且延迟 <2s):")
     print(f"{'模型':<35} {'准确率':>8} {'延迟avg':>10} {'延迟p95':>10} {'状态':>8}")
-    print(f"{'-'*35} {'-'*8} {'-'*10} {'-'*10} {'-'*8}")
+    print(f"{'-' * 35} {'-' * 8} {'-' * 10} {'-' * 10} {'-' * 8}")
     for r in sorted(results, key=lambda x: (-x["accuracy"], x["avg_latency"])):
         acc_ok = r["accuracy"] >= 0.8
         lat_ok = r["avg_latency"] < 2.0

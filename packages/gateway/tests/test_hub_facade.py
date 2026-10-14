@@ -95,9 +95,7 @@ def test_active_model_directory_scope_all_merges_registry_cloud_models(monkeypat
 
     monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
 
-    response = asyncio.run(
-        openai_proxy.handle_list_models(SimpleNamespace(query={"scope": "all"}))
-    )
+    response = asyncio.run(openai_proxy.handle_list_models(SimpleNamespace(query={"scope": "all"})))
     payload = json.loads(response.body)
 
     assert response.status == 200
@@ -831,3 +829,38 @@ def test_bos_infer_rejects_non_http_base_url(monkeypatch, capsys):
     monkeypatch.setenv("AETHERFORGE_BASE_URL", "file:///tmp/not-a-gateway")
     assert cli.cmd_infer([]) == 2
     assert "http(s)" in json.loads(capsys.readouterr().out)["error"]
+
+
+def _ready(monkeypatch, served_model: str, content: str = "OK", query: dict | None = None):
+    class Gateway:
+        async def generate(self, request):
+            return GatewayResponse(content=content, model=served_model, latency_ms=1)
+
+    monkeypatch.setattr(openai_proxy, "get_gateway", lambda: Gateway())
+    request = SimpleNamespace(query={"model": "mythos-fast", **(query or {})})
+    response = asyncio.run(openai_proxy.handle_ready(request))
+    return response.status, json.loads(response.body)
+
+
+def test_ready_reports_ready_when_requested_tier_serves(monkeypatch):
+    status, body = _ready(monkeypatch, "mythos-fast")
+    assert status == 200
+    assert body["status"] == "ready" and body["fallback"] is False
+
+
+def test_ready_flags_fallback_as_degraded(monkeypatch):
+    """兜底承接不能报 ready(此前报 ready, 判活方看不出档已挂); 默认仍 200 保住 gw-resolve 选站。"""
+    status, body = _ready(monkeypatch, "coding")
+    assert status == 200
+    assert body["status"] == "degraded" and body["fallback"] is True
+    assert body["requested"] == "mythos-fast" and body["model"] == "coding"
+
+
+def test_ready_strict_rejects_fallback(monkeypatch):
+    status, body = _ready(monkeypatch, "coding", query={"strict": "1"})
+    assert status == 503 and body["fallback"] is True
+
+
+def test_ready_not_ready_without_content(monkeypatch):
+    status, body = _ready(monkeypatch, "mythos-fast", content="")
+    assert status == 503 and body["status"] == "not_ready"

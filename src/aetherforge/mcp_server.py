@@ -50,9 +50,11 @@ mcp.tool(name="forge_generate_mesh")(mesh_generate)
 class _DirectHTTPGateway:
     """轻量级网关包装 — 直接 HTTP 调用, 不依赖 ModelGateway."""
 
-    def __init__(self, url: str = "http://127.0.0.1:9000/coding/v1/chat/completions", key: str = "sk-omlx-admin"):
-        self.url = url
-        self.key = key
+    def __init__(self, url: str | None = None, key: str | None = None):
+        from aetherforge.endpoint import chat_url, gateway_key
+
+        self.url = url or chat_url()
+        self.key = key or gateway_key()
 
     async def generate(self, request):
         """模拟 ModelGateway.generate 接口."""
@@ -218,12 +220,14 @@ def forge_triage_status() -> dict:
     """
     import urllib.request
 
-    gateway = "http://127.0.0.1:9000"
+    from aetherforge.endpoint import gateway_key, gateway_url
+
+    gateway = gateway_url()
     status = {"gateway": "unknown", "models": []}
 
     # 检查网关
     try:
-        req = urllib.request.Request(f"{gateway}/v1/models", headers={"Authorization": "Bearer sk-omlx-admin"})  # noqa: S310  (internal gateway call)
+        req = urllib.request.Request(f"{gateway}/v1/models", headers={"Authorization": f"Bearer {gateway_key()}"})  # noqa: S310  (internal gateway call)
         with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310  (internal gateway call)
             import json
 

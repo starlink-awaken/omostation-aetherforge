@@ -51,13 +51,17 @@ def test_shipped_yaml_loads_and_covers_litellm_names():
         "rerank",
         "vision-lite",
         "qwen38-27b",
-        "deepseek-v4-flash",
-        "deepseek-v4-pro",
     ):
         assert name in table, f"缺别名: {name}"
-    assert table["qwen38-27b"] == "qwen-3.8-27b"
-    assert table["deepseek-v4-flash"] == "qwen-3.5-9b-flash"
-    assert table["deepseek-v4-pro"] == "qwen-3.5-9b-pro"
+    assert table["qwen38-27b"] == "qwen3.8-27b-splash"
+
+
+def test_unservable_aliases_are_not_shipped():
+    """deepseek-v4-* 在所有运行时都推理不了(2026-09-25 实测), 登记了就只会静默兜底
+    到别的模型 —— 宁可未知名走 fallback 链, 也不能伪装成已支持。"""
+    table = aliases.load_aliases()
+    for name in ("deepseek-v4-flash", "deepseek-v4-pro"):
+        assert name not in table
 
 
 def test_ollama_names_route_through_logical_model_chain():
@@ -67,17 +71,24 @@ def test_ollama_names_route_through_logical_model_chain():
         assert ":" not in table[name], f"{name} 仍指向 ollama 风格标签"
 
 
-def test_common_intents_prefer_omlx_app_logical_models():
-    """高频意图应先走 MBP oMLX App，再由 models.json 决定远端兜底。"""
+def test_common_intents_route_to_measured_tiers():
+    """高频意图落到 2026-09-25 实测档: Splash(LM Studio) 为主力, oMLX 保留可点名/兜底。"""
     table = aliases.load_aliases()
-    assert table["triage"] == "mythos-fast"
+    assert table["opus"] == "swift-1.5-qwen3.8-27b-splash"  # 2026-10-06 A/B 同分更快
+    assert table["sonnet"] == table["haiku"] == table["coder"] == "qwen3.6-35b-a3b-splash"
+    assert table["triage"] == table["fast"] == "qwen3.6-35b-a3b-splash"
     assert table["mini-9b"] == "mythos-fast"
-    assert table["fast"] == "mythos-fast"
-    assert table["mid"] == "qwen-3.8-27b"
-    assert table["general"] == "qwen-3.8-27b"
-    assert table["coder"] == "coding-next"
-    assert table["coder-next"] == "coding-next"
-    assert table["vision-mid"] == "vision-large"
+    assert table["mid"] == table["general"] == "swift-1.5-qwen3.8-27b-splash"
+    assert table["coder-next"] == "qwen/qwen3-coder-next"  # LM Studio JIT, 不与 oMLX 常驻集争抢
+    assert table["vision"] == table["vision-mid"] == "qwen3.6-35b-a3b-splash"
+
+
+def test_directly_named_omlx_keys_are_shadowed_to_working_tiers():
+    """调用方直呼 reasoning/coding/mid-local(工作区百余处): oMLX 对应物推理报错/无投影/极慢,
+    别名层必须接住, 否则网关 fallback_chain 里的同名项也跟着失效。"""
+    table = aliases.load_aliases()
+    assert table["reasoning"] == "swift-1.5-qwen3.8-27b-splash"
+    assert table["coding"] == table["mid-local"] == "qwen3.6-35b-a3b-splash"
 
 
 # ── 2. 坏配置只能降级, 不能让网关起不来 ──────────────────
@@ -146,7 +157,7 @@ def test_gateway_config_loads_alias_table():
 
     cfg = GatewayConfig()
     assert cfg.aliases, "GatewayConfig 未加载别名表"
-    assert cfg.aliases.get("coder") == "coding-next"
+    assert cfg.aliases.get("coder") == "qwen3.6-35b-a3b-splash"
 
 
 if __name__ == "__main__":
@@ -184,3 +195,23 @@ def test_non_self_endpoints_not_flagged():
         "not-a-url",
     ):
         assert not gw._is_self_endpoint(url), f"误判为自引用: {url}"
+
+
+def test_media_aliases_point_at_served_backends():
+    """语音别名落 oMLX 实测可用的音频模型; 中文 TTS 不能指 Kokoro(缺 misaki[zh])。"""
+    table = aliases.load_aliases()
+    assert table["tts"] == table["tts-zh"] == "tts-qwen3"
+    assert table["tts-en"] == "tts-kokoro"
+    assert table["asr"] == table["whisper"] == "asr-whisper"
+
+
+def test_decision_aliases():
+    table = aliases.load_aliases()
+    assert table["decide"] == table["decide-fast"] == "laya-multilingual"
+    assert table["decide-calibrated"] == "jev-v2"
+
+
+def test_video_aliases_route_by_engine():
+    table = aliases.load_aliases()
+    assert table["video"] == table["video-ltx"] == "phosphene-ltx"
+    assert table["video-h3"] == table["video-dialogue"] == "phosphene-h3"

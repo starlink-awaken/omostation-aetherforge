@@ -3,6 +3,7 @@ type: ephemeral
 lifecycle: functional
 owner: aetherforge
 last_updated: "2026-07-30"
+last-reviewed: 2026-09-18
 ---
 # FUNC-01 S0-S3 执行记录 (功能线第一单)
 

@@ -13,6 +13,7 @@ K4: Gmail 接源待用户凭据, 当前唯一阻塞.
 - classify_sensitivity: 本模块的公开域名白名单逻辑 (在 gateway.is_sensitive 基础上加白名单)
 - route / is_reminder / hard_block_external: 本模块核心决策
 """
+
 from __future__ import annotations
 
 import re
@@ -36,6 +37,8 @@ if _gw_p not in sys.path:
 from llm_gateway.gateway import is_sensitive as _gateway_is_sensitive
 from llm_gateway.gateway import run_async, strip_thinking
 
+from aetherforge.endpoint import gateway_key, gateway_url
+
 # 导出 strip_thinking 供外部直接使用
 __all__ = ["strip_thinking", "classify_sensitivity", "is_reminder", "route", "hard_block_external", "embed_texts"]
 
@@ -45,14 +48,31 @@ __all__ = ["strip_thinking", "classify_sensitivity", "is_reminder", "route", "ha
 # 注意: docs.google.com (工作文档) 不在此列, 已加入敏感模式
 # 注意: mail.google.com (Gmail) 已在敏感模式中
 PUBLIC_DOMAINS = {
-    "zhihu.com", "weibo.com", "twitter.com", "x.com", "reddit.com",
-    "stackoverflow.com", "github.com", "docs.python.org", "developer.mozilla.org",
-    "wikipedia.org", "baidu.com", "bing.com",
-    "jd.com", "taobao.com", "tmall.com", "amazon.com",
-    "bilibili.com", "douyin.com", "youtube.com",
+    "zhihu.com",
+    "weibo.com",
+    "twitter.com",
+    "x.com",
+    "reddit.com",
+    "stackoverflow.com",
+    "github.com",
+    "docs.python.org",
+    "developer.mozilla.org",
+    "wikipedia.org",
+    "baidu.com",
+    "bing.com",
+    "jd.com",
+    "taobao.com",
+    "tmall.com",
+    "amazon.com",
+    "bilibili.com",
+    "douyin.com",
+    "youtube.com",
     # Google 公开服务 (搜索/地图/翻译等, 非邮件/文档)
-    "google.com", "google.com.hk", "google.cn",
-    "googleapis.com", "gstatic.com",
+    "google.com",
+    "google.com.hk",
+    "google.cn",
+    "googleapis.com",
+    "gstatic.com",
     "notifications.googleapis.com",
 }
 
@@ -179,9 +199,7 @@ def hard_block_external(title: str, url: str) -> None:
     """硬拦: 敏感流调用外部 API 时抛异常, 不靠约定."""
     sensitivity = classify_sensitivity(title, url)
     if sensitivity == "sensitive":
-        raise PermissionError(
-            f"[硬拦] 敏感流禁止送外部 API: {title[:40]} ({urlparse(url).netloc})"
-        )
+        raise PermissionError(f"[硬拦] 敏感流禁止送外部 API: {title[:40]} ({urlparse(url).netloc})")
 
 
 # ============================================================
@@ -203,6 +221,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     """
     try:
         from llm_gateway.gateway import ModelGateway, get_gateway  # noqa: F401 — 探测可用性
+
         gateway = get_gateway()
         return run_async(gateway.embed(texts))
     except ImportError:
@@ -216,17 +235,19 @@ def _embed_via_omlc(texts: list[str]) -> list[list[float]]:
     import urllib.request
 
     # 降级链: 8183 → 8188
-    ports = [8183, 8188]
+    ports = ["gateway"]  # 旧 8183/8188 单模型端口已下线, 统一经门面 /v1/embeddings
     for port in ports:
         try:
-            payload = json.dumps({
-                "input": texts,
-                "model": "embedding",
-            }).encode()
-            req = urllib.request.Request(
-                f"http://100.96.126.35:{port}/v1/embeddings",
+            payload = json.dumps(
+                {
+                    "input": texts,
+                    "model": "embedding",
+                }
+            ).encode()
+            req = urllib.request.Request(  # noqa: S310 — 内部门面地址(aetherforge.endpoint, http)
+                f"{gateway_url()}/v1/embeddings",
                 data=payload,
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {gateway_key()}"},
             )
             with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310 — internal omlx API
                 data = json.loads(resp.read())
@@ -236,7 +257,7 @@ def _embed_via_omlc(texts: list[str]) -> list[list[float]]:
         except Exception:  # noqa: S112 — probe next port
             continue
 
-    raise RuntimeError("所有 embedding 提供者失败 (8183, 8188)")
+    raise RuntimeError("embedding 经门面失败")
 
 
 if __name__ == "__main__":

@@ -170,8 +170,8 @@ class TriageHandler(BaseHTTPRequestHandler):
 
 def create_server(
     port: int | None = None,
-    gateway_url: str = "http://127.0.0.1:9000/v1/chat/completions",
-    api_key: str = "sk-omlx-admin",
+    gateway_url: str | None = None,
+    api_key: str | None = None,
     gateway=None,
 ) -> HTTPServer:
     """创建 HTTP 服务器 (v10 α.1 续: gateway 传 TriageRouter, 修 create_server 未传 bug)."""
@@ -191,8 +191,8 @@ def create_server(
 def main():
     parser = argparse.ArgumentParser(description="分诊 HTTP 服务")
     parser.add_argument("--port", type=int, default=None, help="监听端口 (默认: TRIAGE_PORT 环境变量或 8095)")
-    parser.add_argument("--gateway", default="http://127.0.0.1:9000/v1/chat/completions")
-    parser.add_argument("--key", default="sk-omlx-admin")
+    parser.add_argument("--gateway", default=None, help="默认 aetherforge 门面(见 aetherforge.endpoint)")
+    parser.add_argument("--key", default=None, help="默认读 Keychain aetherforge-gateway")
     args = parser.parse_args()
 
     # v10 α.1 续: 初始化 ModelGateway 传 TriageRouter (修 create_server 未传 gateway bug)

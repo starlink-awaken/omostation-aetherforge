@@ -47,6 +47,7 @@ from .paths import M1_COMPUTE_ENGINE_DIR, M1_MODEL_DIR
 from .registry import ModelRegistry
 from .scheduler import ModelScheduler
 from .ssot_loader import load_ssot_models
+from .stream_filter import StreamThinkingFilter
 from .types import ChatOptions
 
 _log = logging.getLogger(__name__)
@@ -56,6 +57,12 @@ _log = logging.getLogger(__name__)
 # ============================================================
 THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 THINK_TAG_RE = re.compile(r"</?think>", re.IGNORECASE)
+# GLM-4.6V 等把最终答案包在 <|begin_of_box|>…<|end_of_box|> 里: 标记是模板控制符, 内容才是答案
+TEMPLATE_MARKER_RE = re.compile(r"<\|(?:begin|end)_of_box\|>")
+# Gemma-4 思考通道: 模板输出 <|channel>thought…<channel|>答案; LM Studio 会吃掉开头的
+# <|channel>, 只剩「思考文字<channel|>答案」, 且 reasoning_effort=none 下仍会带一小段 (2026-09-28 实测)。
+GEMMA_CHANNEL_BLOCK_RE = re.compile(r"<\|channel>.*?<channel\|>", re.DOTALL)
+GEMMA_CHANNEL_CLOSE = "<channel|>"
 
 
 def strip_thinking(text: str) -> str:
@@ -71,8 +78,33 @@ def strip_thinking(text: str) -> str:
         return text
     text = THINK_BLOCK_RE.sub("", text)
     text = THINK_TAG_RE.sub("", text)
+    text = GEMMA_CHANNEL_BLOCK_RE.sub("", text)
+    if GEMMA_CHANNEL_CLOSE in text:  # 开头标记已被吃掉: 收尾标记之前全是思考
+        text = text.rsplit(GEMMA_CHANNEL_CLOSE, 1)[1]
+    text = TEMPLATE_MARKER_RE.sub("", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+# 生成类请求(chat / responses / messages)未显式给 timeout 时的默认上限。
+# 原先写死 120s: LM Studio 冷加载 Splash-35B 实测 ~82s, 更大的模型(Coder-Next 45G)冷加载
+# 必超 120s → 首个请求 504, 模型却在后台加载完 —— 调用方看到的是"偶发超时"。
+DEFAULT_REQUEST_TIMEOUT = float(os.environ.get("AETHERFORGE_REQUEST_TIMEOUT", "300"))
+
+
+def _with_nothink_suffix(messages: list[dict]) -> list[dict]:
+    """在最后一条 user 消息末尾追加 /nothink(GLM 系关 thinking 的唯一有效方式)。不改原列表。"""
+    out = [dict(m) for m in messages]
+    for m in reversed(out):
+        if m.get("role") != "user":
+            continue
+        content = m.get("content")
+        if isinstance(content, str):
+            m["content"] = content.rstrip() + " /nothink"
+        elif isinstance(content, list):
+            m["content"] = list(content) + [{"type": "text", "text": "/nothink"}]
+        break
+    return out
 
 
 _INVENTORY_DROP_CODE = "inventory_drop"
@@ -345,13 +377,9 @@ OMLX_ALIAS_MAP: dict[str, str] = {
 
 def _load_omlx_ports() -> dict[str, int]:
     """从 omlx models.json 读 model_name → port(含别名)。失败则回退硬编码。"""
-    fallback = {
-        "coding-fast": 8081,
-        "coding": 8082,
-        "reasoning": 8083,
-        "reasoning-lite": 8085,
-        "mythos-fast": 8185,
-    }
+    # 2026-09-26: 只留仍存在于 oMLX 目录的键。coding-fast/coding/reasoning/reasoning-lite
+    # 已下线, 留着会把请求送进 A 分支(本机 omlx)后必然失败、且空跑一轮兜底。
+    fallback = {"mythos-fast": 8185}
     if os.environ.get("AETHERFORGE_OMLXC_MODE", "legacy").lower() != "legacy":
         return fallback
     try:
@@ -459,6 +487,17 @@ def _load_ollama_fallback() -> dict[str, str]:
     return out
 
 
+def _has_image(messages: list[dict[str, Any]]) -> bool:
+    """OpenAI 多模态消息里是否带图片(content 为 list 且含 image_url/image 段)。"""
+    for msg in messages:
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if isinstance(content, list) and any(
+            isinstance(part, dict) and part.get("type") in {"image_url", "image", "input_image"} for part in content
+        ):
+            return True
+    return False
+
+
 @dataclass
 class GatewayConfig:
     """网关配置."""
@@ -495,6 +534,14 @@ class GatewayConfig:
     # 消息里加 /no_think 前缀 —— 四种写法都不管用(2026-08-10, qwen3.5-9b)。
     # 设成 None 可整体关掉这条补救。
     no_think_param: dict[str, object] | None = field(default_factory=lambda: {"reasoning_effort": "none"})
+    # 这些模型关 thinking 只认用户消息末尾的 /nothink(2026-09-27 LM Studio 实测 GLM-4.6V:
+    # reasoning_effort=none 反而正文全空; chat_template_kwargs / thinking.disabled 无效;
+    # /nothink 后缀 → reasoning 0 token、6 token 出答案)。按模型 id 子串匹配。
+    no_think_suffix_models: tuple[str, ...] = ("glm-4.6v", "glm-4.5v", "glm-4.1v")
+    # 首发就带 no_think_param 的模型 (按模型 id 子串匹配)。Gemma-4 默认思考: 预算小时正文全空,
+    # 经门面时思考段还会带 <channel|> 等标记漏进正文 (剥不掉, 触发不了「正文空 → 关 thinking 重试」);
+    # 2026-09-28 LM Studio 实测 reasoning_effort=none 4/4 干净作答。
+    no_think_preset_models: tuple[str, ...] = ("gemma-4",)
     # 本网关自己的 OpenAI 门面端点。SSOT 的 ENG-OMLX-LOCAL 现指向门面
     # (原先指向 LiteLLM :4000), 于是 registry 回退路径有可能打回自己 ——
     # 一个请求在"直连端口失败 → 回退 registry → 门面 → 本网关"之间成环。
@@ -506,10 +553,13 @@ class GatewayConfig:
     aliases: dict[str, str] = field(default_factory=_load_aliases)
     # fallback 链 (按优先级)
     fallback_chain: list[str] = field(default_factory=lambda: ["coding", "reasoning", "mythos-fast"])
+    # 带图片的请求只在视觉档里兜底: 通用链是纯文本模型, 兜过去会静默丢掉图片(禁跨能力兜底)
+    vision_fallback_chain: list[str] = field(default_factory=lambda: ["vision", "minicpm"])
     # 按复杂度分流: level → 定制 fallback 链 (未配置的 level 回退 fallback_chain)
     complexity_chains: dict[str, list[str]] = field(
         default_factory=lambda: {
-            "simple": ["mythos-fast", "coding-fast", "coding"],
+            # coding-fast 已无后端(旧 :8081 单模型端口), 留着每次白失败一轮
+            "simple": ["mythos-fast", "coding"],
             "complex": ["reasoning", "coding", "mythos-fast"],
         }
     )
@@ -618,6 +668,19 @@ def _daily_report_safely() -> None:
         _log.debug("daily report skipped: %s", exc)
 
 
+class _NullAsyncCtx:
+    """背压关闭时的空上下文(不排队)。"""
+
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+_NULL_SLOT = _NullAsyncCtx()
+
+
 class ModelGateway:
     """统一模型网关 — 所有 LLM 调用的唯一入口.
 
@@ -640,6 +703,7 @@ class ModelGateway:
     ):
         self._registry = registry
         self._scheduler = scheduler
+        self._model_slots: dict[str, asyncio.Semaphore] = {}  # 按目标模型的并发闸(背压)
         self._config = config or GatewayConfig()
         self._metrics = metrics or MetricsCollector()
         self._memory_guard = MemoryGuard(self._config.memory_safety_factor)
@@ -786,6 +850,19 @@ class ModelGateway:
             count = 0
         self._health_failures[model_name] = (count + 1, time.time())
 
+    def _record_generation_failure(self, model_name: str, error: Exception) -> None:
+        """Record a generation failure with bounded retry semantics.
+
+        Capacity contention is transient. Only explicit missing-model or
+        missing-placement configuration errors are permanent.
+        """
+        lowered = str(error).lower()
+        permanent = any(
+            marker in lowered
+            for marker in ("model not found", "missing model", "placement not found", "missing placement")
+        )
+        self._record_health_failure(model_name, permanent=permanent)
+
     def _is_health_blocked(self, model_name: str) -> bool:
         """Whether *model_name* should be skipped without even attempting it."""
         entry = self._health_failures.get(model_name)
@@ -805,20 +882,32 @@ class ModelGateway:
         """Plain failure count for diagnostics (health() endpoint)."""
         return self._health_failures.get(model_name, (0, 0.0))[0]
 
+    def _slot(self, model_id: str) -> asyncio.Semaphore | None:
+        """按目标模型的并发闸(背压): 高负载下 N 路重模型同时推理互相拖垮
+        (全链路并发实测 2026-09-29: swap 20G 时 504/502 连发), 排队等槽好过全砸。
+        AETHERFORGE_MAX_CONCURRENT_PER_MODEL=0 关闭。"""
+        limit = int(os.environ.get("AETHERFORGE_MAX_CONCURRENT_PER_MODEL", "3") or 0)
+        if limit <= 0:
+            return None
+        if model_id not in self._model_slots:
+            self._model_slots[model_id] = asyncio.Semaphore(limit)
+        return self._model_slots[model_id]
+
     async def generate(self, request: GatewayRequest) -> GatewayResponse:
         """带端到端 deadline 的统一入口。
 
-        timeout 覆盖发现、选路、加载、重试和全部 fallback，而不是每一跳都重新
-        获得一份完整预算。这个区别决定故障时是 30 秒返回，还是挂几分钟。
+        timeout 覆盖发现、选路、加载、重试、排队(背压闸)和全部 fallback，而不是
+        每一跳都重新获得一份完整预算。这个区别决定故障时是 30 秒返回，还是挂几分钟。
         """
         t0 = time.time()
         try:
             async with asyncio.timeout(max(0.1, request.timeout)):
-                if self._config.omlxc_mode == "legacy":
-                    return await self._generate_legacy(request)
-                if self._config.omlxc_mode == "shadow":
-                    return await self._generate_shadow(request)
-                return await self._generate_active(request)
+                async with (self._slot(request.model or "__auto__") or _NULL_SLOT):
+                    if self._config.omlxc_mode == "legacy":
+                        return await self._generate_legacy(request)
+                    if self._config.omlxc_mode == "shadow":
+                        return await self._generate_shadow(request)
+                    return await self._generate_active(request)
         except TimeoutError:
             return GatewayResponse(
                 content="",
@@ -929,7 +1018,11 @@ class ModelGateway:
 
     @staticmethod
     def _agent_fields(extra: Mapping[str, Any]) -> dict[str, Any]:
-        return {key: extra[key] for key in ("tools", "tool_choice") if key in extra and extra[key] is not None}
+        return {
+            key: extra[key]
+            for key in ("tools", "tool_choice", "top_p", "top_k", "stop")
+            if key in extra and extra[key] is not None
+        }
 
     def _business_model(self, request: GatewayRequest) -> str:
         prompt = self._extract_prompt(request.messages)
@@ -1009,8 +1102,11 @@ class ModelGateway:
         except Exception as e:
             _log.debug("[ModelGateway] scheduler selection skipped: %s", e)
 
-        # 4. 尝试 fallback 链
-        full_chain.extend(chain)
+        # 4. 尝试 fallback 链(带图片时换成视觉链, 且不采纳 scheduler 的纯文本候选)
+        if _has_image(request.messages):
+            full_chain = ([request.model] if request.model else []) + list(self._config.vision_fallback_chain)
+        else:
+            full_chain.extend(chain)
 
         # 去重并执行本地/云边界。默认 local，不再因为 scheduler 恰好偏爱某个
         # 云模型就把本地任务送出去。
@@ -1040,25 +1136,17 @@ class ModelGateway:
                 return resp
             except Exception as e:
                 last_error = str(e)[:100]
-                # 治理: no_capacity 是确定性失败(模型未加载/无容量), 不是
-                # 暂时抖动 —— 置持久跳过(本进程生命周期不再尝试), 避免重启
-                # 清零后每轮重新快速失败(2026-08-24 日报: coding-fast×10)。
-                # 其它失败(含 insufficient_capacity 容量抖动/网络抖动/熔断器
-                # 冷却窗口)按 _HEALTH_FAILURE_TTL_SECONDS 衰减 —— 见
-                # _record_health_failure 顶部注释, 2026-09-11 实测驱动。
+                self._record_generation_failure(model_name, e)
                 if "no capacity" in str(e).lower():
-                    self._record_health_failure(model_name, permanent=True)
                     from .events import emit as _emit_unhealthy
 
                     _emit_unhealthy("provider_unhealthy", {"model": model_name, "reason": "no_capacity"})
-                else:
-                    self._record_health_failure(model_name)
                 # 治理 P1: 失败按 CloudErrorCode 分类入 metrics + 事件流
                 code = self._classify_error(e)
                 self._metrics.record_error(model=model_name, error_type=code)
                 from .events import emit
 
-                emit("request_failed", {"model": model_name, "code": code})
+                emit("request_failed", {"model": model_name, "code": code, "requested": request.model})
                 _log.warning("[ModelGateway] %s failed [%s]: %s", model_name, code, last_error)
                 continue
 
@@ -1067,6 +1155,8 @@ class ModelGateway:
             model="",
             latency_ms=(time.time() - t0) * 1000,
             error=f"All models failed. Last: {last_error}",
+            # 错误响应必须标 error, 默认值 "stop" 会让客户端把它当正常完成
+            finish_reason="error",
         )
 
     async def generate_stream(self, request: GatewayRequest) -> AsyncGenerator[OmlxcStreamChunk]:
@@ -1076,8 +1166,14 @@ class ModelGateway:
         )
         effective = replace(request, routing_mode="local") if sensitive else request
 
+        emit_reasoning = bool(
+            (effective.extra and effective.extra.get("emit_reasoning"))
+            or (effective.extra and effective.extra.get("reasoning"))
+            or (effective.task in {"reasoning", "deep_research", "math"})
+        )
+
         if self._config.omlxc_mode == "legacy":
-            relay = self._relay_stream(self._generate_legacy_stream(effective))
+            relay = self._relay_stream(self._generate_legacy_stream(effective), emit_reasoning=emit_reasoning)
             try:
                 async for chunk in relay:
                     yield chunk
@@ -1094,7 +1190,7 @@ class ModelGateway:
                         resolved,
                         profile="interactive",
                         capabilities={"chat", "streaming"},
-                        thinking=False,
+                        thinking=emit_reasoning,
                         timeout=min(effective.timeout, 2.0),
                     )
                 except OmlxcError as error:
@@ -1104,7 +1200,7 @@ class ModelGateway:
                         resolved,
                         error.code.value,
                     )
-            relay = self._relay_stream(self._generate_legacy_stream(effective))
+            relay = self._relay_stream(self._generate_legacy_stream(effective), emit_reasoning=emit_reasoning)
             try:
                 async for chunk in relay:
                     yield chunk
@@ -1113,7 +1209,7 @@ class ModelGateway:
             return
 
         if effective.routing_mode == "cloud":
-            relay = self._relay_stream(self._generate_legacy_stream(effective))
+            relay = self._relay_stream(self._generate_legacy_stream(effective), emit_reasoning=emit_reasoning)
             try:
                 async for chunk in relay:
                     yield chunk
@@ -1129,29 +1225,31 @@ class ModelGateway:
             max_tokens=effective.max_tokens,
             timeout=effective.timeout,
             profile="interactive",
-            thinking=False,
+            thinking=emit_reasoning,
             **self._agent_fields(effective.extra),
         )
+        relay = self._relay_stream(source, emit_reasoning=emit_reasoning)
         try:
-            async for chunk in source:
-                emitted = emitted or bool(chunk.content) or bool(chunk.tool_calls)
+            async for chunk in relay:
+                emitted = emitted or bool(chunk.content) or bool(chunk.tool_calls) or bool(chunk.reasoning_content)
                 yield replace(chunk, model=logical)
         except OmlxcError as error:
             if sensitive:
                 raise OmlxcError(error.code, emitted_content=emitted) from error
             if effective.routing_mode == "hybrid" and not emitted and error.cloud_fallback_allowed:
-                relay = self._relay_stream(self._generate_legacy_stream(replace(effective, routing_mode="cloud")))
+                fallback_relay = self._relay_stream(
+                    self._generate_legacy_stream(replace(effective, routing_mode="cloud")),
+                    emit_reasoning=emit_reasoning,
+                )
                 try:
-                    async for chunk in relay:
+                    async for chunk in fallback_relay:
                         yield chunk
                 finally:
-                    await relay.aclose()
+                    await fallback_relay.aclose()
                 return
             raise
         finally:
-            close = getattr(source, "aclose", None)
-            if close is not None:
-                await close()
+            await relay.aclose()
 
     async def _generate_legacy_stream(self, request: GatewayRequest) -> AsyncGenerator[OmlxcStreamChunk]:
         """Legacy stream boundary; 优先 registry 真流式, 回退到聚合单块。
@@ -1210,7 +1308,7 @@ class ModelGateway:
         # no_think 学习成果 + tools/tool_choice 透传 —— 此前流式只带前者,
         # agent 客户端带工具的流式请求会静默丢掉全部工具定义。
         extra: dict[str, Any] = {}
-        if model_id in self._needs_no_think and self._config.no_think_param:
+        if self._config.no_think_param and (model_id in self._needs_no_think or self._is_no_think_preset(model_id)):
             extra.update(self._config.no_think_param)
         extra.update(self._agent_fields(request.extra))
         source = self._registry.chat_stream(
@@ -1267,7 +1365,7 @@ class ModelGateway:
             cost=0.0,  # 与聚合路径一致(cost_usd 从未参与计算, 恒 0)
             tokens=int((final_usage or {}).get("total_tokens") or 0),
         )
-        self._record_cloud_usage(model_id, final_usage)
+        self._record_cloud_usage(model_id, final_usage, requested=request.model)
         yield OmlxcStreamChunk(
             model=logical,
             finish_reason="tool_calls" if final_tool_calls else (final_reason or "stop"),
@@ -1278,10 +1376,23 @@ class ModelGateway:
     @staticmethod
     async def _relay_stream(
         source: AsyncIterator[OmlxcStreamChunk],
+        *,
+        emit_reasoning: bool = False,
+        filter_thinking: bool = True,
     ) -> AsyncGenerator[OmlxcStreamChunk]:
+        flt = StreamThinkingFilter(emit_reasoning=emit_reasoning) if filter_thinking else None
+        last_chunk: OmlxcStreamChunk | None = None
         try:
             async for chunk in source:
-                yield chunk
+                last_chunk = chunk
+                if flt is not None:
+                    for out_chunk in flt.process_chunk(chunk):
+                        yield out_chunk
+                else:
+                    yield chunk
+            if flt is not None:
+                for out_chunk in flt.finish(last_chunk):
+                    yield out_chunk
         finally:
             close = getattr(source, "aclose", None)
             if close is not None:
@@ -1311,6 +1422,7 @@ class ModelGateway:
             model="",
             latency_ms=(time.time() - t0) * 1000,
             error="[K1] 敏感流无可用本地模型",
+            finish_reason="error",
         )
 
     async def _try_generate(self, model_name: str, request: GatewayRequest) -> GatewayResponse:
@@ -1424,6 +1536,21 @@ class ModelGateway:
         """引擎 ID → 凭据名 token(与 _PROVIDER_ALIASES 同规则)。"""
         return model_id.partition("/")[0].replace("ENG-", "").split("-")[0].lower()
 
+    def _answer_part(self, model_id: str, result: Any, content: str) -> str:
+        """剥离思考后的正文。Gemma-4 等预设模型被 length 截断且没出现 <channel|> 收尾标记时,
+        输出全是思考 (剥不掉, 看似有正文) —— 当作无正文, 走「抬预算重试」(2026-09-28 实测)。"""
+        if (
+            self._is_no_think_preset(model_id)
+            and getattr(result, "finish_reason", None) == "length"
+            and GEMMA_CHANNEL_CLOSE not in content
+        ):
+            return ""
+        return _strip_thinking(content)
+
+    def _is_no_think_preset(self, model_id: str) -> bool:
+        mid = model_id.lower()
+        return any(k in mid for k in self._config.no_think_preset_models)
+
     def _budget_guard(self, model_id: str) -> None:
         """预算拦截(codexbar 遗产接线): 超月限且 action=block 则拒绝。
 
@@ -1443,7 +1570,9 @@ class ModelGateway:
         except Exception:
             return  # 预算系统故障不挡请求(记账缺失≠拒绝服务)
 
-    def _record_cloud_usage(self, model_id: str, usage: Mapping[str, int] | None) -> None:
+    def _record_cloud_usage(
+        self, model_id: str, usage: Mapping[str, int] | None, requested: str | None = None
+    ) -> None:
         """云端调用记账: usage_log + month_spend 累计(PricingRegistry 定价)。
 
         record_usage 方法自创建以来零调用 —— usage_log 空表, month_spend
@@ -1472,6 +1601,9 @@ class ModelGateway:
                     "provider": self._cred_token_for(model_id),
                     "tokens_in": tokens_in,
                     "tokens_out": tokens_out,
+                    # 调用方请求的名字: /stats 与 model 只记实际服务方, 静默兜底
+                    # (请求 A 被换成 B)此前在统计和事件里都看不见
+                    "requested": requested,
                 },
             )
         except Exception:
@@ -1487,13 +1619,15 @@ class ModelGateway:
         self._budget_guard(model_id)
         """经 registry/provider 链生成。display_name 是消费者原本要的名字。"""
 
-        async def _call(max_tokens: int | None, extra: dict | None = None):
+        suffix_model = any(k in model_id.lower() for k in self._config.no_think_suffix_models)
+
+        async def _call(max_tokens: int | None, extra: dict | None = None, nothink: bool = False):
             merged_extra = dict(request.extra)
             if extra:
                 merged_extra.update(extra)
             return await self._registry.chat(
                 model_id,
-                request.messages,
+                _with_nothink_suffix(request.messages) if nothink else request.messages,
                 ChatOptions(
                     temperature=request.temperature,
                     max_tokens=max_tokens,
@@ -1503,17 +1637,19 @@ class ModelGateway:
 
         # 之前已经证实过这个模型不关 thinking 就不出正文 —— 直接带上,
         # 省掉那次注定烧满预算的首发(实测 triage 热态 14s → 1s)。
+        known_no_think = model_id in self._needs_no_think or self._is_no_think_preset(model_id)
         preset = (
             dict(self._config.no_think_param)
-            if model_id in self._needs_no_think and self._config.no_think_param
+            if known_no_think and self._config.no_think_param and not suffix_model
             else None
         )
-        result = await _call(request.max_tokens, preset)
+        result = await _call(request.max_tokens, preset, nothink=known_no_think and suffix_model)
         if not result:
             raise RuntimeError(f"No response from {display_name}")
 
+        preset_applied = preset is not None or (known_no_think and suffix_model)
         content = result.content or ""
-        stripped = _strip_thinking(content)
+        stripped = self._answer_part(model_id, result, content)
 
         # 预算耗尽在思考段: finish_reason=length 且剥离后没正文。
         # 这不是模型不行, 是给的额度不够 —— 补足再来一次, 只补一次。
@@ -1521,30 +1657,36 @@ class ModelGateway:
         if not stripped.strip() and not (result.tool_calls or ()) and result.finish_reason == "length":
             # 第一手: 直接把 thinking 关掉。实测 qwen/qwen3.5-9b 从
             # 8.2s/64token 空回复变成 0.6s/2token 正常回答, 比抬预算划算得多。
-            if self._config.no_think_param:
+            # 首发已带关 thinking 参数时再发同样的请求没有意义, 直接抬预算。
+            if (self._config.no_think_param or suffix_model) and not preset_applied:
                 _log.info(
                     "[ModelGateway] %s 预算耗尽在思考段(max_tokens=%s), 关 thinking 重试",
                     display_name,
                     request.max_tokens,
                 )
                 try:
-                    retry = await _call(request.max_tokens, dict(self._config.no_think_param))
+                    retry = (
+                        await _call(request.max_tokens, nothink=True)
+                        if suffix_model
+                        else await _call(request.max_tokens, dict(self._config.no_think_param or {}))
+                    )
                 except Exception as e:
                     _log.info("[ModelGateway] %s 不接受关 thinking 参数: %s", display_name, e)
                     retry = None
-                if retry and _strip_thinking(retry.content or "").strip():
+                if retry and self._answer_part(model_id, retry, retry.content or "").strip():
                     result = retry
                     content = retry.content or ""
-                    stripped = _strip_thinking(content)
+                    stripped = self._answer_part(model_id, result, content)
                     self._needs_no_think.add(model_id)  # 记住, 下次直接带上
 
             # 第二手: 下游不认这个参数(或认了仍不出正文)时才抬预算。
             budget = self._config.thinking_retry_budget
             if not stripped.strip() and not (result.tool_calls or ()) and budget and (request.max_tokens or 0) < budget:
                 _log.info("[ModelGateway] %s 仍无正文, 预算提到 %d 再试一次", display_name, budget)
-                result = await _call(budget)
+                # 抬预算时保留关 thinking 参数 (此前裸发, Gemma 会重新长篇思考)
+                result = await _call(budget, preset, nothink=known_no_think and suffix_model)
                 content = (result.content or "") if result else ""
-                stripped = _strip_thinking(content)
+                stripped = self._answer_part(model_id, result, content) if result else ""
 
         was_stripped = stripped != content
         # 到这儿还空, 就是真没回答。返回空的 200 会让上层以为成功, 必须当失败,
@@ -1568,7 +1710,8 @@ class ModelGateway:
         provider = self._registry.get_provider(model_id)
         provider_name = provider.name if provider else ""
 
-        self._record_cloud_usage(model_id, usage)
+        # display_name 是模型链里当前尝试的名字(兜底时已是替身), request.model 才是调用方原本要的
+        self._record_cloud_usage(model_id, usage, requested=request.model or display_name)
         return GatewayResponse(
             content=stripped,
             model=display_name,
@@ -1915,9 +2058,14 @@ class ModelGateway:
             # 进日报); 写盘仍人工(free-pool refresh --write), 治理上数据变更
             # 必须可审计。首 tick 即对账一次(gateway 启动对齐现状)。
             last_free_refresh = 0.0
+            last_metrics_export = time.monotonic()
             while True:
                 await asyncio.sleep(self._config.health_check_interval)
                 try:
+                    # 用量快照落盘(~/.aetherforge/metrics.jsonl): /stats 只在内存里, 重启即丢
+                    if time.monotonic() - last_metrics_export >= 600:
+                        last_metrics_export = time.monotonic()
+                        await asyncio.to_thread(self._metrics.export_jsonl)
                     # 每日运营报告(P2.2): 当日首 tick 生成, 幂等跳过
                     today = datetime.now().strftime("%Y-%m-%d")
                     if today != last_report_day:
@@ -1978,6 +2126,10 @@ class ModelGateway:
 
     async def stop_background_tasks(self) -> None:
         """停止后台任务."""
+        try:
+            self._metrics.export_jsonl()  # 重启前留最后一份用量快照
+        except Exception:
+            _log.warning("final metrics export failed", exc_info=True)
         for task in self._bg_tasks:
             task.cancel()
         self._bg_tasks.clear()
@@ -1990,6 +2142,37 @@ class ModelGateway:
     # Embedding (降级链)
     # ==========================================================
     async def embed(
+        self,
+        texts: list[str],
+        model: str = "embedding",
+        timeout: float = 30.0,
+        *,
+        routing_mode: str = "local",
+        content_title: str = "",
+        content_url: str = "",
+    ) -> list[list[float]]:
+        """Embed with the same legacy/shadow/active ownership as chat, and record usage.
+
+        记账: 此前 metrics 只在生成路径记录, /stats 对 embeddings 完全失明
+        (KOS 语义检索/RAG 的向量调用在用量里看不见, 2026-09-27 e2e 实测)。
+        """
+        t0 = time.time()
+        try:
+            vectors = await self._embed_routed(
+                texts,
+                model,
+                timeout,
+                routing_mode=routing_mode,
+                content_title=content_title,
+                content_url=content_url,
+            )
+        except Exception as error:
+            self._metrics.record_error(model=model, error_type=type(error).__name__)
+            raise
+        self._metrics.record_generation(model=model, latency_ms=(time.time() - t0) * 1000)
+        return vectors
+
+    async def _embed_routed(
         self,
         texts: list[str],
         model: str = "embedding",
@@ -2086,6 +2269,16 @@ class ModelGateway:
                     base = str(getattr(provider, "base_url", "") or "").rstrip("/")
                     if not base:
                         continue
+                    if base.startswith("unix://"):
+                        # ENG-OMLX-LOCAL 自 2026-08-11 指向 omlxc UDS; aiohttp 不认 unix://,
+                        # 直接 POST 会恒失败(KOS 语义检索因此拿不到向量)。走 omlxc 客户端,
+                        # 它知道 socket 路径和 /openai/v1 数据面前缀。
+                        try:
+                            return await self._omlxc.embed(model=_id_tail(model_id), inputs=texts, timeout=timeout)
+                        except OmlxcError as e:
+                            last_error = f"{model_id}: omlxc {e.code.value}"
+                            _log.warning("[ModelGateway] embed %s failed: omlxc %s", model_id, e.code.value)
+                            continue
                     try:
                         async with aiohttp.ClientSession() as session:
                             async with session.post(
@@ -2138,6 +2331,10 @@ class ModelGateway:
         import aiohttp
 
         result = {}
+        if self._config.local_backend == "app":
+            # App 模式没有每模型独立端口(8081-8188 已下线); 逐端口探测只会恒报 unreachable。
+            # 本机后端的真实状态以 omlxc / aictl 为准。
+            return result
         for model_name, port in self._config.model_ports.items():
             url = f"{self._config.local_base_url}:{port}/v1/models"
             try:
