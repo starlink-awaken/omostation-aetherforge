@@ -36,6 +36,11 @@ class BaseLLMProvider(ABC):
         """Check if the provider is healthy. Override for custom checks."""
         return True
 
+    @property
+    def supports_strict_model(self) -> bool:
+        """Whether one chat call can guarantee one provider HTTP attempt."""
+        return False
+
     @abstractmethod
     async def chat(
         self,

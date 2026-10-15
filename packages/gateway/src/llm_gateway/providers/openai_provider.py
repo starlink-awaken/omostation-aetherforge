@@ -182,8 +182,32 @@ class OpenAIProvider(LLMProvider):
     # ------------------------------------------------------------------
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
+        strict_http_client = None
         try:
             client = self._get_async_client()
+            if request.metadata.get("strict_model") is True:
+                timeout = request.metadata.get("strict_timeout")
+                protected = {"model", "max_tokens", "max_completion_tokens", "max_output_tokens", "timeout", "stream", "strict_model"}
+                if (
+                    not request.model
+                    or type(request.max_tokens) is not int
+                    or request.max_tokens <= 0
+                    or type(timeout) not in (int, float)
+                    or not (0 < timeout < float("inf"))
+                    or protected.intersection(request.extra or {})
+                ):
+                    raise ValueError("Invalid strict_model provider request")
+                import httpx
+
+                transport = None
+                if self.base_url and self.base_url.startswith("unix://"):
+                    from llm_gateway.omlxc_client import default_omlxc_socket
+
+                    transport = httpx.AsyncHTTPTransport(uds=str(default_omlxc_socket()))
+                strict_http_client = httpx.AsyncClient(transport=transport, follow_redirects=False)
+                client = client.with_options(
+                    max_retries=0, timeout=timeout, http_client=strict_http_client
+                )
             messages: list[dict] = []
             if request.system_prompt:
                 messages.append({"role": "system", "content": request.system_prompt})
@@ -224,6 +248,9 @@ class OpenAIProvider(LLMProvider):
         except Exception as exc:
             _log.error("OpenAIProvider.generate failed: %s", exc)
             raise
+        finally:
+            if strict_http_client is not None:
+                await strict_http_client.aclose()
 
     def complete(self, request: LLMRequest) -> LLMResponse:
         try:

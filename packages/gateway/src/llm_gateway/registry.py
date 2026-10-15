@@ -167,7 +167,7 @@ class ModelRegistry:
 
         with trace_llm_call(model_id, messages, options) as gen:
             try:
-                if self.retry_config:
+                if self.retry_config and not (options and options.strict_model):
                     result = await with_retry(
                         lambda: provider.chat(model_id, messages, options),
                         config=self.retry_config,

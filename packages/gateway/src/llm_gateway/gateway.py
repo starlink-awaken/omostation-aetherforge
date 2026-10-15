@@ -270,6 +270,7 @@ class GatewayRequest:
     # K1 敏感检查上下文 (可选, 传了才检查)
     content_title: str = ""
     content_url: str = ""
+    strict_model: bool = False
 
 
 @dataclass
@@ -900,9 +901,31 @@ class ModelGateway:
         每一跳都重新获得一份完整预算。这个区别决定故障时是 30 秒返回，还是挂几分钟。
         """
         t0 = time.time()
+        if type(request.strict_model) is not bool:
+            return GatewayResponse(content="", model="", latency_ms=0, error="Invalid strict_model",
+                                   finish_reason="error", error_code=OmlxcErrorCode.INVALID)
+        if request.strict_model:
+            protected = {"model", "max_tokens", "max_completion_tokens", "max_output_tokens", "timeout", "stream", "strict_model"}
+            if (
+                not isinstance(request.model, str)
+                or not request.model.partition("/")[0]
+                or not request.model.partition("/")[2]
+                or type(request.max_tokens) is not int
+                or request.max_tokens <= 0
+                or type(request.timeout) not in (int, float)
+                or not math.isfinite(request.timeout)
+                or request.timeout <= 0
+                or not isinstance(request.extra, dict)
+                or protected.intersection(request.extra)
+            ):
+                return GatewayResponse(content="", model="", latency_ms=0,
+                                       error="Invalid strict_model bounds or model",
+                                       finish_reason="error", error_code=OmlxcErrorCode.INVALID)
         try:
-            async with asyncio.timeout(max(0.1, request.timeout)):
+            async with asyncio.timeout(request.timeout if request.strict_model else max(0.1, request.timeout)):
                 async with (self._slot(request.model or "__auto__") or _NULL_SLOT):
+                    if request.strict_model:
+                        return await self._generate_strict(request)
                     if self._config.omlxc_mode == "legacy":
                         return await self._generate_legacy(request)
                     if self._config.omlxc_mode == "shadow":
@@ -917,6 +940,61 @@ class ModelGateway:
                 finish_reason="error",
                 error_code=OmlxcErrorCode.TIMEOUT,
             )
+
+    async def _generate_strict(self, request: GatewayRequest) -> GatewayResponse:
+        """Use one exact registered model through a provider with per-request retry control."""
+        model_id = request.model
+        t0 = time.time()
+        if request.routing_mode not in {"local", "hybrid", "cloud"}:
+            return GatewayResponse(content="", model="", latency_ms=0, error="Invalid routing_mode",
+                                   finish_reason="error", error_code=OmlxcErrorCode.INVALID)
+        # The active omlxcd API does not attest a single physical attempt yet.
+        if self._config.omlxc_mode == "active":
+            return GatewayResponse(content="", model="", latency_ms=0,
+                                   error="strict_model unsupported in active omlxcd mode",
+                                   finish_reason="error", error_code=OmlxcErrorCode.INVALID)
+
+        await self._ensure_registry_ready()
+        descriptor = self._registry.get(model_id)
+        provider = self._registry.get_provider(model_id) if descriptor else None
+        if not descriptor or not provider:
+            return GatewayResponse(content="", model="", latency_ms=0,
+                                   error=f"Model {model_id} not registered",
+                                   finish_reason="error", error_code=OmlxcErrorCode.INVALID)
+        if not provider.supports_strict_model or self._provider_is_self(model_id):
+            return GatewayResponse(content="", model="", latency_ms=0,
+                                   error=f"strict_model unsupported for {model_id}",
+                                   finish_reason="error", error_code=OmlxcErrorCode.INVALID)
+
+        engine = model_id.partition("/")[0]
+        is_local = engine.startswith(("ENG-OMLX-", "ENG-LMSTUDIO-", "ENG-OLLAMA-"))
+        sensitive = bool((request.content_title or request.content_url) and
+                         _is_sensitive(request.content_title, request.content_url))
+        if (sensitive and not is_local) or (request.routing_mode == "local" and not is_local) or (
+            request.routing_mode == "cloud" and is_local
+        ):
+            return GatewayResponse(content="", model="", latency_ms=0,
+                                   error="strict_model target violates routing or K1 boundary",
+                                   finish_reason="error", error_code=OmlxcErrorCode.SECURITY)
+
+        try:
+            response = await self._generate_via_registry(model_id, model_id, request, t0)
+        except Exception as error:
+            self._record_generation_failure(model_id, error)
+            code = self._classify_error(error)
+            self._metrics.record_error(model=model_id, error_type=code)
+            from .events import emit
+            emit("request_failed", {"model": model_id, "code": code, "requested": model_id})
+            return GatewayResponse(content="", model=model_id,
+                                   latency_ms=(time.time() - t0) * 1000,
+                                   error=str(error)[:200], finish_reason="error",
+                                   error_code=OmlxcErrorCode.UNAVAILABLE)
+        self._last_used[model_id] = time.time()
+        self._health_failures.pop(model_id, None)
+        self._metrics.record_generation(model=model_id, latency_ms=(time.time() - t0) * 1000,
+                                        cost=response.cost_usd,
+                                        tokens=response.tokens_in + response.tokens_out)
+        return response
 
     async def _generate_shadow(self, request: GatewayRequest) -> GatewayResponse:
         """Compare only the local route plan; inference remains exactly legacy."""
@@ -1161,6 +1239,8 @@ class ModelGateway:
 
     async def generate_stream(self, request: GatewayRequest) -> AsyncGenerator[OmlxcStreamChunk]:
         """Stream without buffering the active local UDS response."""
+        if request.strict_model is not False:
+            raise ValueError("strict_model streaming is unsupported")
         sensitive = bool(
             (request.content_title or request.content_url) and _is_sensitive(request.content_title, request.content_url)
         )
@@ -1631,6 +1711,8 @@ class ModelGateway:
                 ChatOptions(
                     temperature=request.temperature,
                     max_tokens=max_tokens,
+                    strict_model=request.strict_model,
+                    timeout=request.timeout if request.strict_model else None,
                     extra=merged_extra or None,
                 ),
             )
@@ -1649,12 +1731,16 @@ class ModelGateway:
 
         preset_applied = preset is not None or (known_no_think and suffix_model)
         content = result.content or ""
+        if request.strict_model and result.usage is not None:
+            self._record_cloud_usage(model_id, result.usage, requested=request.model or display_name)
         stripped = self._answer_part(model_id, result, content)
 
         # 预算耗尽在思考段: finish_reason=length 且剥离后没正文。
         # 这不是模型不行, 是给的额度不够 —— 补足再来一次, 只补一次。
         # 有 tool_calls 时 content 为空是正常形态(模型决定调工具), 豁免。
-        if not stripped.strip() and not (result.tool_calls or ()) and result.finish_reason == "length":
+        if request.strict_model and result.finish_reason == "length":
+            raise RuntimeError(f"{display_name}: strict_model response reached token limit")
+        if not request.strict_model and not stripped.strip() and not (result.tool_calls or ()) and result.finish_reason == "length":
             # 第一手: 直接把 thinking 关掉。实测 qwen/qwen3.5-9b 从
             # 8.2s/64token 空回复变成 0.6s/2token 正常回答, 比抬预算划算得多。
             # 首发已带关 thinking 参数时再发同样的请求没有意义, 直接抬预算。
@@ -1711,7 +1797,8 @@ class ModelGateway:
         provider_name = provider.name if provider else ""
 
         # display_name 是模型链里当前尝试的名字(兜底时已是替身), request.model 才是调用方原本要的
-        self._record_cloud_usage(model_id, usage, requested=request.model or display_name)
+        if not request.strict_model:
+            self._record_cloud_usage(model_id, usage, requested=request.model or display_name)
         return GatewayResponse(
             content=stripped,
             model=display_name,

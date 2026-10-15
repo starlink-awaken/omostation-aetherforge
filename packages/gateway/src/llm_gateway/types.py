@@ -39,6 +39,8 @@ class ChatOptions:
     # 透传给下游的额外参数(如 {"reasoning_effort": "none"} 关 thinking)。
     # 各家支持的键不一样, 所以不在这里枚举, 由调用方按目标引擎给。
     extra: dict[str, Any] | None = None
+    strict_model: bool = False
+    timeout: float | None = None
 
 
 @dataclass
