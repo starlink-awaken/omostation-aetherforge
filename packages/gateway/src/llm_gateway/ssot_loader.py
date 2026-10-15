@@ -176,6 +176,10 @@ class SSOTProviderAdapter(BaseLLMProvider):
     def provider_type(self) -> str:
         return self._provider_type
 
+    @property
+    def supports_strict_model(self) -> bool:
+        return self._provider_type == "openai" and isinstance(self._underlying, OpenAIProvider)
+
     async def discover(self) -> list[ModelDescriptor]:
         """Discover models: use M1 model defs first, fall back to underlying API."""
         # 准入闸: 凭据无效(如单 key 过期被复验判死)的引擎不注册任何模型
@@ -232,6 +236,17 @@ class SSOTProviderAdapter(BaseLLMProvider):
         sys_prompt = "\n".join(sys_prompts)
         context = [msg for msg in context if msg.get("role") != "system"]
 
+        if options and options.strict_model:
+            if not self.supports_strict_model:
+                raise ValueError("strict_model requires an OpenAI-compatible provider")
+            protected = {"model", "max_tokens", "max_completion_tokens", "max_output_tokens", "timeout", "stream", "strict_model"}
+            if protected.intersection(self.request_defaults) or protected.intersection(options.extra or {}):
+                raise ValueError("strict_model forbids provider defaults or extra_body overriding control fields")
+            if type(options.max_tokens) is not int or options.max_tokens <= 0:
+                raise ValueError("strict_model requires positive max_tokens")
+            if type(options.timeout) not in (int, float) or not (0 < options.timeout < float("inf")):
+                raise ValueError("strict_model requires a positive finite timeout")
+
         req = LLMRequest(
             prompt=prompt or " ",
             system_prompt=sys_prompt,
@@ -248,6 +263,9 @@ class SSOTProviderAdapter(BaseLLMProvider):
                 if req.extra is None:
                     req.extra = {}
                 req.extra.update(options.extra)
+            if options.strict_model:
+                req.metadata["strict_model"] = True
+                req.metadata["strict_timeout"] = options.timeout
         return req
 
     def _sync_credentials(self) -> None:

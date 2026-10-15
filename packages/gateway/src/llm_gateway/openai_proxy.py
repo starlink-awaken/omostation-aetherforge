@@ -750,6 +750,32 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         )
     if max_tokens is None:
         max_tokens = body.get("max_completion_tokens")
+    strict_model = body.get("strict_model", False)
+    if type(strict_model) is not bool:
+        return web.json_response({"error": {"message": "strict_model must be a boolean",
+                                             "type": "invalid_request_error"}}, status=400)
+    if strict_model:
+        timeout = body.get("timeout")
+        extra_body = body.get("extra_body")
+        protected = {"model", "max_tokens", "max_completion_tokens", "max_output_tokens",
+                     "timeout", "stream", "strict_model"}
+        if (
+            not isinstance(model, str)
+            or not model.partition("/")[0]
+            or not model.partition("/")[2]
+            or "max_tokens" not in body
+            or body.get("max_completion_tokens") is not None
+            or type(max_tokens) is not int
+            or max_tokens <= 0
+            or type(timeout) not in (int, float)
+            or not (0 < timeout < float("inf"))
+            or bool(body.get("stream"))
+            or (extra_body is not None and not isinstance(extra_body, dict))
+            or protected.intersection(extra_body or {})
+            or protected.intersection(k for k in body if k not in {"model", "max_tokens", "max_completion_tokens", "timeout", "stream", "strict_model"})
+        ):
+            return web.json_response({"error": {"message": "Invalid strict_model request bounds, model, stream, or overrides",
+                                                 "type": "invalid_request_error"}}, status=400)
     gateway_fields = {
         "messages",
         "model",
@@ -760,6 +786,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         "task",
         "routing_mode",
         "stream",
+        "strict_model",
         "content_title",
         "content_url",
         "extra_body",
@@ -780,6 +807,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         task=str(body.get("task") or "chat"),
         extra=extra,
         routing_mode=str(body.get("routing_mode") or "local"),
+        strict_model=strict_model,
         content_title=str(body.get("content_title") or ""),
         content_url=str(body.get("content_url") or ""),
     )

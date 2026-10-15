@@ -184,6 +184,19 @@ class OpenAIProvider(LLMProvider):
     async def generate(self, request: LLMRequest) -> LLMResponse:
         try:
             client = self._get_async_client()
+            if request.metadata.get("strict_model") is True:
+                timeout = request.metadata.get("strict_timeout")
+                protected = {"model", "max_tokens", "max_completion_tokens", "max_output_tokens", "timeout", "stream", "strict_model"}
+                if (
+                    not request.model
+                    or type(request.max_tokens) is not int
+                    or request.max_tokens <= 0
+                    or type(timeout) not in (int, float)
+                    or not (0 < timeout < float("inf"))
+                    or protected.intersection(request.extra or {})
+                ):
+                    raise ValueError("Invalid strict_model provider request")
+                client = client.with_options(max_retries=0, timeout=timeout)
             messages: list[dict] = []
             if request.system_prompt:
                 messages.append({"role": "system", "content": request.system_prompt})
