@@ -8,11 +8,14 @@ from unittest.mock import AsyncMock
 import aiohttp
 import pytest
 from aiohttp import web
-from llm_gateway import openai_proxy, ssot_loader
+from llm_gateway import events, openai_proxy, ssot_loader
 from llm_gateway.gateway import GatewayConfig, ModelGateway
+from llm_gateway.provider import LLMRequest
+from llm_gateway.providers.openai_provider import OpenAIProvider
 from llm_gateway.registry import ModelRegistry
 from llm_gateway.retry import RetryConfig
 from llm_gateway.ssot_loader import SSOTProviderAdapter
+from openai import APIStatusError
 
 MODEL = "ENG-LMSTUDIO-TEST/exact-model"
 ALTERNATE = "ENG-LMSTUDIO-TEST/alternate-model"
@@ -147,6 +150,81 @@ async def test_strict_provider_5xx_is_one_http_attempt(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("redirect_status", [307, 308])
+async def test_strict_redirect_is_one_http_attempt(
+    monkeypatch: pytest.MonkeyPatch, redirect_status: int
+) -> None:
+    status, payload, posts = await _exercise_http(
+        monkeypatch,
+        lambda _request: web.Response(
+            status=redirect_status, headers={"Location": "/v1/chat/completions"}
+        ),
+        _strict_body(),
+        registry_retries=True,
+    )
+    assert status >= 400, payload
+    assert len(posts) == 1, posts
+
+
+@pytest.mark.asyncio
+async def test_strict_redirect_does_not_change_shared_clients_default_behavior() -> None:
+    posts: list[dict] = []
+
+    async def generation(request: web.Request) -> web.Response:
+        posts.append(await request.json())
+        if len(posts) in (1, 2):
+            return web.Response(status=307, headers={"Location": "/v1/chat/completions"})
+        return _completion(content="okay", finish_reason="stop")
+
+    app = web.Application()
+    app.router.add_post("/v1/chat/completions", generation)
+    runner, url = await _serve(app)
+    try:
+        provider = OpenAIProvider(api_key="test-only", base_url=f"{url}/v1")
+        strict_request = LLMRequest(
+            prompt="Reply briefly.", model="exact-model", max_tokens=8,
+            metadata={"strict_model": True, "strict_timeout": 4},
+        )
+        with pytest.raises(APIStatusError):
+            await provider.generate(strict_request)
+        assert len(posts) == 1
+        default_reply = await provider.generate(
+            LLMRequest(prompt="Reply briefly.", model="exact-model", max_tokens=8)
+        )
+        assert default_reply.content == "okay"
+        assert len(posts) == 3
+        assert provider._get_async_client()._client.follow_redirects is True
+    finally:
+        await provider._get_async_client().close()
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("content", "finish_reason", "expected_status"),
+    [("partial answer", "length", 503), ("", "stop", 503), ("okay", "stop", 200)],
+)
+async def test_strict_records_returned_usage_once_on_failure_and_success(
+    monkeypatch: pytest.MonkeyPatch, content: str, finish_reason: str, expected_status: int
+) -> None:
+    usage_records: list[dict] = []
+    monkeypatch.setattr(ModelGateway, "_budget_guard", lambda *args: None)
+    monkeypatch.setattr(
+        ModelGateway, "_record_cloud_usage",
+        lambda _self, _model, usage, **_kwargs: usage_records.append(dict(usage or {})),
+    )
+    monkeypatch.setattr(events, "emit", lambda *args, **kwargs: None)
+    status, payload, posts = await _exercise_http(
+        monkeypatch,
+        lambda _request: _completion(content=content, finish_reason=finish_reason),
+        _strict_body(),
+    )
+    assert status == expected_status, payload
+    assert len(posts) == 1
+    assert usage_records == [{"prompt_tokens": 2, "completion_tokens": 8}]
+
+
+@pytest.mark.asyncio
 async def test_strict_empty_reply_has_no_alternate(monkeypatch: pytest.MonkeyPatch) -> None:
     status, payload, posts = await _exercise_http(
         monkeypatch, lambda _request: _completion(content="", finish_reason="stop"), _strict_body()
@@ -158,10 +236,10 @@ async def test_strict_empty_reply_has_no_alternate(monkeypatch: pytest.MonkeyPat
 @pytest.mark.asyncio
 async def test_strict_server_deadline_stops_before_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     async def slow(_request: web.Request) -> web.Response:
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.6)
         return _completion(content="late", finish_reason="stop")
 
-    status, payload, posts = await _exercise_http(monkeypatch, slow, _strict_body(timeout=0.05))
+    status, payload, posts = await _exercise_http(monkeypatch, slow, _strict_body(timeout=0.2))
     assert status >= 400, payload
     assert [post["model"] for post in posts] == ["exact-model"]
 

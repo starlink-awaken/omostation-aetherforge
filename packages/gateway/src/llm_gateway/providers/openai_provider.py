@@ -182,6 +182,7 @@ class OpenAIProvider(LLMProvider):
     # ------------------------------------------------------------------
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
+        strict_http_client = None
         try:
             client = self._get_async_client()
             if request.metadata.get("strict_model") is True:
@@ -196,7 +197,17 @@ class OpenAIProvider(LLMProvider):
                     or protected.intersection(request.extra or {})
                 ):
                     raise ValueError("Invalid strict_model provider request")
-                client = client.with_options(max_retries=0, timeout=timeout)
+                import httpx
+
+                transport = None
+                if self.base_url and self.base_url.startswith("unix://"):
+                    from llm_gateway.omlxc_client import default_omlxc_socket
+
+                    transport = httpx.AsyncHTTPTransport(uds=str(default_omlxc_socket()))
+                strict_http_client = httpx.AsyncClient(transport=transport, follow_redirects=False)
+                client = client.with_options(
+                    max_retries=0, timeout=timeout, http_client=strict_http_client
+                )
             messages: list[dict] = []
             if request.system_prompt:
                 messages.append({"role": "system", "content": request.system_prompt})
@@ -237,6 +248,9 @@ class OpenAIProvider(LLMProvider):
         except Exception as exc:
             _log.error("OpenAIProvider.generate failed: %s", exc)
             raise
+        finally:
+            if strict_http_client is not None:
+                await strict_http_client.aclose()
 
     def complete(self, request: LLMRequest) -> LLMResponse:
         try:

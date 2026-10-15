@@ -1731,6 +1731,8 @@ class ModelGateway:
 
         preset_applied = preset is not None or (known_no_think and suffix_model)
         content = result.content or ""
+        if request.strict_model and result.usage is not None:
+            self._record_cloud_usage(model_id, result.usage, requested=request.model or display_name)
         stripped = self._answer_part(model_id, result, content)
 
         # 预算耗尽在思考段: finish_reason=length 且剥离后没正文。
@@ -1795,7 +1797,8 @@ class ModelGateway:
         provider_name = provider.name if provider else ""
 
         # display_name 是模型链里当前尝试的名字(兜底时已是替身), request.model 才是调用方原本要的
-        self._record_cloud_usage(model_id, usage, requested=request.model or display_name)
+        if not request.strict_model:
+            self._record_cloud_usage(model_id, usage, requested=request.model or display_name)
         return GatewayResponse(
             content=stripped,
             model=display_name,
