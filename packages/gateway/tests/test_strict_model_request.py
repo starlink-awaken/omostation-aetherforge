@@ -2,14 +2,15 @@
 
 import asyncio
 from collections.abc import Callable
+from contextlib import nullcontext
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import aiohttp
 import pytest
 from aiohttp import web
-from llm_gateway import events, openai_proxy, ssot_loader
-from llm_gateway.gateway import GatewayConfig, ModelGateway
+from llm_gateway import events, omlxc_client, openai_proxy, ssot_loader, tracing
+from llm_gateway.gateway import GatewayConfig, GatewayRequest, ModelGateway
 from llm_gateway.provider import LLMRequest
 from llm_gateway.providers.openai_provider import OpenAIProvider
 from llm_gateway.registry import ModelRegistry
@@ -375,3 +376,193 @@ async def test_omitted_or_false_retains_legacy_fallback(monkeypatch: pytest.Monk
     assert status >= 400, payload
     assert len(posts) > 1
     assert any(post["model"] == "alternate-model" for post in posts)
+
+
+@pytest.fixture
+def offline_openai(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """Exercise the real lazy getter with fake SDK/HTTP boundaries; never open a socket."""
+    import httpx
+    import openai
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    calls = SimpleNamespace(getter=0, socket=0, transport=0, sdk=0, payloads=[], options=[], http=[])
+
+    async def create(**payload: object) -> SimpleNamespace:
+        calls.payloads.append(payload)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content="okay", tool_calls=[]), finish_reason="stop",
+            )],
+            usage=SimpleNamespace(prompt_tokens=2, completion_tokens=3),
+        )
+
+    def with_options(**options: object) -> SimpleNamespace:
+        calls.options.append(options)
+        return client
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)), with_options=with_options,
+    )
+
+    def sdk(**_kwargs: object) -> SimpleNamespace:
+        calls.sdk += 1
+        return client
+
+    def socket_path() -> str:
+        calls.socket += 1
+        return "/offline-only/unused.sock"
+
+    def transport(**_kwargs: object) -> object:
+        calls.transport += 1
+        return object()
+
+    def http_client(**kwargs: object) -> SimpleNamespace:
+        result = SimpleNamespace(**kwargs, aclose=AsyncMock())
+        calls.http.append(result)
+        return result
+
+    getter = OpenAIProvider._get_async_client
+
+    def counted_getter(provider: OpenAIProvider) -> object:
+        calls.getter += 1
+        return getter(provider)
+
+    monkeypatch.setattr(OpenAIProvider, "_get_async_client", counted_getter)
+    monkeypatch.setattr(omlxc_client, "default_omlxc_socket", socket_path)
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", transport)
+    monkeypatch.setattr(httpx, "AsyncClient", http_client)
+    monkeypatch.setattr(openai, "AsyncOpenAI", sdk)
+    return calls
+
+
+def _assert_no_provider_io(calls: SimpleNamespace) -> None:
+    assert (calls.getter, calls.socket, calls.transport, calls.sdk) == (0, 0, 0, 0)
+    assert calls.payloads == []
+    assert calls.options == []
+    assert calls.http == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extra", [None, {"strict_model": False}, {"max_tokens": 999}, {"timeout": 99}])
+async def test_offline_strict_unix_rejected_before_client(
+    offline_openai: SimpleNamespace, extra: dict | None, caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = OpenAIProvider(api_key="offline-key-marker", base_url="unix://private-url-marker/api/v1")
+    request = LLMRequest(
+        prompt="private-prompt-marker", model="exact-model", max_tokens=8,
+        metadata={"strict_model": True, "strict_timeout": 4}, extra=extra,
+    )
+    with pytest.raises(ValueError, match="^strict_model unsupported for unix transport$") as error:
+        await provider.generate(request)
+    _assert_no_provider_io(offline_openai)
+    assert provider._async_client is None
+    for marker in ("offline-key-marker", "private-url-marker", "private-prompt-marker"):
+        assert marker not in str(error.value)
+        assert marker not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("flag", [None, False])
+async def test_offline_nonstrict_unix_payload_unchanged(offline_openai: SimpleNamespace, flag: bool | None) -> None:
+    provider = OpenAIProvider(base_url="unix://private-url-marker/api/v1")
+    request = LLMRequest(
+        prompt="Reply briefly.", system_prompt="Be brief.", model="exact-model", max_tokens=8,
+        temperature=0.2, stop_sequences=["END"], context=[{"role": "assistant", "content": "Hi"}],
+        metadata={} if flag is None else {"strict_model": flag}, extra={"reasoning_effort": "none"},
+    )
+    response = await provider.generate(request)
+    assert response.content == "okay"
+    assert (offline_openai.getter, offline_openai.socket, offline_openai.transport, offline_openai.sdk) == (1, 1, 1, 1)
+    assert offline_openai.options == []
+    assert offline_openai.payloads == [{
+        "model": "exact-model",
+        "messages": [
+            {"role": "system", "content": "Be brief."}, {"role": "assistant", "content": "Hi"},
+            {"role": "user", "content": "Reply briefly."},
+        ],
+        "max_tokens": 8, "temperature": 0.2, "stop": ["END"],
+        "extra_body": {"reasoning_effort": "none"},
+    }]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scheme", ["http", "https"])
+async def test_offline_direct_http_strict_controls_unchanged(offline_openai: SimpleNamespace, scheme: str) -> None:
+    provider = OpenAIProvider(api_key="offline-only", base_url=f"{scheme}://offline.invalid/v1")
+    response = await provider.generate(LLMRequest(
+        prompt="Reply briefly.", model="exact-model", max_tokens=8,
+        metadata={"strict_model": True, "strict_timeout": 4}, extra={"reasoning_effort": "none"},
+    ))
+    assert response.content == "okay"
+    assert (offline_openai.getter, offline_openai.socket, offline_openai.transport, offline_openai.sdk) == (1, 0, 0, 1)
+    assert len(offline_openai.payloads) == 1
+    assert offline_openai.payloads[0]["model"] == "exact-model"
+    assert offline_openai.payloads[0]["max_tokens"] == 8
+    assert offline_openai.options == [{"max_retries": 0, "timeout": 4, "http_client": offline_openai.http[0]}]
+    assert offline_openai.http[0].follow_redirects is False
+    offline_openai.http[0].aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["legacy", "shadow", "active"])
+@pytest.mark.parametrize("defaults", [{"reasoning_effort": "none"}, {"strict_model": False}, {"max_tokens": 999}, {"timeout": 99}])
+@pytest.mark.parametrize("extra", [{}, {"strict_model": False}, {"max_tokens": 999}, {"timeout": 99}])
+async def test_offline_strict_unix_gateway_terminal(
+    monkeypatch: pytest.MonkeyPatch, offline_openai: SimpleNamespace, mode: str, defaults: dict, extra: dict,
+) -> None:
+    monkeypatch.setattr(ssot_loader, "_get_credentials_for", lambda _name: None)
+    monkeypatch.setattr(tracing, "trace_llm_call", lambda *_args, **_kwargs: nullcontext(None))
+    monkeypatch.setattr(events, "emit", lambda *_args, **_kwargs: None)
+    adapter = SSOTProviderAdapter({
+        "id": "ENG-OMLX-OFFLINE", "engine_type": "local_daemon", "base_url": "unix://offline/api/v1",
+        "supported_protocols": ["openai"], "request_defaults": defaults,
+    }, model_defs=[{"model_id": "exact-model"}, {"model_id": "alternate-model"}])
+    provider_generate = AsyncMock(wraps=adapter._underlying.generate)
+    monkeypatch.setattr(adapter._underlying, "generate", provider_generate)
+    adapter_chat = AsyncMock(wraps=adapter.chat)
+    monkeypatch.setattr(adapter, "chat", adapter_chat)
+    registry = ModelRegistry()
+    registry.register(adapter)
+    await registry.refresh()
+    registry.retry_config = RetryConfig(max_retries=3, base_delay_ms=1)
+    scheduler = SimpleNamespace(select_model=AsyncMock(side_effect=AssertionError("scheduler must not run")))
+    daemon = SimpleNamespace(
+        plan=AsyncMock(side_effect=AssertionError("daemon must not run")),
+        infer=AsyncMock(side_effect=AssertionError("daemon must not run")),
+    )
+    gateway = ModelGateway(registry, scheduler, GatewayConfig(
+        omlxc_mode=mode, model_ports={}, model_sizes={}, aliases={},
+        fallback_chain=["alternate-model"],
+        complexity_chains={"simple": ["alternate-model"], "complex": ["alternate-model"]},
+        background_tasks_enabled=False,
+    ), omlxc_client=daemon)
+    monkeypatch.setattr(gateway, "_budget_guard", lambda *_args: None)
+    usage = Mock()
+    monkeypatch.setattr(gateway, "_record_cloud_usage", usage)
+    response = await gateway.generate(GatewayRequest(
+        messages=[{"role": "user", "content": "Reply briefly."}], model="ENG-OMLX-OFFLINE/exact-model",
+        strict_model=True, max_tokens=8, timeout=4, routing_mode="local", extra=extra,
+    ))
+    assert response.content == ""
+    assert response.finish_reason == "error"
+    assert response.error
+    if extra:
+        assert response.error == "Invalid strict_model bounds or model"
+    elif mode == "active":
+        assert response.error == "strict_model unsupported in active omlxcd mode"
+    elif defaults == {"reasoning_effort": "none"}:
+        assert response.error == "strict_model unsupported for unix transport"
+        provider_generate.assert_awaited_once()
+        request = provider_generate.call_args.args[0]
+        assert request.metadata == {"strict_model": True, "strict_timeout": 4}
+        assert request.model == "exact-model" and request.max_tokens == 8
+    else:
+        assert "forbids provider defaults" in response.error
+    assert provider_generate.await_count == (mode != "active" and not extra and defaults == {"reasoning_effort": "none"})
+    assert adapter_chat.await_count == (mode != "active" and not extra)
+    assert all(call.args[0] == "ENG-OMLX-OFFLINE/exact-model" for call in adapter_chat.call_args_list)
+    scheduler.select_model.assert_not_awaited()
+    daemon.plan.assert_not_awaited()
+    daemon.infer.assert_not_awaited()
+    usage.assert_not_called()
+    _assert_no_provider_io(offline_openai)

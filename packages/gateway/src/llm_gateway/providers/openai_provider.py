@@ -182,6 +182,10 @@ class OpenAIProvider(LLMProvider):
     # ------------------------------------------------------------------
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
+        # The daemon transport cannot attest strict placement or no-fallback intent.
+        # Reject before lazy client construction can resolve or open its socket.
+        if request.metadata.get("strict_model") is True and self.base_url and self.base_url.startswith("unix://"):
+            raise ValueError("strict_model unsupported for unix transport")
         strict_http_client = None
         try:
             client = self._get_async_client()
