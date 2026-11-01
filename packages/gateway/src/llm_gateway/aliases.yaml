@@ -52,8 +52,8 @@ aliases:
   #   GLM-4.6V-Flash 5/5  7.4s  (思考型, 输出带 <|begin_of_box|> 标记)
   #   oMLX vision(Qwen3-VL-8B) 5/5 但 258s —— 工作区直呼 "vision" 85 处, 接到 Splash
   vision: qwen3.6-35b-a3b-splash
-  vision-think: zai-org/glm-4.6v-flash
-  glm-4.6v: zai-org/glm-4.6v-flash
+  vision-think: glm-4.6v-flash-mlx
+  glm-4.6v: glm-4.6v-flash-mlx
 
   # ── 多媒体档 (2026-09-26; 路由见 media_proxy.py: 语音→oMLX, 图像→Unsloth Studio) ──
   #   tts-qwen3   Qwen3-TTS 1.7B 8bit, 中文母语级, 7s 音频 ~6-8s, whisper 回识别逐字一致
@@ -92,8 +92,8 @@ aliases:
   qwen3-coder: qwen3.6-35b-a3b-splash
   reasoner: swift-1.5-qwen3.8-27b-splash
   reasoner-lite: qwen3.6-35b-a3b-splash
-  glm-4.7: glm-4.7-flash:q4_k_m
-  glm-flash: glm-4.7-flash:q4_k_m
+  glm-4.7: glm-4.7-flash-mlx
+  glm-flash: glm-4.7-flash-mlx
   embed: embedding
   minicpm: minicpm-v-4.6
   vision-pro: minicpm-v-4.6
