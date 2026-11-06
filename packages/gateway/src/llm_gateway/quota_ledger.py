@@ -18,8 +18,7 @@ from __future__ import annotations
 import fcntl
 import json
 import logging
-import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +31,7 @@ DEFAULT_TOKEN_BUDGET = 100_000
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def append_quota_ledger_event(
