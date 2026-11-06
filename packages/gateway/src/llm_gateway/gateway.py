@@ -1655,8 +1655,8 @@ class ModelGateway:
     ) -> None:
         """云端调用记账: usage_log + month_spend 累计(PricingRegistry 定价)。
 
-        record_usage 方法自创建以来零调用 —— usage_log 空表, month_spend
-        恒 0, 预算拦截永远无数据可依。
+        另有 X2 §3 要求的 append-only 分类账 (quota_ledger.append_quota_ledger_event),
+        与 ecos 侧 X2BudgetDeducer 共用 ``~/.omo/state/llm_quota_ledger.jsonl``。
         """
         try:
             from .budget import estimate_cost
@@ -1670,6 +1670,13 @@ class ModelGateway:
                 model=model_id,
                 tokens_input=tokens_in,
                 tokens_output=tokens_out,
+            )
+            # X2 §3「实时扣减」: 真实 Token 消耗写入 append-only 分类账
+            from .quota_ledger import append_quota_ledger_event
+
+            append_quota_ledger_event(
+                model_id, tokens_in, tokens_out,
+                estimate_cost(model_id, tokens_in, tokens_out),
             )
             # 结构化事件流(2026-08-24 治理): 可追溯性 SSOT, fire-and-forget
             from .events import emit
