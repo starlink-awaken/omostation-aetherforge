@@ -25,6 +25,10 @@ quota_ledger = importlib.util.module_from_spec(_spec)
 sys.modules["quota_ledger"] = quota_ledger
 _spec.loader.exec_module(quota_ledger)
 
+# flock 已收拢到 governed_fs (contract gatekeeper 要求), 测试从其自身取模块,
+# 保证 patch 的是 quota_ledger 实际调用的那一个实例。
+governed_fs = sys.modules["llm_gateway.governed_fs"]
+
 
 @pytest.fixture(autouse=True)
 def _tmp_ledger(tmp_path, monkeypatch):
@@ -98,7 +102,7 @@ def test_takes_exclusive_lock_around_write(monkeypatch):
         calls.append(op)
         return real(fd, op)
 
-    monkeypatch.setattr(quota_ledger.fcntl, "flock", spy)
+    monkeypatch.setattr(governed_fs.fcntl, "flock", spy)
     quota_ledger.append_quota_ledger_event("m", 1, 1, 0.0)
     assert calls == [_fcntl.LOCK_EX, _fcntl.LOCK_UN]
 
@@ -112,7 +116,7 @@ def test_lock_released_when_write_raises(monkeypatch):
             raise OSError("boom")
         return None
 
-    monkeypatch.setattr(quota_ledger.fcntl, "flock", boom)
+    monkeypatch.setattr(governed_fs.fcntl, "flock", boom)
     # 不抛 (记账失败不影响请求), 但也不该留下残留锁
     quota_ledger.append_quota_ledger_event("m", 1, 1, 0.0)
     quota_ledger.append_quota_ledger_event("m", 1, 1, 0.0)  # 第二次仍能写
