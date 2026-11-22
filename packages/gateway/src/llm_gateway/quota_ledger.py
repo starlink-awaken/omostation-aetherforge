@@ -15,12 +15,13 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from llm_gateway.governed_fs import append_jsonl_record
 
 _log = logging.getLogger(__name__)
 
@@ -56,14 +57,7 @@ def append_quota_ledger_event(
     }
     entry.update(extra)
     try:
-        LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(LEDGER_PATH, "a", encoding="utf-8") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
-                handle.flush()
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        append_jsonl_record(LEDGER_PATH, entry)
     except OSError as exc:
         _log.warning("append_quota_ledger_event failed: %s", exc)
     return entry
