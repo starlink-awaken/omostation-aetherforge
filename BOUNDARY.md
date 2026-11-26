@@ -2,6 +2,9 @@
 type: ssot
 owner: governance-team
 last_updated: 2026-09-03
+last-reviewed: 2026-11-26
+lifecycle: entry
+status: active
 ---
 
 # aetherforge — System Boundary

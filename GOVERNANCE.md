@@ -4,6 +4,8 @@ owner: governance-team
 last_updated: 2026-09-03
 last-reviewed: 2026-09-18
 
+lifecycle: entry
+status: active
 ---
 
 # Governance
