@@ -59,4 +59,4 @@ uv run ruff check "packages/" "src/"
     - Workspace architecture: [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md)
     - Layer index: [`../../LAYER-INDEX.md`](../../LAYER-INDEX.md)
     - Project metadata: [`../../docs/project-registry.yaml`](../../docs/project-registry.yaml)
-    - Runtime state: [`../../.omo/state/system.yaml`](../../.omo/state/system.yaml)
+    - Runtime state: [`../../.omo/state/system.yaml`](../../.omo/state/system.yaml)（运行态文件，未入库；按需用 `bin/gac/materialize-system-state.py` 物化）
