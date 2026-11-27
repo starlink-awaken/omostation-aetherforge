@@ -9,7 +9,7 @@ status: active
 
 # AetherForge Architecture
 
-> Architecture overview for **AetherForge**. For the full workspace architecture, see [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md).
+> Architecture overview for **AetherForge**. For the full workspace architecture, see [`../../../ARCHITECTURE.md`](../../../ARCHITECTURE.md).
 
 ## Responsibilities
 
